@@ -8,7 +8,6 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 import astropy.units as u 
-from ftpmod import *
 from socket import *
 from matplotlib.collections import PatchCollection
 from matplotlib import font_manager as fm
@@ -21,15 +20,6 @@ from datetime import timedelta
 from scipy import interpolate
 from time import sleep
 from logging.handlers import TimedRotatingFileHandler
-
-
-def uploadFileFTP(sourceFile1, server, username, password):
-	print('Uploading ' + sourceFile1)
-	ftp = ftplib.FTP(server)
-	ftp.login(username, password)
-	ftp.storbinary('STOR ' + sourceFile1, open(sourceFile1, 'rb'), 1024)
-	ftp.quit()
-	print('Done uploading...')
 
 def label(xy, text):
 	y = xy[1] - 0.15  # shift y-value for label so that it's below the artist
@@ -451,11 +441,9 @@ def main():
 			plt.xlabel('Hours from EST Midnight')
 			plt.ylabel('Altitude [deg]')
 
-			# print(Time.now())
-
 			plt.tight_layout()
 			plt.savefig(image_path + 'weatherdashboard.png', dpi=200)
-			# uploadFileFTP(image_path + 'weatherdashboard.png', server, username, password)
+
 			plt.close()
 
 		except:

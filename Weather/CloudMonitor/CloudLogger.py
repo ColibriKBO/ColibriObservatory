@@ -9,17 +9,7 @@ import os
 from socket import *
 from scipy import interpolate
 from logging.handlers import TimedRotatingFileHandler
-from ftpmod import *
 from time import sleep
-
-def uploadFileFTP(sourceFile1, sourceFile2, server, username, password):
-    ftp = ftplib.FTP(server)
-    ftp.login(username, password)
-    print('Uploading ' + sourceFile1)
-    ftp.storbinary('STOR ' + sourceFile1, open(sourceFile1, 'rb'), 1024)
-    print('Uploading ' + sourceFile2)
-    ftp.storbinary('STOR ' + sourceFile2, open(sourceFile2, 'rb'), 1024)
-    ftp.quit()
 
 def uptimePlot(data, imagedir):
     print('Making total plot...')
@@ -184,9 +174,7 @@ def main():
 
             if cnt % 8 == 0:
                 plotLog(log_file, image_dir)
-                # uploadFileFTP(image_dir + 'CloudCover-Today.png', image_dir + 'CloudCover-Up.png', server, username, password)
 
-            # sendEmail()
         except:
             pass
 
