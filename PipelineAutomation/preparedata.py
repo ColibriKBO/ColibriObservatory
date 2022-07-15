@@ -28,9 +28,6 @@ def is_dir_too_small(dir_name: str, n) -> bool:
 		numfiles = len(fnmatch.filter(os.listdir(dir_name), '*.*'))
 		if numfiles < n:
 			success = True
-			# print('Number of files (%d) in %s is < %d' % (numfiles,dir_name,n))
-		# else:
-			# print('Number of files (%d) in %s is > %d' % (numfiles,dir_name, n))
 	except:
 		pass
 	

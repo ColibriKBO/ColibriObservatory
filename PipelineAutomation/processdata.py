@@ -13,11 +13,11 @@ from preparedata import is_dir_too_small
 #				Setup base_path, obs_date, and process_date
 # 				Run colibri_main_py3.py on directory
 # 				Write log file to processed.txt
-#				Run colibri_secondary.py
 #				Write to processed.txt
 # 			If processed.txt exists,
 #				Open processed.txt and check to see if main was completed
-# STEP 3: Remove unnecessary files
+# STEP 3: Same as STEP 2, but run colibri_secondary.py
+# STEP 4: Cleanup unnecessary files
 
 if __name__ == '__main__':
 
@@ -26,28 +26,29 @@ if __name__ == '__main__':
 	m = 0
 	n = 0
 
-	# datadir = 'd:\\ColibriData\\'
-	datadir = 'd:\\TemporaryFiles\\test\\'
+	datadir = 'd:\\ColibriData\\'
+	# datadir = 'd:\\TemporaryFiles\\test\\'
 
 	# STEP 1
 	# Walk through the directories and find those with less than n files and remove them.
 	# Check all of the files in the remainining directories to ensure that all files are the right size.
 	for root, dirs, files in os.walk(datadir):
+		# print(root)
 		if root != datadir and os.path.split(root)[-1] != 'Bias':
 			if is_dir_too_small(root, 30):
 				#print('Dir is too small')
 				print('Removing directory %s' % root)
-				shutil.rmtree(root)
+				# shutil.rmtree(root)
 				m += 1
 			else:
 				# for f in os.listdir(root):
 				for f in glob.iglob(root + '**/*.rcd', recursive=True):
 					if os.path.getsize(os.path.join(root,f)) < (12 * 1024 - 1):
 						print('Removing file %s' % f)
-						os.remove(f)
+						# os.remove(f)
 						n += 1
 
-	# Run scripts to interrogate data if desired.
+	# Run additional scripts to interrogate data if desired.
 
 	print('%d directories removed for being too small.' % m)
 	print('%d files removed for being too small.' % n)
@@ -57,14 +58,19 @@ if __name__ == '__main__':
 	##########
 	# STEP 2 #
 	##########
-	datadir = 'd:\\ColibriData\\'
+	# datadir = 'd:\\ColibriData\\'
 	repro = True
 
 	# Start a timer
+	print('Starting 1st stage processing...')
 	starttime = time.time()
 
-	for root, dirs, files in os.walk(datadir):
-		dirlist = os.path.split(root)
+	dirlist = [ f.path for f in os.scandir(datadir) if f.is_dir() ]
+
+	# print(dirlist)
+
+	for d in dirlist:
+		dirlist = os.path.split(d)
 
 		if len(dirlist[1]) == 0:
 			print('Root directory excluded')
@@ -73,32 +79,24 @@ if __name__ == '__main__':
 		elif dirlist[0].split('\\')[-1] == 'Bias':
 			print('Bias subdirectory excluded.')
 		else:
-			if os.path.isfile(os.path.join(root, '1process.txt')) and repro == False:
+			if os.path.isfile(os.path.join(d, '1process.txt')) and repro == False:
 				# print(os.path.join(root, '1process.txt'))
 				primarydone = True
 				print('File exisits. Opening existing file.')
-				with open(os.path.join(root, '1process.txt')) as f1:
+				with open(os.path.join(d, '1process.txt')) as f1:
 					lines = f1.readlines()
 					base_path = lines[0].strip('\n').split()[1]
-					obsyear = int('0' + lines[1].strip('\n').split()[1].split('/')[0])
-					obsmonth = int('0' + lines[1].strip('\n').split()[1].split('/')[1])
-					obsday = int('0' + lines[1].strip('\n').split()[1].split('/')[2])
-					# print(obsyear)
-					# print(obsmonth)
-					# print(obsday)
+					obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+					obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+					obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
 			else:
 				primarydone = False
-				# Path(os.path.join(root, '1process')).touch()
-				# with open(os.path.join(root, '1process.txt'), 'w+') as f1:
-					# print(datetime.datetime(2022,7,12))
-					# print(datetime.datetime.today().strftime('%Y/%m/%d'))
 				basepath = pathlib.Path('d:')
 				dirdaytime = dirlist[1]
-				obsyear = '0' + dirdaytime[:4]
-				obsmonth = '0' + dirdaytime[4:6].lstrip("0")
-				obsday = '0' + dirdaytime[6:8].lstrip("0")
-				obsYMD = '%s/%s/%s' % (obsyear.lstrip('0'), obsmonth, obsday)
-				print(obsYMD)
+				obsyear = int(dirdaytime[:4])
+				obsmonth = int(dirdaytime[4:6].lstrip("0"))
+				obsday = int(dirdaytime[6:8].lstrip("0"))
+				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
 				procYMD = str(datetime.datetime.today().strftime('%Y/%m/%d'))
 				procyear = int(datetime.datetime.today().strftime('%Y'))
 				procmonth = int(datetime.datetime.today().strftime('%m'))
@@ -133,9 +131,9 @@ if __name__ == '__main__':
 	# Step 3 #
 	##########
 
-	print('Starting secondary processing...')
-	for root, dirs, files in os.walk(datadir):
-		dirlist = os.path.split(root)
+	print('Starting 2nd stage processing...')
+	for d in dirlist:
+		dirlist = os.path.split(d)
 
 		if len(dirlist[1]) == 0:
 			print('Root directory excluded')
@@ -144,24 +142,24 @@ if __name__ == '__main__':
 		elif dirlist[0].split('\\')[-1] == 'Bias':
 			print('Bias subdirectory excluded.')
 		else:
-			if os.path.isfile(os.path.join(root, '2process.txt')) and repro == False:
+			if os.path.isfile(os.path.join(d, '2process.txt')) and repro == False:
 				# print(os.path.join(root, '1process.txt'))
-				secondarydone = True
+				primarydone = True
 				print('File exisits. Opening existing file.')
-				with open(os.path.join(root, '1process.txt')) as f1:
+				with open(os.path.join(d, '2process.txt')) as f1:
 					lines = f1.readlines()
 					base_path = lines[0].strip('\n').split()[1]
-					obsyear = int('0' + lines[1].strip('\n').split()[1].split('/')[0])
-					obsmonth = int('0' + lines[1].strip('\n').split()[1].split('/')[1])
-					obsday = int('0' + lines[1].strip('\n').split()[1].split('/')[2])
+					obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+					obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+					obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
 			else:
-				secondarydone = False
+				primarydone = False
 				basepath = pathlib.Path('d:')
 				dirdaytime = dirlist[1]
-				obsyear = '0' + dirdaytime[:4]
-				obsmonth = '0' + dirdaytime[4:6].lstrip("0")
-				obsday = '0' + dirdaytime[6:8].lstrip("0")
-				obsYMD = '%s/%s/%s' % (obsyear.lstrip('0'), obsmonth, obsday)
+				obsyear = int(dirdaytime[:4])
+				obsmonth = int(dirdaytime[4:6].lstrip("0"))
+				obsday = int(dirdaytime[6:8].lstrip("0"))
+				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
 				procYMD = str(datetime.datetime.today().strftime('%Y/%m/%d'))
 				procyear = int(datetime.datetime.today().strftime('%Y'))
 				procmonth = int(datetime.datetime.today().strftime('%m'))
@@ -186,7 +184,7 @@ if __name__ == '__main__':
 					f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
 					f1.write('run_par: True\n')
 
-				print('Finished secondary processing.')
+				print('Finished 2nd stage processing.')
 
 	t2 = time.time()-starttime
 	print('Completed 1st stage data processing in %s seconds' % t1)
