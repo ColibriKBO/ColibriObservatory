@@ -34,7 +34,7 @@ if __name__ == '__main__':
 	# Check all of the files in the remainining directories to ensure that all files are the right size.
 	for root, dirs, files in os.walk(datadir):
 		# print(root)
-		if root != datadir and os.path.split(root)[-1] != 'Bias':
+		if root != datadir and os.path.split(root)[-1] != 'Bias' and len(os.path.split(root)[-1]) != 8:
 			if is_dir_too_small(root, 30):
 				#print('Dir is too small')
 				print('Removing directory %s' % root)
