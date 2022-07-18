@@ -38,14 +38,14 @@ if __name__ == '__main__':
 			if is_dir_too_small(root, 30):
 				#print('Dir is too small')
 				print('Removing directory %s' % root)
-				# shutil.rmtree(root)
+				shutil.rmtree(root)
 				m += 1
 			else:
 				# for f in os.listdir(root):
 				for f in glob.iglob(root + '**/*.rcd', recursive=True):
 					if os.path.getsize(os.path.join(root,f)) < (12 * 1024 - 1):
 						print('Removing file %s' % f)
-						# os.remove(f)
+						os.remove(f)
 						n += 1
 
 	# Run additional scripts to interrogate data if desired.
@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
 	dirlist = [ f.path for f in os.scandir(datadir) if f.is_dir() ]
 
-	# print(dirlist)
+	print(dirlist)
 
 	for d in dirlist:
 		dirlist = os.path.split(d)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
 		else:
 			if os.path.isfile(os.path.join(d, '2process.txt')) and repro == False:
 				# print(os.path.join(root, '1process.txt'))
-				primarydone = True
+				secondarydone = True
 				print('File exisits. Opening existing file.')
 				with open(os.path.join(d, '2process.txt')) as f1:
 					lines = f1.readlines()
@@ -153,10 +153,13 @@ if __name__ == '__main__':
 					obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
 					obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
 			else:
-				primarydone = False
+				secondarydone = False
 				basepath = pathlib.Path('d:')
+				print(dirlist)
 				dirdaytime = dirlist[1]
+				print(dirdaytime)
 				obsyear = int(dirdaytime[:4])
+				print(obsyear)
 				obsmonth = int(dirdaytime[4:6].lstrip("0"))
 				obsday = int(dirdaytime[6:8].lstrip("0"))
 				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
