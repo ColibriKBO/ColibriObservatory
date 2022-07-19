@@ -110,7 +110,7 @@ if __name__ == '__main__':
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', 'd:\\Scripts\\colibri_main_py3.py', 'd:\\', obsYMD])
+					p = subprocess.run(['python', os.path.join(scriptdir, 'colibri_main_py3.py'), 'd:\\', obsYMD])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', 'd:\\Scripts\\colibri_secondary.py', 'd:\\', obsYMD])
+					p = subprocess.run(['python', os.path.join(scriptdir, 'colibri_secondary.py'), 'd:\\', obsYMD])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
