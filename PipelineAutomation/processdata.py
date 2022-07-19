@@ -74,6 +74,8 @@ if __name__ == '__main__':
 
 		if len(dirlist[1]) == 0:
 			print('Root directory excluded')
+		elif dirlist[-1] == 'ColibriData':
+			print('ColibriData directory excluded')
 		elif dirlist[-1] == 'Bias':
 			print('Bias directory excluded')
 		elif dirlist[0].split('\\')[-1] == 'Bias':
@@ -135,8 +137,13 @@ if __name__ == '__main__':
 	for d in dirlist:
 		dirlist = os.path.split(d)
 
+		print(len(dirlist))
+		print(len(dirlist[1]))
+
 		if len(dirlist[1]) == 0:
 			print('Root directory excluded')
+		elif dirlist[-1] == 'ColibriData':
+			print('ColibriData directory excluded')
 		elif dirlist[-1] == 'Bias':
 			print('Bias directory excluded')
 		elif dirlist[0].split('\\')[-1] == 'Bias':
