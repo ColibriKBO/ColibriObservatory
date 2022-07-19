@@ -27,6 +27,7 @@ if __name__ == '__main__':
 	n = 0
 
 	datadir = 'd:\\ColibriData\\'
+	scriptdir = '\%userprofile\%\\documents\\github\\colibripipeline'
 	# datadir = 'd:\\TemporaryFiles\\test\\'
 
 	# STEP 1
