@@ -27,7 +27,7 @@ if __name__ == '__main__':
 	n = 0
 
 	datadir = 'd:\\ColibriData\\'
-	scriptdir = '\%userprofile\%\\documents\\github\\colibripipeline'
+	# scriptdir = '\%userprofile\%\\documents\\github\\colibripipeline'
 	# datadir = 'd:\\TemporaryFiles\\test\\'
 
 	# STEP 1
@@ -110,7 +110,7 @@ if __name__ == '__main__':
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', os.path.join(scriptdir, 'colibri_main_py3.py'), 'd:\\', obsYMD])
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYMD])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', os.path.join(scriptdir, 'colibri_secondary.py'), 'd:\\', obsYMD])
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_secondary.py'), 'd:\\', obsYMD])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
