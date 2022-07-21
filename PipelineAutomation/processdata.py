@@ -34,7 +34,9 @@ if __name__ == '__main__':
 
 	cml_args = arg_parser.parse_args()
 
+	obsYYYYMMDD = cml_args.datetime
 	procYYYYMMDD = cml_args.procdate
+	obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
 	# process_date = datetime.date(int(procYYYYMMDD.split('/')[0]), int(procYYYYMMDD.split('/')[1]), int(procYYYYMMDD.split('/')[2]))
 	process_date = procYYYYMMDD
 
@@ -43,9 +45,12 @@ if __name__ == '__main__':
 	m = 0
 	n = 0
 
-	datadir = 'd:\\ColibriData\\'
+	if cml_args.date == 'All':
+		datadir = 'd:\\ColibriData\\'
+	else:
+		datadir = 'd:\\ColibriData\\' + obs_date + '\\'
 
-	repro = True
+	repro = False
 
 	# procYMD = str(datetime.datetime.today().strftime('%Y/%m/%d'))
 	# procyear = int(datetime.datetime.today().strftime('%Y'))
@@ -90,59 +95,59 @@ if __name__ == '__main__':
 
 	print(dirlist)
 
-	# for d in dirlist:
-	# 	dirlist = os.path.split(d)
+	for d in dirlist:
+		dirlist = os.path.split(d)
 
-	# 	if len(dirlist[1]) == 0:
-	# 		print('Root directory excluded')
-	# 	elif dirlist[-1] == 'ColibriData':
-	# 		print('ColibriData directory excluded')
-	# 	elif dirlist[-1] == 'Bias':
-	# 		print('Bias directory excluded')
-	# 	elif dirlist[0].split('\\')[-1] == 'Bias':
-	# 		print('Bias subdirectory excluded.')
-	# 	else:
-	# 		if os.path.isfile(os.path.join(d, '1process.txt')) and repro == False:
-	# 			# print(os.path.join(root, '1process.txt'))
-	# 			primarydone = True
-	# 			print('1st stage processing already complete on %s' % d)
-	# 			# print('File exisits. Opening existing file.')
-	# 			# with open(os.path.join(d, '1process.txt')) as f1:
-	# 			# 	lines = f1.readlines()
-	# 			# 	base_path = lines[0].strip('\n').split()[1]
-	# 			# 	obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-	# 			# 	obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-	# 			# 	obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-	# 		else:
-	# 			primarydone = False
-	# 			basepath = pathlib.Path('d:')
-	# 			dirdaytime = dirlist[1]
-	# 			obsyear = int(dirdaytime[:4])
-	# 			obsmonth = int(dirdaytime[4:6].lstrip("0"))
-	# 			obsday = int(dirdaytime[6:8].lstrip("0"))
-	# 			obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+		if len(dirlist[1]) == 0:
+			print('Root directory excluded')
+		elif dirlist[-1] == 'ColibriData':
+			print('ColibriData directory excluded')
+		elif dirlist[-1] == 'Bias':
+			print('Bias directory excluded')
+		elif dirlist[0].split('\\')[-1] == 'Bias':
+			print('Bias subdirectory excluded.')
+		else:
+			if os.path.isfile(os.path.join(d, '1process.txt')) and repro == False:
+				# print(os.path.join(root, '1process.txt'))
+				primarydone = True
+				print('1st stage processing already complete on %s' % d)
+				# print('File exisits. Opening existing file.')
+				# with open(os.path.join(d, '1process.txt')) as f1:
+				# 	lines = f1.readlines()
+				# 	base_path = lines[0].strip('\n').split()[1]
+				# 	obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+				# 	obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+				# 	obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
+			else:
+				primarydone = False
+				basepath = pathlib.Path('d:')
+				dirdaytime = dirlist[1]
+				obsyear = int(dirdaytime[:4])
+				obsmonth = int(dirdaytime[4:6].lstrip("0"))
+				obsday = int(dirdaytime[6:8].lstrip("0"))
+				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
 
-	# 		if primarydone == True:
-	# 			pass
-	# 		else:
-	# 			# Run colibri_main_py3.py
-	# 			try:
-	# 				p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYMD])
+			if primarydone == True:
+				pass
+			else:
+				# Run colibri_main_py3.py
+				try:
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYMD])
 
-	# 				while p.poll() is None:
-	# 					print('.', end='', flush=True)
-	# 					time.sleep(1)
-	# 			except:
-	# 				pass
+					while p.poll() is None:
+						print('.', end='', flush=True)
+						time.sleep(1)
+				except:
+					pass
 
-	# 			with open(os.path.join(root, '1process.txt'), 'w+') as f1:
-	# 				f1.write('base_path: %s\n' % str(basepath))
-	# 				f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-	# 				# f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-	# 				f1.write('process_date: %s\n' % process_date)
-	# 				f1.write('run_par: True\n')
+				with open(os.path.join(root, '1process.txt'), 'w+') as f1:
+					f1.write('base_path: %s\n' % str(basepath))
+					f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
+					# f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
+					f1.write('process_date: %s\n' % process_date)
+					f1.write('run_par: True\n')
 
-	# 			print('Finished primary processing.')
+				print('Finished primary processing.')
 
 	t1 = time.time()-starttime
 
