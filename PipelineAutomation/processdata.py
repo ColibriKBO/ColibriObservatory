@@ -34,9 +34,15 @@ if __name__ == '__main__':
 
 	cml_args = arg_parser.parse_args()
 
-	obsYYYYMMDD = cml_args.datetime
+	obsYYYYMMDD = cml_args.date
 	procYYYYMMDD = cml_args.procdate
-	obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
+
+	if cml_args.date == 'All':
+		datadir = 'd:\\ColibriData\\'
+	else:
+		obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
+		datadir = 'd:\\ColibriData\\' + obs_date + '\\'
+		
 	# process_date = datetime.date(int(procYYYYMMDD.split('/')[0]), int(procYYYYMMDD.split('/')[1]), int(procYYYYMMDD.split('/')[2]))
 	process_date = procYYYYMMDD
 
@@ -45,12 +51,9 @@ if __name__ == '__main__':
 	m = 0
 	n = 0
 
-	if cml_args.date == 'All':
-		datadir = 'd:\\ColibriData\\'
-	else:
-		datadir = 'd:\\ColibriData\\' + obs_date + '\\'
+	
 
-	repro = False
+	repro = True
 
 	# procYMD = str(datetime.datetime.today().strftime('%Y/%m/%d'))
 	# procyear = int(datetime.datetime.today().strftime('%Y'))
