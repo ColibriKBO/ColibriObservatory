@@ -25,33 +25,32 @@ class FocusThread(QtCore.QObject):
 
     output = QtCore.pyqtSignal(object)
 
-    def __init__(self, interval):
+    def __init__(self, ctrl):
         super(FocusThread, self).__init__()
         # self.image = image
+        interval = 5
+        self.ctrl = ctrl
         self.refreshtime = interval
 
-        self.poller = QTimer(self)
-        self.poller.timeout.connect(self._polling_routine)
+    def run(self):
+        print('Entered run')
+        print('id:', id(self.ctrl))
+        self.ctrl['break'] = False
 
-    def _polling_routine(self):
-        # for i in range(100):
-        i = 5
-        print(i)
-            # print(i)
-            # time.sleep(0.5)
-        self.output.emit(i)
+        while True:
+            outstring = '1'
+            self.output.emit(outstring)
 
-    def polling_start(self):
-        self.poller.start(self.refreshtime)
+            if self.ctrl['break']:
+                print('Break flag raised')
+                break
 
-    def polling_stop(self):
-        self.poller.stop()
+            time.sleep(self.refreshtime)
 
 
 class Ui(QtWidgets.QMainWindow):
 
-    emit_start = QtCore.pyqtSignal()
-    emit_stop = QtCore.pyqtSignal()
+    emit_stop = QtCore.pyqtSignal(int)
 
     def __init__(self, *args, **kwargs):
 
@@ -94,32 +93,19 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
-    def init_worker(self):
-        interval = 5
         self.thread = QtCore.QThread()
-        self.worker = FocusThread(interval)
+        self.ctrl = {'break': False}
+        print('id: ', id(self.ctrl))
+
+    def start(self):
         self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
         self.worker.output.connect(self.print_new_value)
-        self.emit_start.connect(self.worker.polling_start)
-        self.emit_stop.connect(self.worker.polling_stop)
         self.thread.start()
 
-    def start_polling(self):
-        self.emit_start.emit()
+    def stop(self):
+        self.ctrl['break'] = True
 
-    def stop_polling(self):
-        self.emit_stop.emit()
-
-    def finish_worker(self):
-        # for sake of completeness: call upon this method if you want the
-        # thread gone. E.g. before closing your application.
-        # You could emit a finished sig from your worker, that will run this.
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-
-    def print_new_value(self, value):
-        print(value)
 
     def plot(self, hour, temperature):
         labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
@@ -204,14 +190,10 @@ class Ui(QtWidgets.QMainWindow):
         # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
         # self.updateFocusFrame(self.image)
-        self.init_worker()
-
-        # if self.Start_button.isChecked() is False:
-        #     self.Start_button.setText('Stop')
-        #     self.start_polling()
-        # else:
-        #     self.Start_button.setText('Start')
-        #     self.stop_polling()
+        if Start_button.isChecked:
+            self.start()
+        else:
+            self.stop()
 
     def updateFocusFrame(self, image):
         # plt.imshow(image)
