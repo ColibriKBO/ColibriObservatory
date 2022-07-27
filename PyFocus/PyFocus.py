@@ -96,6 +96,7 @@ class Ui(QtWidgets.QMainWindow):
         self.thread = QtCore.QThread()
         self.ctrl = {'break': False}
         print('id: ', id(self.ctrl))
+        self.worker = FocusThread(self.ctrl)
 
     def start(self):
         self.worker.moveToThread(self.thread)
