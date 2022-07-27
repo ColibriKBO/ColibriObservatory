@@ -99,8 +99,7 @@ class Ui(QtWidgets.QMainWindow):
         self.worker = FocusThread(self.ctrl)
 
     def start(self):
-        print(self.ctrl)
-        self.ctrl['break'] = False
+        
         print(self.ctrl)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
@@ -200,6 +199,8 @@ class Ui(QtWidgets.QMainWindow):
         # self.updateFocusFrame(self.image)
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
+            print(self.ctrl)
+            self.ctrl['break'] = False
             self.start()
         else:
             self.stop()
