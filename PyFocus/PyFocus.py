@@ -207,6 +207,7 @@ class Ui(QtWidgets.QMainWindow):
             self.Start_button.setText('Stop')
             self.start_polling()
         else:
+            self.Start_button.setText('Start')
             self.stop_polling()
 
     def updateFocusFrame(self, image):
