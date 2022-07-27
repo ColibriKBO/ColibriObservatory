@@ -21,7 +21,37 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+class FocusThread(QtCore.QObject):
+
+    output = QtCore.pyqtSignal(object)
+
+    def __init__(self, image, interval):
+        super(FocusThread, self).__init__()
+        self.image = image
+        self.refreshtime = interval
+
+        self.poller = QTimer(self)
+        self.poller.timeout.connect(self._polling_routine)
+
+    def _polling_routine(self):
+        # for i in range(100):
+        i = 5
+            # print(i)
+            # time.sleep(0.5)
+        self.output.emit(i)
+
+    def polling_start(self):
+        self.poller.start(self.refreshtime)
+
+    def polling_stop(self):
+        self.poller.stop()
+
+
 class Ui(QtWidgets.QMainWindow):
+
+    emit_start = QtCore.pyqtSignal()
+    emit_stop = QtCore.pyqtSignal()
+
     def __init__(self, *args, **kwargs):
 
         # call inherited classes __init__ method
@@ -31,8 +61,8 @@ class Ui(QtWidgets.QMainWindow):
         # uic.loadUi('Camo-S.ui', self)
         uic.loadUi('PyFocus.ui', self)                
         self.title = "PyFocus Automated Focusing"
-        self.statusBar = QStatusBar()
-        self.setStatusBar(self.statusBar)
+        # self.statusBar = QStatusBar()
+        # self.setStatusBar(self.statusBar)
 
         width = 320
         height = 785
@@ -46,7 +76,7 @@ class Ui(QtWidgets.QMainWindow):
         self.focus_imagewidget = pg.ImageView()
         self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
         self.focus_imagewidget.show()
-        # self.focus_imagewidget.ui.histogram.hide()
+        self.focus_imagewidget.ui.histogram.hide()
         self.focus_imagewidget.ui.roiBtn.hide()
         self.focus_imagewidget.ui.menuBtn.hide()
 
@@ -62,6 +92,32 @@ class Ui(QtWidgets.QMainWindow):
         # self.Plot.setXRange(0,1)
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
+
+    def init_worker(self):
+        self.thread = QtCore.QThread()
+        self.worker = FocusThread(image,interval)
+        self.worker.moveToThread(self.thread)
+        self.worker.output.connect(self.print_new_value)
+        self.emit_start.connect(self.worker.polling_start)
+        self.emit_stop.connect(self.worker.polling_stop)
+        self.thread.start()
+
+    def start_polling(self):
+        self.emit_start.emit()
+
+    def stop_polling(self):
+        self.emit_stop.emit()
+
+    def finish_worker(self):
+        # for sake of completeness: call upon this method if you want the
+        # thread gone. E.g. before closing your application.
+        # You could emit a finished sig from your worker, that will run this.
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+    def print_new_value(self, value):
+        print(value)
 
     def plot(self, hour, temperature):
         labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
@@ -142,10 +198,16 @@ class Ui(QtWidgets.QMainWindow):
         T.SlewToAltAz()
 
     def startFocus(self):
-        self.connectDevices()
-        self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+        # self.connectDevices()
+        # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
-        self.updateFocusFrame(self.image)
+        # self.updateFocusFrame(self.image)
+
+        if self.Start_button.isChecked(False):
+            self.Start_button.setText('Stop')
+            self.start_polling()
+        else:
+            self.stop_polling()
 
     def updateFocusFrame(self, image):
         # plt.imshow(image)
