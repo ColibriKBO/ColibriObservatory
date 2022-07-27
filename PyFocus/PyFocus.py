@@ -99,7 +99,27 @@ class Ui(QtWidgets.QMainWindow):
             print(f'{C.PercentCompleted}% complete')
         print('finished')
 
-        return C.ImageReady
+        img = c.ImageArray
+        imginfo = c.ImageArrayInfo
+
+        print(np.shape(img))
+
+        if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
+            if c.MaxADU <= 65535:
+                imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
+            else:
+                imgDataType = np.int32
+        elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
+            imgDataType = np.float64
+        #
+        # Make a numpy array of he correct shape for astropy.io.fits
+        #
+        if imginfo.Rank == 2:
+            nda = np.array(img, dtype=imgDataType).transpose()
+        else:
+            nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
+
+        return img
 
     def changeFocus(step,dir):
         # Adjust focus
