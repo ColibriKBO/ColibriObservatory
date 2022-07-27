@@ -110,9 +110,9 @@ class Ui(QtWidgets.QMainWindow):
         self.worker.output.connect(self.print_new_value)
         self.thread.start()
 
-    def stop(self):
-        self.ctrl['break'] = True
-        print(self.ctrl)
+    # def stop(self):
+    #     self.ctrl['break'] = True
+    #     print(self.ctrl)
 
     def killthread(self):
         self.thread.stop()
