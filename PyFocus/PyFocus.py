@@ -25,9 +25,9 @@ class FocusThread(QtCore.QObject):
 
     output = QtCore.pyqtSignal(object)
 
-    def __init__(self, image, interval):
+    def __init__(self, interval):
         super(FocusThread, self).__init__()
-        self.image = image
+        # self.image = image
         self.refreshtime = interval
 
         self.poller = QTimer(self)
@@ -204,7 +204,7 @@ class Ui(QtWidgets.QMainWindow):
 
         # self.updateFocusFrame(self.image)
         self.init_worker()
-        
+
         # if self.Start_button.isChecked() is False:
         #     self.Start_button.setText('Stop')
         #     self.start_polling()
