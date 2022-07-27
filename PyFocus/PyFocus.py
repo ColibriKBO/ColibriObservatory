@@ -59,7 +59,9 @@ class FocusThread(QtCore.QThread):
 
     def run(self):
         while self.threadactive:
-            print(time.time)
+            print('Hello World')
+            time.sleep(1)
+
 
     def stop(self):
         self.threadactive = False
@@ -138,7 +140,7 @@ class Ui(QtWidgets.QMainWindow):
     #     print(self.ctrl)
 
     def killthread(self):
-        self.thread.stop()
+        self.fthread.stop()
         print('Say what?')
 
     # def print_new_value(self, value):
