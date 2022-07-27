@@ -38,7 +38,7 @@ class FocusThread(QtCore.QThread):
 			# self.updateFocusFrame.emit(self.image)
 			image = Ui.grabImage(self,0,0,50,50,0.1)
 			print(np.shape(image))
-			updateFocusFrame(image)
+			self.updateFocusFrame(image)
 
 	def updateFocusFrame(self,image):
 		Ui.focus_imagewidget.setImage(image, levels=(50,200))
