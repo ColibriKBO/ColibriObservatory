@@ -183,7 +183,7 @@ class Ui(QtWidgets.QMainWindow):
 
         return out
 
-    def split_images(data,pix_h,pix_v,gain):
+    def split_images(self,data,pix_h,pix_v,gain):
         interimg = np.reshape(data, [2*pix_v,pix_h])
 
         if gain == 'low':
