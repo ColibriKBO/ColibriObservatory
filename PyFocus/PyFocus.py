@@ -26,18 +26,61 @@ class FocusThread(QtCore.QThread):
     def __init__(self,parent=None):
         super(FocusThread,self).__init__(parent)
         self.threadactive = True
-        GUI = Ui()
 
     def run(self):
         while self.threadactive:
             # print('Hello World')
             # time.sleep(1)
-            self.image = self.GUI.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
-            self.GUI.updateFocusFrame(self.image)
+            self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+            self.updateFocusFrame(self.image)
 
     def stop(self):
         self.threadactive = False
         self.wait()
+
+    def grabImage(self,x,y,sizex,sizey, exposure):
+        C.StartX = 0
+        C.StartY = 0
+        C.NumX = 4096
+        C.NumY = 4096
+        C.BinX = 1
+        C.BinY = 1
+
+        C.StartExposure(exposure, True)
+        while not C.ImageReady:
+            time.sleep(0.5)
+            print(f'{C.PercentCompleted}% complete')
+        print('finished')
+
+        self.img = C.ImageArray
+        imginfo = C.ImageArrayInfo
+
+        if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
+            if C.MaxADU <= 65535:
+                imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
+            else:
+                imgDataType = np.int32
+        elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
+            imgDataType = np.float64
+        #
+        # Make a numpy array of he correct shape for astropy.io.fits
+        #
+        if imginfo.Rank == 2:
+            self.nda = np.array(self.img, dtype=imgDataType).transpose()
+        else:
+            self.nda = np.array(self.img, dtype=imgDataType).transpose(2,1,0)
+
+        return self.nda
+
+    def updateFocusFrame(self, image):
+        # plt.imshow(image)
+        # plt.show()
+
+        # self.focus_frame = image
+        # self.focus_image.setImage(image)
+
+        self.focus_imagewidget.setImage(image, levels=(50,200))
+        # self.focus_imagewidget.autoRange()
 
 class Ui(QtWidgets.QMainWindow):
 
@@ -124,51 +167,7 @@ class Ui(QtWidgets.QMainWindow):
         except Exception as e:
             print(f'ERROR:  {str(e)}')
 
-    def grabImage(self,x,y,sizex,sizey, exposure):
-        C.StartX = 0
-        C.StartY = 0
-        C.NumX = 4096
-        C.NumY = 4096
-        C.BinX = 1
-        C.BinY = 1
 
-        C.StartExposure(exposure, True)
-        while not C.ImageReady:
-            time.sleep(0.5)
-            print(f'{C.PercentCompleted}% complete')
-        print('finished')
-
-        self.img = C.ImageArray
-        imginfo = C.ImageArrayInfo
-
-        # print(np.shape(self.img))
-
-        # testimages = nb_read_data(table)
-        # hnumpix = sizex/2
-        # vnumpix = sizey
-        # imgain = 'high'
-
-        # self.image = self.split_images(self.img, hnumpix, vnumpix, imgain)
-
-        # print(np.shape(self.img))
-        # print(np.shape(self.image))
-
-        if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
-            if C.MaxADU <= 65535:
-                imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
-            else:
-                imgDataType = np.int32
-        elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
-            imgDataType = np.float64
-        #
-        # Make a numpy array of he correct shape for astropy.io.fits
-        #
-        if imginfo.Rank == 2:
-            self.nda = np.array(self.img, dtype=imgDataType).transpose()
-        else:
-            self.nda = np.array(self.img, dtype=imgDataType).transpose(2,1,0)
-
-        return self.nda
 
     def changeFocus(step,dir):
         # Adjust focus
@@ -185,7 +184,7 @@ class Ui(QtWidgets.QMainWindow):
         self.connectDevices()
         self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
-        self.updateFocusFrame(self.image)
+        # self.updateFocusFrame(self.image)
 
         self.watchthread(FocusThread)
         self.startthread()
@@ -204,15 +203,7 @@ class Ui(QtWidgets.QMainWindow):
     def stopFocus(self):
         self.killthread()
 
-    def updateFocusFrame(self, image):
-        # plt.imshow(image)
-        # plt.show()
-
-        # self.focus_frame = image
-        # self.focus_image.setImage(image)
-
-        self.focus_imagewidget.setImage(image, levels=(50,200))
-        # self.focus_imagewidget.autoRange()
+    
 
     def readxbytes(fid, numbytes):
         for i in range(1):
