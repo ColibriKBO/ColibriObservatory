@@ -42,7 +42,7 @@ class FocusThread(QtCore.QThread):
 			# Ui.updateFocusFrame(image)
 
 	@QtCore.pyqtSlot()
-	def grab(self, image):
+	def grab(self):
 		self.image = self.grabImage.emit(0,0,50,50,0.1)
 		return self.image
 
