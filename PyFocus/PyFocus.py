@@ -40,7 +40,7 @@ class FocusThread(QtCore.QThread):
 			print(np.shape(image))
 			updateFocusFrame(image)
 
-	def updateFocusFrame(image):
+	def updateFocusFrame(self,image):
 		Ui.focus_imagewidget.setImage(image, levels=(50,200))
 		# self.focus_imagewidget.autoRange()
 
@@ -145,9 +145,9 @@ class Ui(QtWidgets.QMainWindow):
 
 	def startFocus(self):
 		self.connectDevices()
-		self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+		# self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
-		self.updateFocusFrame(self.image)
+		# self.updateFocusFrame(self.image)
 
 		self.watchthread(FocusThread)
 		self.startthread()
