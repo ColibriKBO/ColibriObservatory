@@ -62,14 +62,13 @@ class FocusThread(QtCore.QThread):
             print('Hello World')
             time.sleep(1)
 
-
     def stop(self):
         self.threadactive = False
         self.wait()
 
 class Ui(QtWidgets.QMainWindow):
 
-    emit_stop = QtCore.pyqtSignal(int)
+    # emit_stop = QtCore.pyqtSignal(int)
 
     def __init__(self, *args, **kwargs):
 
@@ -101,6 +100,7 @@ class Ui(QtWidgets.QMainWindow):
 
         ##### Button triggers
         self.Start_button.clicked.connect(self.startFocus)
+        self.Stop_button.clicked.connect(self.stopFocus)
 
         # self.JogNorth_button.clicked.connect(self.jogScope)
         # self.JogSouth_button.clicked.connect(self.jogScope)
@@ -114,30 +114,6 @@ class Ui(QtWidgets.QMainWindow):
 
         self.thread = FocusThread(self)
 
-    #     self.threadactive = True
-    #     self.thread = QtCore.QThread()
-    #     self.ctrl = {'break': False}
-    #     print('id: ', id(self.ctrl))
-    #     self.worker = FocusThread(self.ctrl)
-
-    # def watchthread(self,worker):
-    #     self.thread = worker(self)
-    #     self.thread.finished.connect(self.close)
-
-    # def startthread(self):
-    #     self.thread.start()
-
-    # def start(self):
-        
-    #     print(self.ctrl)
-    #     self.worker.moveToThread(self.thread)
-    #     self.thread.started.connect(self.worker.run)
-    #     self.worker.output.connect(self.print_new_value)
-    #     self.thread.start()
-
-    # def stop(self):
-    #     self.ctrl['break'] = True
-    #     print(self.ctrl)
 
     def watchthread(self,worker):
         self.thread = worker(self)
@@ -238,18 +214,22 @@ class Ui(QtWidgets.QMainWindow):
 
         # self.updateFocusFrame(self.image)
 
+        self.watchthread(FocusThread)
+        self.startthread()
 
+        # print(self.Start_button.isChecked())
+        # if self.Start_button.isChecked():
+        #     self.watchthread(FocusThread)
+        #     self.startthread()
 
-        print(self.Start_button.isChecked())
-        if self.Start_button.isChecked():
-            self.watchthread(FocusThread)
-            self.startthread()
+        #     # print(self.ctrl)
+        #     # self.ctrl['break'] = False
+        #     # self.start()
+        # else:
+        #     self.killthread()
 
-            # print(self.ctrl)
-            # self.ctrl['break'] = False
-            # self.start()
-        else:
-            self.killthread()
+    def stopFocus(self):
+        self.killthread()
 
     def updateFocusFrame(self, image):
         # plt.imshow(image)

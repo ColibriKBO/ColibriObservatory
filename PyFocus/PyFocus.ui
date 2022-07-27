@@ -201,7 +201,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="Exit_button">
+      <widget class="QPushButton" name="Stop_button">
        <property name="text">
         <string>Exit</string>
        </property>
@@ -574,24 +574,7 @@ QPushButton:pressed {
   </customwidget>
  </customwidgets>
  <resources/>
- <connections>
-  <connection>
-   <sender>Exit_button</sender>
-   <signal>clicked()</signal>
-   <receiver>MainWindow</receiver>
-   <slot>close()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>211</x>
-     <y>745</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>265</x>
-     <y>705</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
  <designerdata>
   <property name="gridDeltaX">
    <number>10</number>
