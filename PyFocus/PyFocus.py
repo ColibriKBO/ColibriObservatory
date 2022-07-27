@@ -138,7 +138,7 @@ class Ui(QtWidgets.QMainWindow):
 	def watchthread(self,worker):
 		self.thread = worker(self)
 		# self.thread.grabImage.connect(self.grabImage)
-		# self.thread.updateFocusFrame.connect(self.updateFocusFrame)
+		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
 
 		# self.thread.finished.connect(self.close)
 
