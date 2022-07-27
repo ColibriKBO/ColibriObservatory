@@ -43,14 +43,18 @@ class Ui(QtWidgets.QMainWindow):
 
         ####### GUI Modifications
 
-        self.focus_imagewidget = pg.GraphicsView()
-        self.focus_imageframe = pg.ViewBox()
-        self.focus_imagewidget.setCentralWidget(self.focus_imageframe)
-        self.focus_imageframe.setAspectLocked()
-        self.focus_imageframe.setMenuEnabled(False)
-        self.focus_image = pg.ImageItem()
-        self.focus_imageframe.addItem(self.focus_image)
+        # self.focus_imagewidget = pg.GraphicsView()
+        # self.focus_imageframe = pg.ViewBox()
+        # self.focus_imagewidget.setCentralWidget(self.focus_imageframe)
+        # self.focus_imageframe.setAspectLocked()
+        # self.focus_imageframe.setMenuEnabled(False)
+        # self.focus_image = pg.ImageItem()
+        # self.focus_imageframe.addItem(self.focus_image)
+        # self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
+
+        self.focus_imagewidget = pg.ImageView()
         self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
+        self.focus_imagewidget.show()
 
         ##### Button triggers
 
@@ -142,8 +146,11 @@ class Ui(QtWidgets.QMainWindow):
         plt.imshow(image)
         plt.show()
 
-        self.focus_frame = image
-        self.focus_image.setImage(image)
+        # self.focus_frame = image
+        # self.focus_image.setImage(image)
+
+        self.focus_imagewidget.setImage(image)
+
 
 
 def main():
