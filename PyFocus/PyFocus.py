@@ -93,10 +93,10 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
-        self.thread = QtCore.QThread()
-        self.ctrl = {'break': False}
-        print('id: ', id(self.ctrl))
-        self.worker = FocusThread(self.ctrl)
+        # self.thread = QtCore.QThread()
+        # self.ctrl = {'break': False}
+        # print('id: ', id(self.ctrl))
+        # self.worker = FocusThread(self.ctrl)
 
     def start(self):
         
@@ -197,8 +197,17 @@ class Ui(QtWidgets.QMainWindow):
         # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
         # self.updateFocusFrame(self.image)
+
+
+
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
+
+            self.thread = QtCore.QThread()
+            self.ctrl = {'break': False}
+            print('id: ', id(self.ctrl))
+            self.worker = FocusThread(self.ctrl)
+            
             print(self.ctrl)
             self.ctrl['break'] = False
             self.start()
