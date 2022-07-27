@@ -110,6 +110,8 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
+        self.fthread = FocusThread(self)
+
     #     self.threadactive = True
     #     self.thread = QtCore.QThread()
     #     self.ctrl = {'break': False}
@@ -231,7 +233,7 @@ class Ui(QtWidgets.QMainWindow):
 
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
-            self.FocusThread.run()
+            self.fthread.run()
 
             # print(self.ctrl)
             # self.ctrl['break'] = False
