@@ -119,7 +119,7 @@ class Ui(QtWidgets.QMainWindow):
         else:
             nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
-        return img
+        return nda
 
     def changeFocus(step,dir):
         # Adjust focus
