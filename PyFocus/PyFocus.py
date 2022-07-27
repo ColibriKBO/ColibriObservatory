@@ -34,8 +34,8 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			image = self.grabImage.emit(0,0,50,50,0.1)
-			time.sleep(0.5)
+			self.grabImage.emit(0,0,50,50,0.1)
+			time.sleep(1)
 			print('test')
 			# print(np.shape(self.image))
 			# self.updateFocusFrame.emit(self.image)
@@ -172,7 +172,7 @@ class Ui(QtWidgets.QMainWindow):
 		C.StartY = y
 		C.NumX = sizex
 		C.NumY = sizey
-
+		print('here')
 		C.StartExposure(exposure, True)
 		while not C.ImageReady:
 			time.sleep(0.5)
