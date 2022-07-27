@@ -55,9 +55,9 @@ class FocusThread(QtCore.QThread):
 
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
-				time.sleep(0.1)
-				print(f'{C.PercentCompleted}% complete')
-			print('finished')
+				time.sleep(0.01)
+				# print(f'{C.PercentCompleted}% complete')
+			# print('finished')
 
 			img = C.ImageArray
 			imginfo = C.ImageArrayInfo
