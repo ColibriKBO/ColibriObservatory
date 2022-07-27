@@ -112,7 +112,7 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
-        self.fthread = FocusThread(self)
+        self.thread = FocusThread(self)
 
     #     self.threadactive = True
     #     self.thread = QtCore.QThread()
@@ -139,8 +139,15 @@ class Ui(QtWidgets.QMainWindow):
     #     self.ctrl['break'] = True
     #     print(self.ctrl)
 
+    def watchthread(self,worker):
+        self.thread = worker(self)
+        self.thread.finished.connect(self.close)
+
+    def startthread(self):
+        self.thread.start()
+
     def killthread(self):
-        self.fthread.stop()
+        self.thread.stop()
         print('Say what?')
 
     # def print_new_value(self, value):
@@ -235,7 +242,8 @@ class Ui(QtWidgets.QMainWindow):
 
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
-            self.fthread.run()
+            self.watchthread(FocusThread)
+            self.startthread()
 
             # print(self.ctrl)
             # self.ctrl['break'] = False
