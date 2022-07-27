@@ -102,14 +102,14 @@ class Ui(QtWidgets.QMainWindow):
         print(np.shape(self.img))
 
         # testimages = nb_read_data(table)
-        hnumpix = sizex/2
-        vnumpix = sizey
-        imgain = 'high'
+        # hnumpix = sizex/2
+        # vnumpix = sizey
+        # imgain = 'high'
 
-        self.image = self.split_images(self.img, hnumpix, vnumpix, imgain)
+        # self.image = self.split_images(self.img, hnumpix, vnumpix, imgain)
 
-        print(np.shape(self.img))
-        print(np.shape(self.image))
+        # print(np.shape(self.img))
+        # print(np.shape(self.image))
 
         if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
             if C.MaxADU <= 65535:
@@ -126,7 +126,7 @@ class Ui(QtWidgets.QMainWindow):
         else:
             self.nda = np.array(self.img, dtype=imgDataType).transpose(2,1,0)
 
-        return self.image
+        return self.nda
 
     def changeFocus(step,dir):
         # Adjust focus
