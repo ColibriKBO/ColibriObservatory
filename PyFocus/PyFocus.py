@@ -22,8 +22,8 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 class FocusThread(QtCore.QThread):
-	grabImage = QtCore.pyqtSignal(int,int,int,int,float)
-	# updateFocusFrame = QtCore.pyqtSignal(object)
+	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
+	updateFocusFrame = QtCore.pyqtSignal(object)
 
 	Zoom = 5
 
@@ -34,14 +34,48 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			self.grabImage.emit(0,0,50,50,0.1)
-			time.sleep(1)
-			print('test')
+			# self.grabImage.emit(0,0,50,50,0.1)
+			# time.sleep(1)
+			# print('test')
 			# print(np.shape(self.image))
 			# self.updateFocusFrame.emit(self.image)
 			# image = Ui.grabImage(self,0,0,50,50,0.1)
 			# print(np.shape(image))
 			# Ui.updateFocusFrame(image)
+
+			C.StartX = x
+			C.StartY = y
+			C.NumX = sizex
+			C.NumY = sizey
+			print('here')
+			C.StartExposure(exposure, True)
+			while not C.ImageReady:
+				time.sleep(0.5)
+				print(f'{C.PercentCompleted}% complete')
+			print('finished')
+
+			img = C.ImageArray
+			imginfo = C.ImageArrayInfo
+			if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
+				if C.MaxADU <= 65535:
+					imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
+				else:
+					imgDataType = np.int32
+			elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
+				imgDataType = np.float64
+			#
+			# Make a numpy array of he correct shape for astropy.io.fits
+			#
+			if imginfo.Rank == 2:
+				nda = np.array(img, dtype=imgDataType).transpose()
+			else:
+				nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
+
+			print(np.shape(nda))
+
+			self.updateFocusFrame.emit(nda)
+
+			# self.updateFocusFrame(nda)
 
 
 
