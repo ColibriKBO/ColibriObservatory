@@ -36,7 +36,7 @@ class FocusThread(QtCore.QThread):
 			# self.image = self.grabImage.emit(0,0,50,50,0.1)
 			# print(np.shape(self.image))
 			# self.updateFocusFrame.emit(self.image)
-			image = Ui.grabImage(0,0,50,50,0.1)
+			image = self.Ui.grabImage(0,0,50,50,0.1)
 			print(np.shape(image))
 			Ui.updateFocusFrame(image)
 
