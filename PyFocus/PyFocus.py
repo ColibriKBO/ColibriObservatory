@@ -1,6 +1,7 @@
 import time, sys
 import argparse
 import numpy as np
+import numba as nb
 import pyqtgraph as pg
 
 import imageio
@@ -100,6 +101,15 @@ class Ui(QtWidgets.QMainWindow):
 
         print(np.shape(self.img))
 
+        # testimages = nb_read_data(table)
+        hnumpix = 4096
+        vnumpix = 4096
+        imgain = 'high'
+
+        self.image = split_images(self.img, hnumpix, vnumpix, imgain)
+
+        print(np.shape(self.img))
+
         if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
             if C.MaxADU <= 65535:
                 imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
@@ -135,15 +145,52 @@ class Ui(QtWidgets.QMainWindow):
         self.updateFocusFrame(self.image)
 
     def updateFocusFrame(self, image):
-        plt.imshow(image)
-        plt.show()
+        # plt.imshow(image)
+        # plt.show()
 
         # self.focus_frame = image
         # self.focus_image.setImage(image)
 
         self.focus_imagewidget.setImage(image)
 
+    def readxbytes(fid, numbytes):
+        for i in range(1):
+            data = fid.read(numbytes)
+            if not data:
+                break
+        return data
 
+    @nb.njit(nb.uint16[::1](nb.uint8[::1]),fastmath=True,parallel=True)
+    def nb_read_data(data_chunk):
+        """data_chunk is a contigous 1D array of uint8 data)
+        eg.data_chunk = np.frombuffer(data_chunk, dtype=np.uint8)"""
+        #ensure that the data_chunk has the right length
+
+        assert np.mod(data_chunk.shape[0],3)==0
+
+        out=np.empty(data_chunk.shape[0]//3*2,dtype=np.uint16)
+        image1 = np.empty((2048,2048),dtype=np.uint16)
+        image2 = np.empty((2048,2048),dtype=np.uint16)
+
+        for i in nb.prange(data_chunk.shape[0]//3):
+            fst_uint8=np.uint16(data_chunk[i*3])
+            mid_uint8=np.uint16(data_chunk[i*3+1])
+            lst_uint8=np.uint16(data_chunk[i*3+2])
+
+            out[i*2] =   (fst_uint8 << 4) + (mid_uint8 >> 4)
+            out[i*2+1] = ((mid_uint8 % 16) << 8) + lst_uint8
+
+        return out
+
+    def split_images(data,pix_h,pix_v,gain):
+        interimg = np.reshape(data, [2*pix_v,pix_h])
+
+        if gain == 'low':
+            image = interimg[::2]
+        else:
+            image = interimg[1::2]
+
+        return image
 
 def main():
     app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
