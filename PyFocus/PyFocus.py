@@ -153,6 +153,7 @@ class Ui(QtWidgets.QMainWindow):
         # self.focus_image.setImage(image)
 
         self.focus_imagewidget.setImage(image)
+        self.focus_imagewidget.autoRange()
 
     def readxbytes(fid, numbytes):
         for i in range(1):
