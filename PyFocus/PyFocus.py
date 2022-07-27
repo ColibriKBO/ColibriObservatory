@@ -113,8 +113,8 @@ class Ui(QtWidgets.QMainWindow):
         T.SlewToAltAz()
 
     def startFocus(self):
-        connectDevices()
-        image = grabImage(0,0,300,300,1)
+        self.connectDevices()
+        image = self.grabImage(0,0,300,300,1)
 
         plt.imshow(image)
         plt.show()
