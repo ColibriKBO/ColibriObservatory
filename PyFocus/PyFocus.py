@@ -231,7 +231,7 @@ class Ui(QtWidgets.QMainWindow):
 
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
-            self.run()
+            self.FocusThread.run()
 
             # print(self.ctrl)
             # self.ctrl['break'] = False
