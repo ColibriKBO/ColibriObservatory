@@ -167,7 +167,7 @@ class Ui(QtWidgets.QMainWindow):
 			print('Connected to telescope...')
 			C.Connected = True
 			print('Connected to camera...')
-			print(C.CanFastReadout())
+			print(C.canfastreadout())
 		except Exception as e:
 			print(f'ERROR:  {str(e)}')
 
