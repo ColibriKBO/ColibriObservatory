@@ -85,10 +85,10 @@ class Ui(QtWidgets.QMainWindow):
             print(f'ERROR:  {str(e)}')
 
     def grabImage(self,x,y,sizex,sizey, exposure):
-        C.StartX = x
-        C.StartY = y
-        C.NumX = sizex
-        C.NumY = sizey
+        C.StartX = 0
+        C.StartY = 0
+        C.NumX = 4096
+        C.NumY = 4096
         C.BinX = 1
         C.BinY = 1
 
@@ -101,7 +101,7 @@ class Ui(QtWidgets.QMainWindow):
         self.img = C.ImageArray
         imginfo = C.ImageArrayInfo
 
-        print(np.shape(self.img))
+        # print(np.shape(self.img))
 
         # testimages = nb_read_data(table)
         # hnumpix = sizex/2
