@@ -195,7 +195,8 @@ class Ui(QtWidgets.QMainWindow):
         # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
         # self.updateFocusFrame(self.image)
-        if self.Start_button.isChecked:
+        print(self.Start_button.isChecked())
+        if self.Start_button.isChecked():
             self.start()
         else:
             self.stop()
