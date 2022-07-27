@@ -117,7 +117,7 @@ class Ui(QtWidgets.QMainWindow):
 
     def watchthread(self,worker):
         self.thread = worker(self)
-        self.thread.finished.connect(self.close)
+        # self.thread.finished.connect(self.close)
 
     def startthread(self):
         self.thread.start()
