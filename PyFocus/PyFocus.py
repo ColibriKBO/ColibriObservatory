@@ -34,7 +34,7 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			self.grabImage.emit(0,0,50,50,0.1)
+			image = self.grabImage.emit(0,0,50,50,0.1)
 			time.sleep(0.5)
 			print('test')
 			# print(np.shape(self.image))
@@ -198,7 +198,7 @@ class Ui(QtWidgets.QMainWindow):
 
 		print(np.shape(nda))
 
-		self.updateFocusFrame(nda)
+		# self.updateFocusFrame(nda)
 
 		return nda
 
