@@ -99,6 +99,7 @@ class Ui(QtWidgets.QMainWindow):
         self.worker = FocusThread(self.ctrl)
 
     def start(self):
+        self.ctrl['break'] = False
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.output.connect(self.print_new_value)
