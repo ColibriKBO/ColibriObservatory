@@ -28,7 +28,7 @@ class FocusThread(QtCore.QObject):
     def __init__(self, ctrl):
         super(FocusThread, self).__init__()
         # self.image = image
-        interval = 5
+        interval = 0.5
         self.ctrl = ctrl
         self.refreshtime = interval
 
@@ -106,6 +106,7 @@ class Ui(QtWidgets.QMainWindow):
 
     def stop(self):
         self.ctrl['break'] = True
+        print(self.ctrl)
 
     def print_new_value(self, value):
         print(value)
