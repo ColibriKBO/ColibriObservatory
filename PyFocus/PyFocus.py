@@ -53,8 +53,8 @@ from PyQt5.QtGui import *
 
 class FocusThread(QtCore.QThread):
 
-    def __init__(self):
-        super(FocusThread,self).__init__(self)
+    def __init__(self,parent=None):
+        super(FocusThread,self).__init__(parent)
         self.threadactive = True
 
     def run(self):
@@ -112,7 +112,7 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
-        self.thread = FocusThread()
+        self.thread = FocusThread(self)
 
     #     self.threadactive = True
     #     self.thread = QtCore.QThread()
