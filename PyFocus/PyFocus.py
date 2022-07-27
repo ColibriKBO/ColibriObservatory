@@ -94,6 +94,7 @@ class Ui(QtWidgets.QMainWindow):
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
     def init_worker(self):
+        interval = 5
         self.thread = QtCore.QThread()
         self.worker = FocusThread(image,interval)
         self.worker.moveToThread(self.thread)
@@ -202,13 +203,14 @@ class Ui(QtWidgets.QMainWindow):
         # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
         # self.updateFocusFrame(self.image)
-
-        if self.Start_button.isChecked() is False:
-            self.Start_button.setText('Stop')
-            self.start_polling()
-        else:
-            self.Start_button.setText('Start')
-            self.stop_polling()
+        self.init_worker()
+        
+        # if self.Start_button.isChecked() is False:
+        #     self.Start_button.setText('Stop')
+        #     self.start_polling()
+        # else:
+        #     self.Start_button.setText('Start')
+        #     self.stop_polling()
 
     def updateFocusFrame(self, image):
         # plt.imshow(image)
