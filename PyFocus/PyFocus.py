@@ -26,13 +26,14 @@ class FocusThread(QtCore.QThread):
     def __init__(self,parent=None):
         super(FocusThread,self).__init__(parent)
         self.threadactive = True
+        GUI = Ui()
 
     def run(self):
         while self.threadactive:
             # print('Hello World')
             # time.sleep(1)
-            self.image = self.Ui.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
-            self.Ui.updateFocusFrame(self.image)
+            self.image = self.GUI.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+            self.GUI.updateFocusFrame(self.image)
 
     def stop(self):
         self.threadactive = False
