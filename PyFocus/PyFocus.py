@@ -35,6 +35,7 @@ class FocusThread(QtCore.QThread):
 	def run(self):
 		while self.threadactive:
 			self.grabImage.emit(0,0,50,50,0.1)
+			print('test')
 			# print(np.shape(self.image))
 			# self.updateFocusFrame.emit(self.image)
 			# image = Ui.grabImage(self,0,0,50,50,0.1)
