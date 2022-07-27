@@ -102,7 +102,7 @@ class Ui(QtWidgets.QMainWindow):
         print(np.shape(self.img))
 
         # testimages = nb_read_data(table)
-        hnumpix = sizex
+        hnumpix = sizex/2
         vnumpix = sizey
         imgain = 'high'
 
