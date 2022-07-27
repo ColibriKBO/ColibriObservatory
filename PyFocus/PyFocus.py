@@ -47,10 +47,10 @@ class FocusThread(QtCore.QThread):
 			# print(np.shape(image))
 			# Ui.updateFocusFrame(image)
 
-			C.StartX = x
-			C.StartY = y
-			C.NumX = sizex
-			C.NumY = sizey
+			C.StartX = 0
+			C.StartY = 0
+			C.NumX = 50
+			C.NumY = 50
 
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
