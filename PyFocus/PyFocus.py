@@ -1,4 +1,4 @@
-import sys
+import time, sys
 import argparse
 import numpy as np
 import pyqtgraph as pg
