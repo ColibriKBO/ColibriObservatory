@@ -163,7 +163,7 @@ class Ui(QtWidgets.QMainWindow):
 	def stopFocus(self):
 		self.killthread()
 
-	def grabImage(self,x,y,sizex,sizey, exposure):
+	def grabImage(self=None,x,y,sizex,sizey, exposure):
 		C.StartX = x
 		C.StartY = y
 		C.NumX = sizex
