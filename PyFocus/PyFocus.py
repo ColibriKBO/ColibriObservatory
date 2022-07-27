@@ -99,7 +99,7 @@ class Ui(QtWidgets.QMainWindow):
             print(f'{C.PercentCompleted}% complete')
         print('finished')
 
-        img = C.ImageArray
+        self.img = C.ImageArray
         imginfo = C.ImageArrayInfo
 
         print(np.shape(img))
@@ -119,7 +119,7 @@ class Ui(QtWidgets.QMainWindow):
         else:
             nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
-        return nda
+        return self.img
 
     def changeFocus(step,dir):
         # Adjust focus
@@ -134,10 +134,15 @@ class Ui(QtWidgets.QMainWindow):
 
     def startFocus(self):
         self.connectDevices()
-        image = self.grabImage(0,0,300,300,1)
+        image = self.grabImage(0,0,100,100,1)
 
         plt.imshow(image)
         plt.show()
+
+    def updateFocusFrame(self, image):
+        self.focus_frame = image
+        self.focus_imageframe.setImage(image)
+
 
 def main():
     app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
