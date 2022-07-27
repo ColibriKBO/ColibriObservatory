@@ -23,7 +23,7 @@ from PyQt5.QtGui import *
 
 class FocusThread(QtCore.QThread):
 	grabImage = QtCore.pyqtSignal(int,int,int,int,float)
-	updateFocusFrame = QtCore.pyqtSignal(object)
+	updateFocusFrame = QtCore.pyqtSignal(np.ndarray)
 
 	Zoom = 5
 
@@ -34,7 +34,7 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			self.image = self.grab(self)
+			self.image = self.grab()
 			print(np.shape(self.image))
 			self.update(self.image)
 			# image = Ui.grabImage(self,0,0,50,50,0.1)
@@ -46,7 +46,7 @@ class FocusThread(QtCore.QThread):
 		self.image = self.grabImage.emit(0,0,50,50,0.1)
 		return self.image
 
-	@QtCore.pyqtSlot(object)
+	@QtCore.pyqtSlot(np.ndarray)
 	def update(self, image):
 		self.updateFocusFrame.emit(self.image)
 
