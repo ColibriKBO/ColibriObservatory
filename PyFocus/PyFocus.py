@@ -99,13 +99,13 @@ class Ui(QtWidgets.QMainWindow):
             print(f'{C.PercentCompleted}% complete')
         print('finished')
 
-        img = c.ImageArray
-        imginfo = c.ImageArrayInfo
+        img = C.ImageArray
+        imginfo = C.ImageArrayInfo
 
         print(np.shape(img))
 
         if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
-            if c.MaxADU <= 65535:
+            if C.MaxADU <= 65535:
                 imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
             else:
                 imgDataType = np.int32
