@@ -96,7 +96,7 @@ class Ui(QtWidgets.QMainWindow):
     def init_worker(self):
         interval = 5
         self.thread = QtCore.QThread()
-        self.worker = FocusThread(image,interval)
+        self.worker = FocusThread(interval)
         self.worker.moveToThread(self.thread)
         self.worker.output.connect(self.print_new_value)
         self.emit_start.connect(self.worker.polling_start)
