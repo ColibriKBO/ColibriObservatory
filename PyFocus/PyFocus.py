@@ -54,7 +54,7 @@ from PyQt5.QtGui import *
 class FocusThread(QtCore.QThread):
 
     def __init__(self):
-        super(FocusThread,self).__init__()
+        super(FocusThread,self).__init__(self)
         self.threadactive = True
 
     def run(self):
