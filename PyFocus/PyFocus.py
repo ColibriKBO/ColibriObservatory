@@ -47,6 +47,9 @@ class FocusThread(QtCore.QObject):
 
             time.sleep(self.refreshtime)
 
+    def stop(self):
+        self.threadactive = False
+        self.wait()
 
 class Ui(QtWidgets.QMainWindow):
 
@@ -93,10 +96,11 @@ class Ui(QtWidgets.QMainWindow):
 
         self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
 
-        # self.thread = QtCore.QThread()
-        # self.ctrl = {'break': False}
-        # print('id: ', id(self.ctrl))
-        # self.worker = FocusThread(self.ctrl)
+        self.threadactive = True
+        self.thread = QtCore.QThread()
+        self.ctrl = {'break': False}
+        print('id: ', id(self.ctrl))
+        self.worker = FocusThread(self.ctrl)
 
     def start(self):
         
@@ -109,6 +113,10 @@ class Ui(QtWidgets.QMainWindow):
     def stop(self):
         self.ctrl['break'] = True
         print(self.ctrl)
+
+    def killthread(self):
+        self.thread.stop()
+        print('Say what?')
 
     def print_new_value(self, value):
         print(value)
@@ -203,16 +211,12 @@ class Ui(QtWidgets.QMainWindow):
         print(self.Start_button.isChecked())
         if self.Start_button.isChecked():
 
-            self.thread = QtCore.QThread()
-            self.ctrl = {'break': False}
-            print('id: ', id(self.ctrl))
-            self.worker = FocusThread(self.ctrl)
-            
+
             print(self.ctrl)
             self.ctrl['break'] = False
             self.start()
         else:
-            self.stop()
+            self.killthread()
 
     def updateFocusFrame(self, image):
         # plt.imshow(image)
