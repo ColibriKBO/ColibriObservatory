@@ -42,16 +42,6 @@ class Ui(QtWidgets.QMainWindow):
         self.show()
 
         ####### GUI Modifications
-
-        # self.focus_imagewidget = pg.GraphicsView()
-        # self.focus_imageframe = pg.ViewBox()
-        # self.focus_imagewidget.setCentralWidget(self.focus_imageframe)
-        # self.focus_imageframe.setAspectLocked()
-        # self.focus_imageframe.setMenuEnabled(False)
-        # self.focus_image = pg.ImageItem()
-        # self.focus_imageframe.addItem(self.focus_image)
-        # self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
-
         self.focus_imagewidget = pg.ImageView()
         self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
         self.focus_imagewidget.show()
@@ -59,10 +49,7 @@ class Ui(QtWidgets.QMainWindow):
         self.focus_imagewidget.ui.roiBtn.hide()
         self.focus_imagewidget.ui.menuBtn.hide()
 
-        # self.focus_imagewidget.setImage(self.focus_image)
-
         ##### Button triggers
-
         self.Start_button.clicked.connect(self.startFocus)
 
         # self.JogNorth_button.clicked.connect(self.jogScope)
@@ -143,7 +130,7 @@ class Ui(QtWidgets.QMainWindow):
 
     def startFocus(self):
         self.connectDevices()
-        self.image = self.grabImage(0,0,100,100,1)
+        self.image = self.grabImage(0,0,self.Zoom_slider.value()*100,self.Zoom_slider.value()*100,self.Exposure_spinbox.value())
 
         self.updateFocusFrame(self.image)
 
