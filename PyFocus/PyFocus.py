@@ -26,6 +26,10 @@ class FocusThread(QtCore.QThread):
 	updateFocusFrame = QtCore.pyqtSignal(object)
 
 	Zoom = 5
+	x = 0
+	y = 0
+	sizex = 50
+	sizey = 50
 
 	def __init__(self,parent=None):
 		super(FocusThread,self).__init__(parent)
@@ -47,7 +51,7 @@ class FocusThread(QtCore.QThread):
 			C.StartY = y
 			C.NumX = sizex
 			C.NumY = sizey
-			print('here')
+
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
 				time.sleep(0.5)
