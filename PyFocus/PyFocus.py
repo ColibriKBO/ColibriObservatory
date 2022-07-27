@@ -25,15 +25,15 @@ class FocusThread(QtCore.QThread):
 	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
 	updateFocusFrame = QtCore.pyqtSignal(object)
 
-	Zoom = 5
-	x = 0
-	y = 0
-	sizex = 50
-	sizey = 50
-
 	def __init__(self,parent=None):
 		super(FocusThread,self).__init__(parent)
 		self.threadactive = True
+
+		Zoom = 5
+		x = 0
+		y = 0
+		sizex = 50
+		sizey = 50
 
 	@QtCore.pyqtSlot()
 	def run(self):
