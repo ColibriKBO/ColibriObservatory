@@ -203,7 +203,7 @@ class Ui(QtWidgets.QMainWindow):
 
         # self.updateFocusFrame(self.image)
 
-        if self.Start_button.isChecked(False):
+        if self.Start_button.isChecked() is False:
             self.Start_button.setText('Stop')
             self.start_polling()
         else:
