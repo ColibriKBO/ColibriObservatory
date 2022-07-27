@@ -34,9 +34,9 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			image = self.grab()
+			self.image = self.grab(self)
 			print(np.shape(self.image))
-			self.update(image)
+			self.update(self.image)
 			# image = Ui.grabImage(self,0,0,50,50,0.1)
 			# print(np.shape(image))
 			# Ui.updateFocusFrame(image)
