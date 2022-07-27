@@ -5,6 +5,8 @@ import pyqtgraph as pg
 
 import imageio
 
+import matplotlib.pyplot as plt
+
 from alpaca.telescope import *
 from alpaca.camera import *
 from alpaca.focuser import *
@@ -113,6 +115,9 @@ class Ui(QtWidgets.QMainWindow):
     def startFocus():
         connectDevices()
         image = grabImage(0,0,300,300,1)
+
+        plt.imshow(image)
+        plt.show()
 
 def main():
     app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
