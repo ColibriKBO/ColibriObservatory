@@ -48,14 +48,14 @@ class Ui(QtWidgets.QMainWindow):
         # self.focus_imagewidget.setCentralWidget(self.focus_imageframe)
         # self.focus_imageframe.setAspectLocked()
         # self.focus_imageframe.setMenuEnabled(False)
-        self.focus_image = pg.ImageItem()
+        # self.focus_image = pg.ImageItem()
         # self.focus_imageframe.addItem(self.focus_image)
         # self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
 
         self.focus_imagewidget = pg.ImageView()
         self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
         self.focus_imagewidget.show()
-        self.focus_imagewidget.setImage(self.focus_image)
+        # self.focus_imagewidget.setImage(self.focus_image)
 
         ##### Button triggers
 
