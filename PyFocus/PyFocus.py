@@ -107,6 +107,9 @@ class Ui(QtWidgets.QMainWindow):
     def stop(self):
         self.ctrl['break'] = True
 
+    def print_new_value(self, value):
+        print(value)
+
 
     def plot(self, hour, temperature):
         labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
