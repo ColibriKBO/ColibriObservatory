@@ -38,8 +38,11 @@ class FocusThread(QtCore.QThread):
 			# self.updateFocusFrame.emit(self.image)
 			image = Ui.grabImage(self,0,0,50,50,0.1)
 			print(np.shape(image))
-			Ui.updateFocusFrame(self,image)
+			updateFocusFrame(image)
 
+	def updateFocusFrame(image):
+		Ui.focus_imagewidget.setImage(image, levels=(50,200))
+		# self.focus_imagewidget.autoRange()
 
 	def stop(self):
 		self.threadactive = False
@@ -198,7 +201,7 @@ class Ui(QtWidgets.QMainWindow):
 
 	def updateFocusFrame(self, image):
 
-		Ui.focus_imagewidget.setImage(image, levels=(50,200))
+		self.focus_imagewidget.setImage(image, levels=(50,200))
 		# self.focus_imagewidget.autoRange()
 
 	def readxbytes(fid, numbytes):
