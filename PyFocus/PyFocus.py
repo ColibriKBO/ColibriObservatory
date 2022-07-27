@@ -115,9 +115,9 @@ class Ui(QtWidgets.QMainWindow):
         # Make a numpy array of he correct shape for astropy.io.fits
         #
         if imginfo.Rank == 2:
-            nda = np.array(img, dtype=imgDataType).transpose()
+            self.nda = np.array(self.img, dtype=imgDataType).transpose()
         else:
-            nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
+            self.nda = np.array(self.img, dtype=imgDataType).transpose(2,1,0)
 
         return self.img
 
