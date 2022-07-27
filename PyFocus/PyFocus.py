@@ -78,7 +78,7 @@ class Ui(QtWidgets.QMainWindow):
 
         #######              
 
-    def connectDevices():
+    def connectDevices(self):
         try:
             T.Connected = True
             print('Connected to telescope...')
@@ -87,7 +87,7 @@ class Ui(QtWidgets.QMainWindow):
         except Exception as e:
             print(f'ERROR:  {str(e)}')
 
-    def grabImage(x,y,sizex,sizey, exposure):
+    def grabImage(self,x,y,sizex,sizey, exposure):
         C.StartX = x
         C.StartY = y
         C.NumX = sizex
@@ -112,7 +112,7 @@ class Ui(QtWidgets.QMainWindow):
     def slewToAltAz(alt,az):
         T.SlewToAltAz()
 
-    def startFocus():
+    def startFocus(self):
         connectDevices()
         image = grabImage(0,0,300,300,1)
 
