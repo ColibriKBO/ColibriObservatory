@@ -51,11 +51,11 @@ class FocusThread(QtCore.QThread):
 			C.StartY = 0
 			C.NumX = 50
 			C.NumY = 50
-			exposure = 0.5
+			exposure = 0.1
 
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
-				time.sleep(0.5)
+				time.sleep(0.1)
 				print(f'{C.PercentCompleted}% complete')
 			print('finished')
 
