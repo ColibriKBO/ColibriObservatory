@@ -22,15 +22,15 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
 class FocusThread(QtCore.QThread):
-
+	grabImage = QtCore.pyqtSignal(int,int,int,int,float)
+	updateFocusFrame = QtCore.pyqtSignal(np.ndarray)
 	def __init__(self,parent=None):
 		super(FocusThread,self).__init__(parent)
 		self.threadactive = True
 
+	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			# print('Hello World')
-			# time.sleep(1)
 			self.image = self.grabImage.emit(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 			self.updateFocusFrame.emit(self.image)
 
