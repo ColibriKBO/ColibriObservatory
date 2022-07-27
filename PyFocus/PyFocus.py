@@ -36,6 +36,7 @@ class FocusThread(QtCore.QObject):
     def _polling_routine(self):
         # for i in range(100):
         i = 5
+        print(i)
             # print(i)
             # time.sleep(0.5)
         self.output.emit(i)
