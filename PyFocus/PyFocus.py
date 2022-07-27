@@ -36,7 +36,7 @@ class FocusThread(QtCore.QThread):
 			# self.image = self.grabImage.emit(0,0,50,50,0.1)
 			# print(np.shape(self.image))
 			# self.updateFocusFrame.emit(self.image)
-			self.image = Ui.grabImage(0,0,50,50,0.1)
+			self.image = Ui.grabImage(self,0,0,50,50,0.1)
 			print(np.shape(self.image))
 			Ui.updateFocusFrame(self.image)
 
@@ -163,7 +163,7 @@ class Ui(QtWidgets.QMainWindow):
 	def stopFocus(self):
 		self.killthread()
 
-	def grabImage(self=None,x,y,sizex,sizey, exposure):
+	def grabImage(self,x,y,sizex,sizey, exposure):
 		C.StartX = x
 		C.StartY = y
 		C.NumX = sizex
