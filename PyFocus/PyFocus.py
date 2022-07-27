@@ -130,7 +130,7 @@ class Ui(QtWidgets.QMainWindow):
 
     def startFocus(self):
         self.connectDevices()
-        self.image = self.grabImage(0,0,self.Zoom_slider.value()*100,self.Zoom_slider.value()*100,self.Exposure_spinbox.value())
+        self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
         self.updateFocusFrame(self.image)
 
