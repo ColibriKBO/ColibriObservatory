@@ -89,6 +89,8 @@ class Ui(QtWidgets.QMainWindow):
         C.StartY = y
         C.NumX = sizex
         C.NumY = sizey
+        C.BinX = 1
+        C.BinY = 1
 
         C.StartExposure(exposure, True)
         while not C.ImageReady:
