@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>319</width>
-    <height>766</height>
+    <width>320</width>
+    <height>800</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -16,20 +16,22 @@
     <verstretch>0</verstretch>
    </sizepolicy>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>320</width>
+    <height>800</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>320</width>
+    <height>800</height>
+   </size>
+  </property>
   <property name="windowTitle">
    <string>PyFocus</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QGraphicsView" name="ImageView">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>10</y>
-      <width>300</width>
-      <height>300</height>
-     </rect>
-    </property>
-   </widget>
    <widget class="QDoubleSpinBox" name="Exposure_spinbox">
     <property name="geometry">
      <rect>
@@ -38,6 +40,9 @@
       <width>62</width>
       <height>22</height>
      </rect>
+    </property>
+    <property name="value">
+     <double>1.000000000000000</double>
     </property>
    </widget>
    <widget class="QLabel" name="label">
@@ -51,16 +56,6 @@
     </property>
     <property name="text">
      <string>Exposure (s)</string>
-    </property>
-   </widget>
-   <widget class="QGraphicsView" name="PlotView">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>410</y>
-      <width>301</width>
-      <height>111</height>
-     </rect>
     </property>
    </widget>
    <widget class="QRadioButton" name="Center_radio">
@@ -156,7 +151,18 @@
      <number>2</number>
     </property>
    </widget>
-   <widget class="QWidget" name="">
+   <widget class="QWidget" name="gridLayoutWidget">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>301</width>
+      <height>301</height>
+     </rect>
+    </property>
+    <layout class="QGridLayout" name="Focus_layout"/>
+   </widget>
+   <widget class="QWidget" name="layoutWidget">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -182,7 +188,7 @@
      </item>
     </layout>
    </widget>
-   <widget class="QWidget" name="">
+   <widget class="QWidget" name="layoutWidget">
     <property name="geometry">
      <rect>
       <x>20</x>
@@ -519,10 +525,52 @@ QPushButton:pressed {
      </item>
     </layout>
    </widget>
+   <widget class="PlotWidget" name="Plot">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>410</y>
+      <width>301</width>
+      <height>111</height>
+     </rect>
+    </property>
+    <property name="sceneRect">
+     <rectf>
+      <x>0.000000000000000</x>
+      <y>0.000000000000000</y>
+      <width>250.000000000000000</width>
+      <height>100.000000000000000</height>
+     </rectf>
+    </property>
+   </widget>
   </widget>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PlotWidget</class>
+   <extends>QGraphicsView</extends>
+   <header>pyqtgraph</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>Exit_button</sender>
+   <signal>clicked()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>close()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>211</x>
+     <y>745</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>265</x>
+     <y>705</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
  <designerdata>
   <property name="gridDeltaX">
    <number>10</number>
