@@ -38,50 +38,6 @@ class FocusThread(QtCore.QThread):
         self.threadactive = False
         self.wait()
 
-    def grabImage(self,x,y,sizex,sizey, exposure):
-        C.StartX = 0
-        C.StartY = 0
-        C.NumX = 4096
-        C.NumY = 4096
-        C.BinX = 1
-        C.BinY = 1
-
-        C.StartExposure(exposure, True)
-        while not C.ImageReady:
-            time.sleep(0.5)
-            print(f'{C.PercentCompleted}% complete')
-        print('finished')
-
-        self.img = C.ImageArray
-        imginfo = C.ImageArrayInfo
-
-        if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
-            if C.MaxADU <= 65535:
-                imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
-            else:
-                imgDataType = np.int32
-        elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
-            imgDataType = np.float64
-        #
-        # Make a numpy array of he correct shape for astropy.io.fits
-        #
-        if imginfo.Rank == 2:
-            self.nda = np.array(self.img, dtype=imgDataType).transpose()
-        else:
-            self.nda = np.array(self.img, dtype=imgDataType).transpose(2,1,0)
-
-        return self.nda
-
-    def updateFocusFrame(self, image):
-        # plt.imshow(image)
-        # plt.show()
-
-        # self.focus_frame = image
-        # self.focus_image.setImage(image)
-
-        self.focus_imagewidget.setImage(image, levels=(50,200))
-        # self.focus_imagewidget.autoRange()
-
 class Ui(QtWidgets.QMainWindow):
 
     # emit_stop = QtCore.pyqtSignal(int)
@@ -92,11 +48,9 @@ class Ui(QtWidgets.QMainWindow):
         super(Ui, self).__init__(*args, **kwargs)    
         
         # Load the .ui file
-        # uic.loadUi('Camo-S.ui', self)
         uic.loadUi('PyFocus.ui', self)                
         self.title = "PyFocus Automated Focusing"
-        # self.statusBar = QStatusBar()
-        # self.setStatusBar(self.statusBar)
+
 
         width = 320
         height = 785
@@ -133,6 +87,9 @@ class Ui(QtWidgets.QMainWindow):
 
     def watchthread(self,worker):
         self.thread = worker(self)
+        self.thread.grabImage.connect(self.grabImage)
+        self.thread.updateFocusFrame.connect(self.updateFocusFrame)
+        
         # self.thread.finished.connect(self.close)
 
     def startthread(self):
@@ -141,10 +98,6 @@ class Ui(QtWidgets.QMainWindow):
     def killthread(self):
         self.thread.stop()
         print('Say what?')
-
-    # def print_new_value(self, value):
-    #     print(value)
-
 
     def plot(self, hour, temperature):
         labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
@@ -182,9 +135,9 @@ class Ui(QtWidgets.QMainWindow):
 
     def startFocus(self):
         self.connectDevices()
-        # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+        self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
-        # self.updateFocusFrame(self.image)
+        self.updateFocusFrame(self.image)
 
         self.watchthread(FocusThread)
         self.startthread()
@@ -203,7 +156,10 @@ class Ui(QtWidgets.QMainWindow):
     def stopFocus(self):
         self.killthread()
 
-    
+    def updateFocusFrame(self, image):
+
+        self.focus_imagewidget.setImage(image, levels=(50,200))
+        # self.focus_imagewidget.autoRange()
 
     def readxbytes(fid, numbytes):
         for i in range(1):
