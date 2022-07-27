@@ -124,6 +124,10 @@ def main():
     window = Ui()                          # create instance of class
     app.exec_()                            # start the application
 
+T = Telescope('localhost:11111', 0) # Local Omni Simulator
+C = Camera('localhost:11111', 0)
+F = Focuser('localhost:11111', 0)
+
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser(description="""
 
