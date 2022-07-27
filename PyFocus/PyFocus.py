@@ -136,12 +136,14 @@ class Ui(QtWidgets.QMainWindow):
         self.connectDevices()
         image = self.grabImage(0,0,100,100,1)
 
+        self.updateFocusFrame(image)
+
+    def updateFocusFrame(self, image):
         plt.imshow(image)
         plt.show()
 
-    def updateFocusFrame(self, image):
         self.focus_frame = image
-        self.focus_imageframe.setImage(image)
+        self.focus_image.setImage(image)
 
 
 def main():
