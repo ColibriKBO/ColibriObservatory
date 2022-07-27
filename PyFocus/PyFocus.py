@@ -21,36 +21,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-# class FocusThread(QtCore.QObject):
-
-#     output = QtCore.pyqtSignal(object)
-
-#     def __init__(self, ctrl):
-#         super(FocusThread, self).__init__()
-#         # self.image = image
-#         interval = 0.5
-#         self.ctrl = ctrl
-#         self.refreshtime = interval
-
-#     def run(self):
-#         print('Entered run')
-#         print('id:', id(self.ctrl))
-#         self.ctrl['break'] = False
-
-#         while True:
-#             outstring = '1'
-#             self.output.emit(outstring)
-
-#             if self.ctrl['break']:
-#                 print('Break flag raised')
-#                 break
-
-#             time.sleep(self.refreshtime)
-
-#     def stop(self):
-#         self.threadactive = False
-#         self.wait()
-
 class FocusThread(QtCore.QThread):
 
     def __init__(self,parent=None):
@@ -59,8 +29,10 @@ class FocusThread(QtCore.QThread):
 
     def run(self):
         while self.threadactive:
-            print('Hello World')
-            time.sleep(1)
+            # print('Hello World')
+            # time.sleep(1)
+            self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+            self.updateFocusFrame(self.image)
 
     def stop(self):
         self.threadactive = False
@@ -209,10 +181,10 @@ class Ui(QtWidgets.QMainWindow):
         T.SlewToAltAz()
 
     def startFocus(self):
-        # self.connectDevices()
-        # self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+        self.connectDevices()
+        self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
 
-        # self.updateFocusFrame(self.image)
+        self.updateFocusFrame(self.image)
 
         self.watchthread(FocusThread)
         self.startthread()
