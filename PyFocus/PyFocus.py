@@ -188,6 +188,8 @@ class Ui(QtWidgets.QMainWindow):
 		else:
 			nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
+		print(np.shape(nda))
+		
 		return nda
 
 	def updateFocusFrame(self, image):
