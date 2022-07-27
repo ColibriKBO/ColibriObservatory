@@ -33,7 +33,7 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		while self.threadactive:
-			self.image = self.grabImage.emit(0,0,self.Zoom*50,self.Zoom*50,self.Exposure_spinbox.value())
+			self.image = self.grabImage.emit(0,0,50,50,1)
 			self.updateFocusFrame.emit(self.image)
 
 	def stop(self):
@@ -91,7 +91,6 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread = worker(self)
 		self.thread.grabImage.connect(self.grabImage)
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
-		self.thread.Zoom.connect(self.Zoom_slider.value())
 
 		# self.thread.finished.connect(self.close)
 
