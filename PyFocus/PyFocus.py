@@ -102,7 +102,7 @@ class Ui(QtWidgets.QMainWindow):
         self.img = C.ImageArray
         imginfo = C.ImageArrayInfo
 
-        print(np.shape(img))
+        print(np.shape(self.img))
 
         if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
             if C.MaxADU <= 65535:
