@@ -55,6 +55,7 @@ class Ui(QtWidgets.QMainWindow):
         self.focus_imagewidget = pg.ImageView()
         self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
         self.focus_imagewidget.show()
+        self.focus_imagewidget.ui.histogram.hide()
         # self.focus_imagewidget.setImage(self.focus_image)
 
         ##### Button triggers
