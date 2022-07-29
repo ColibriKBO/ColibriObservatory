@@ -52,9 +52,9 @@ class FocusThread(QtCore.QThread):
 
 			C.StartX = 0
 			C.StartY = 0
-			C.NumX = 50
-			C.NumY = 50
-			exposure = 0.1
+			C.NumX = 100
+			C.NumY = 100
+			exposure = 1.0
 
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
