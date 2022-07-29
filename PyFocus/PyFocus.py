@@ -5,6 +5,9 @@ import numba as nb
 import pyqtgraph as pg
 
 import imageio
+import scipy.optimize as opt
+import scipy.ndimage as ndimage
+import scipy.ndimage.filters as filters
 
 import matplotlib.pyplot as plt
 
