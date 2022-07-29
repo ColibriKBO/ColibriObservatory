@@ -27,6 +27,7 @@ from PyQt5.QtGui import *
 class FocusThread(QtCore.QThread):
 	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
 	updateFocusFrame = QtCore.pyqtSignal(object)
+	updatePlot = QtCore.pyqtSignal(float,float,float)
 
 	def __init__(self,parent=None):
 		super(FocusThread,self).__init__(parent)
@@ -40,6 +41,10 @@ class FocusThread(QtCore.QThread):
 
 	@QtCore.pyqtSlot()
 	def run(self):
+		sigmax = []
+		sigmay = []
+		sigmaav = []
+
 		while self.threadactive:
 			# self.grabImage.emit(0,0,50,50,0.1)
 			# time.sleep(1)
@@ -79,6 +84,7 @@ class FocusThread(QtCore.QThread):
 			else:
 				nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
+			# nda = ndimage.gaussian_filter(nda, 1)
 			self.updateFocusFrame.emit(nda)
 
 			# self.updateFocusFrame(nda)
@@ -86,14 +92,60 @@ class FocusThread(QtCore.QThread):
 			global_mean = np.mean(nda)
 			global_stddev = np.std(nda)
 			print('Image mean = %s +/- %s' % (global_mean, global_stddev))
+			
+			data = nda.astype(np.float32)
 
+			# Apply a mean filter
+			fx = 2
+			fy = 2
+			data = ndimage.filters.convolve(data, weights=np.full((fx,fy), 1.0/4))
+			
+
+			# Locate local maxima
+			neighborhood_size = 25
+			intensity_threshold = 50
+			data_max = filters.maximum_filter(data, neighborhood_size)
+			# print(data_max)
+			maxima = (data == data_max)
+			data_min = filters.minimum_filter(data, neighborhood_size+10)
+			diff = ((data_max - data_min) > intensity_threshold)
+			maxima[diff == 0] = 0
+
+			# Apply a mask
+			border = 5
+			border_mask = np.ones_like(maxima)*255
+			border_mask[:border,:] = 0
+			border_mask[-border:,:] = 0
+			border_mask[:,:border] = 0
+			border_mask[:,-border:] = 0
+
+			# Find and label the maxima
+			labeled, num_objects = ndimage.label(maxima)
+
+			# Find centres of mass
+			xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects+1)))
+
+			# Unpack coordinates
+			y,x = np.hsplit(xy,2)
+
+			x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(nda, global_mean, x, y)
+
+			sigmax = np.mean(sigma_x_fitted)
+			sigmay = np.mean(sigma_y_fitted)
+			sigmaav = (np.mean(sigma_x_fitted) + np.mean(sigma_y_fitted))/2
+
+			self.updatePlot.emit(sigmax, sigmay, sigmaav)
+
+			for i in range(len(x2)):
+				print('amp: %s  sigma_x: %s   sigma_y: %s  Av: %s' % (amplitude[i], sigma_x_fitted[i], sigma_y_fitted[i], (sigma_y_fitted[i]+sigma_x_fitted[i])/2))
+			# print(xy)
 
 
 	def stop(self):
 		self.threadactive = False
 		self.wait()
 
-	def twoDGaussian(params, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
+	def twoDGaussian(self, params, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
 	    """ Defines a 2D Gaussian distribution. 
 	    
 	    Arguments:
@@ -131,7 +183,7 @@ class FocusThread(QtCore.QThread):
 
 	    return g.ravel()
 
-	def fitPSF(imarray, avepixel_mean, x2, y2):
+	def fitPSF(self, imarray, avepixel_mean, x2, y2):
 
 		# The following variables are in the config file
 		segment_radius = 25
@@ -193,7 +245,7 @@ class FocusThread(QtCore.QThread):
 
 			# Fit PSF to star
 			try:
-				popt, pcov = opt.curve_fit(twoDGaussian, (y_ind, x_ind, saturation), star_seg.ravel(), \
+				popt, pcov = opt.curve_fit(self.twoDGaussian, (y_ind, x_ind, saturation), star_seg.ravel(), \
 					p0=initial_guess, maxfev=200)
 
 			except RuntimeError:
@@ -306,7 +358,13 @@ class Ui(QtWidgets.QMainWindow):
 
 		# self.Plot.setXRange(0,1)
 
-		self.plot([1,2,3,4,5,6,7,8,9,10], [30,32,34,32,33,31,29,32,35,45])
+		windowWidth = 60
+		self.Sx = list(range(windowWidth))
+		self.Sy = [0 for i in range(windowWidth)]
+		self.ptr = -windowWidth
+
+		# self.plot([1], [1])
+		self.x_line = self.Plot.plot(self.Sx, self.Sy)
 
 		self.thread = FocusThread(self)
 
@@ -315,6 +373,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread = worker(self)
 		# self.thread.grabImage.connect(self.grabImage)
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
+		self.thread.updatePlot.connect(self.updatePlot)
 
 		# self.thread.finished.connect(self.close)
 
@@ -329,13 +388,38 @@ class Ui(QtWidgets.QMainWindow):
 		labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
 		self.Plot.plot(hour, temperature)
 		self.Plot.setLabel('left', 'PSF (px)', **labelStyle)
+		# self.Plot.enableAutoRange()
+		# self.Plot.setAutoVisible(y=True)
 		self.Plot.autoRange(padding=0)
+
 		# print(self.Plot.ViewBox.screenGeometry())
 
 		# self.Plot.plotItem.getViewBox().setBackgroundColor((192, 192, 192))
 		# self.Plot.setLabel('bottom', 'hour', **labelStyle)
 
-		#######              
+		#######
+
+	def updatePlot(self, sigmax, sigmay, average):
+
+		self.Sx = self.Sx[1:]
+		self.Sx.append(self.Sx[-1] + 1)
+
+		self.Sy = self.Sy[1:]
+		self.Sy.append(average)
+
+		self.x_line.setData(self.Sx, self.Sy)
+
+
+		# x = [i for i in range(len(sigmax))]
+		# self.Sx[:-1] = self.Sx[1:]
+		# self.Sx[-1] = sigmax
+		# self.ptr += 1
+		# self.Plot.setData(self.Sx)
+		# self.Plot.setPos(self.ptr,0)
+		# QtGui.QApplication.processEvents()
+
+		# self.Plot.plot(x,sigmax)
+
 
 	def connectDevices(self):
 		try:
