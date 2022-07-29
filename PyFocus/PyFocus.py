@@ -76,17 +76,190 @@ class FocusThread(QtCore.QThread):
 			else:
 				nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
-			print(np.shape(nda))
-
 			self.updateFocusFrame.emit(nda)
 
 			# self.updateFocusFrame(nda)
+
+			global_mean = np.mean(nda)
+			global_stddev = np.std(nda)
+			print('Image mean = %s +/- %s' % (global_mean, global_stddev))
 
 
 
 	def stop(self):
 		self.threadactive = False
 		self.wait()
+
+	def twoDGaussian(params, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
+	    """ Defines a 2D Gaussian distribution. 
+	    
+	    Arguments:
+	        params: [tuple of floats] 
+	            - (x, y) independant variables, 
+	            - saturation: [int] Value at which saturation occurs
+	        amplitude: [float] amplitude of the PSF
+	        xo: [float] PSF center, X component
+	        yo: [float] PSF center, Y component
+	        sigma_x: [float] standard deviation X component
+	        sigma_y: [float] standard deviation Y component
+	        theta: [float] PSF rotation in radians
+	        offset: [float] PSF offset from the 0 (i.e. the "elevation" of the PSF)
+
+	    Return:
+	        g: [ndarray] values of the given Gaussian at (x, y) coordinates
+
+	    """
+
+	    x, y, saturation = params
+
+	    if isinstance(saturation, np.ndarray):
+	        saturation = saturation[0, 0]
+	    
+	    xo = float(xo)
+	    yo = float(yo)
+
+	    a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+	    b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+	    c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+	    g = offset + amplitude*np.exp(-(a*((x - xo)**2) + 2*b*(x - xo)*(y - yo) + c*((y - yo)**2)))
+
+	    # Limit values to saturation level
+	    g[g > saturation] = saturation
+
+	    return g.ravel()
+
+	def fitPSF(imarray, avepixel_mean, x2, y2):
+
+		# The following variables are in the config file
+		segment_radius = 25
+		roundness_threshold = 0.5
+		max_feature_ratio = 0.8
+
+		x_fitted = []
+		y_fitted = []
+		amplitude_fitted = []
+		intensity_fitted = []
+		sigma_y_fitted = []
+		sigma_x_fitted = []
+
+		# Set the initial guess
+		initial_guess = (30.0, segment_radius, segment_radius, 1.0, 1.0, 0.0, avepixel_mean)
+
+		# Loop over all stars
+		for star in zip(list(y2), list(x2)):
+
+			y, x = star
+
+			y_min = y - segment_radius
+			y_max = y + segment_radius
+			x_min = x - segment_radius
+			x_max = x + segment_radius
+
+			# print(np.shape(imarray))
+
+			if y_min < 0:
+				y_min = np.array([0])
+			if y_max > np.shape(imarray)[0]:
+				y_max = np.array(np.shape(imarray)[0])
+			if x_min < 0:
+				x_min = np.array([0])
+				# print(x_min)
+			if x_max > np.shape(imarray)[1]:
+				x_max = np.array(np.shape(imarray[1]))
+				# print(x_max)
+				# print(np.shape(imarray[1]))
+
+			# # Check for NaN
+			# if np.any(np.isnan([x_min, x_max, y_min, y_max])):
+			# 	continue
+			
+			# print('%s %s %s %s' % (x_min, x_max, y_min, y_max))
+			x_min = int(x_min)
+			x_max = int(x_max)
+			y_min = int(y_min)
+			y_max = int(y_max)
+
+			# Extract an image segment around each star
+			star_seg = imarray[y_min:y_max,x_min:x_max]
+
+			# Create x and y indices
+			y_ind, x_ind = np.indices(star_seg.shape)
+
+			# Estimate saturation level from image type
+			saturation = (2**(8*star_seg.itemsize) - 1)*np.ones_like(y_ind)
+
+			# Fit PSF to star
+			try:
+				popt, pcov = opt.curve_fit(twoDGaussian, (y_ind, x_ind, saturation), star_seg.ravel(), \
+					p0=initial_guess, maxfev=200)
+
+			except RuntimeError:
+				# print('Fitting failed!!!')
+				continue
+
+			# Unpack fitted gaussian parameters
+			amplitude, yo, xo, sigma_y, sigma_x, theta, offset = popt
+
+			# Filter hot pixels
+			if min(sigma_y/sigma_x, sigma_x/sigma_y) < roundness_threshold:
+				# Skip if pixel is hot
+				continue
+
+			# Reject if it's too large
+			if (4*sigma_x*sigma_y/segment_radius**2 > max_feature_ratio):
+				continue
+
+			# Crop segment to 3 sigma around star
+			crop_y_min = int(yo - 3*sigma_y) + 1
+			if crop_y_min < 0: crop_y_min = 70
+
+			crop_y_max = int(yo + 3*sigma_y) + 1
+			if crop_y_max >= star_seg.shape[0]: crop_y_max = star_seg.shape[0] - 1
+
+			crop_x_min = int(xo - 3*sigma_x) + 1
+			if crop_x_min < 0: crop_x_min = 0
+
+			crop_x_max = int(xo + 3*sigma_x) + 1
+			if crop_x_max >= star_seg.shape[1]: crop_x_max = star_seg.shape[1] -1
+
+			# Set fixed size if segment is too small
+			if (y_max - y_min) < 3:
+				crop_y_min = int(yo - 2)
+				crop_y_max = int(yo + 2)
+			if (x_max - x_min) < 3:
+				crop_x_min = int(xo - 2)
+				crop_x_max = int(xo + 2)
+
+			star_seg_crop = star_seg[crop_y_min:crop_y_max,crop_x_min:crop_x_max]
+
+			# Skip is shape is too small
+			if (star_seg_crop.shape[0] == 0) or (star_seg_crop.shape[1] == 0):
+				continue
+
+			# # Gamma correct the star segment
+			# star_seg_crop = Image.gammaCorrection(star_seg_crop.astype(np.float32), 1.0)
+
+			# # Gamma correct the background
+			# bg_corrected = Image.gammaCorrection(offset, 1.0)
+			bg_corrected = offset
+
+			# Subtract background
+			intensity = np.sum(star_seg_crop - bg_corrected)
+
+			# Skip if 0 intensity
+			if intensity <=0:
+				continue
+
+			# Add stars to the final list
+			x_fitted.append(x_min + xo)
+			y_fitted.append(y_min + yo)
+			amplitude_fitted.append(amplitude)
+			intensity_fitted.append(intensity)
+			sigma_y_fitted.append(sigma_y)
+			sigma_x_fitted.append(sigma_x)
+
+		return x_fitted, y_fitted, amplitude_fitted, intensity_fitted, sigma_y_fitted, sigma_x_fitted
+
 
 class Ui(QtWidgets.QMainWindow):
 
