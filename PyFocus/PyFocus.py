@@ -387,7 +387,7 @@ class Ui(QtWidgets.QMainWindow):
 			C.Connected = True
 			print('Connected to camera...')
 			# print(C.CanFastReadout)
-			C.FastReadout = True
+			# C.FastReadout = True
 			# print(C.FastReadout)
 		except Exception as e:
 			print(f'ERROR:  {str(e)}')
