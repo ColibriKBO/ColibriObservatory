@@ -461,7 +461,7 @@ class Ui(QtWidgets.QMainWindow):
 
 	def updateFocusFrame(self, image):
 
-		self.focus_imagewidget.setImage(image, levels=(50,100))
+		self.focus_imagewidget.setImage(image, levels=(0,100))
 		print(np.min(image))
 		print(np.max(image))
 		# self.focus_imagewidget.setImage(image)
