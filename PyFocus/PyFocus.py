@@ -461,8 +461,8 @@ class Ui(QtWidgets.QMainWindow):
 
 	def updateFocusFrame(self, image):
 
-		# self.focus_imagewidget.setImage(image, levels=(50,200))
-		self.focus_imagewidget.setImage(image)
+		self.focus_imagewidget.setImage(image, levels=(50,200))
+		# self.focus_imagewidget.setImage(image)
 		# self.focus_imagewidget.autoRange()
 
 	# def readxbytes(fid, numbytes):
