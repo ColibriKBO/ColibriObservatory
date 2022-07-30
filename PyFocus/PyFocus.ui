@@ -58,54 +58,12 @@
      <string>Exposure (s)</string>
     </property>
    </widget>
-   <widget class="QRadioButton" name="Center_radio">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>350</y>
-      <width>81</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Center</string>
-    </property>
-    <property name="checked">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QRadioButton" name="Half_radio">
-    <property name="geometry">
-     <rect>
-      <x>120</x>
-      <y>350</y>
-      <width>95</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>1/2 way out</string>
-    </property>
-   </widget>
-   <widget class="QRadioButton" name="Corner_radio">
-    <property name="geometry">
-     <rect>
-      <x>240</x>
-      <y>350</y>
-      <width>71</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Corner</string>
-    </property>
-   </widget>
    <widget class="QSlider" name="Zoom_slider">
     <property name="geometry">
      <rect>
-      <x>19</x>
+      <x>59</x>
       <y>320</y>
-      <width>281</width>
+      <width>241</width>
       <height>22</height>
      </rect>
     </property>
@@ -184,7 +142,7 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>730</y>
+      <y>760</y>
       <width>301</width>
       <height>30</height>
      </rect>
@@ -213,7 +171,7 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>530</y>
+      <y>560</y>
       <width>301</width>
       <height>191</height>
      </rect>
@@ -602,7 +560,7 @@ QPushButton:pressed {
       <x>10</x>
       <y>410</y>
       <width>301</width>
-      <height>111</height>
+      <height>141</height>
      </rect>
     </property>
     <property name="sceneRect">
@@ -613,6 +571,55 @@ QPushButton:pressed {
       <height>100.000000000000000</height>
      </rectf>
     </property>
+   </widget>
+   <widget class="QLabel" name="label_7">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>321</y>
+      <width>41</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Zoom</string>
+    </property>
+   </widget>
+   <widget class="QWidget" name="">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>345</y>
+      <width>301</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <layout class="QHBoxLayout" name="horizontalLayout_3">
+     <item>
+      <widget class="QRadioButton" name="Center_radio">
+       <property name="text">
+        <string>Center</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="Half_radio">
+       <property name="text">
+        <string>1/2 way out    </string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="Corner_radio">
+       <property name="text">
+        <string>Corner</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </widget>
   </widget>
  </widget>

@@ -46,24 +46,15 @@ class FocusThread(QtCore.QThread):
 		sigmaav = []
 
 		while self.threadactive:
-			# self.grabImage.emit(0,0,50,50,0.1)
-			# time.sleep(1)
-			# print('test')
-			# print(np.shape(self.image))
-			# self.updateFocusFrame.emit(self.image)
-			# image = Ui.grabImage(self,0,0,50,50,0.1)
-			# print(np.shape(image))
-			# Ui.updateFocusFrame(image)
-
 			C.StartX = 0
 			C.StartY = 0
 			C.NumX = 100
 			C.NumY = 100
-			exposure = 1.0
+			exposure = 0.5
 
 			C.StartExposure(exposure, True)
 			while not C.ImageReady:
-				time.sleep(0.01)
+				time.sleep(0.1)
 				# print(f'{C.PercentCompleted}% complete')
 			# print('finished')
 
@@ -84,14 +75,12 @@ class FocusThread(QtCore.QThread):
 			else:
 				nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
-			# nda = ndimage.gaussian_filter(nda, 1)
 			self.updateFocusFrame.emit(nda)
-
-			# self.updateFocusFrame(nda)
 
 			global_mean = np.mean(nda)
 			global_stddev = np.std(nda)
-			print('Image mean = %s +/- %s' % (global_mean, global_stddev))
+			# print('Image mean = %s +/- %s' % (global_mean, global_stddev))
+			self.newtxt = 'Image mean = ' + str(global_mean) + ' +/- ' + str(global_stddev)
 			
 			data = nda.astype(np.float32)
 
@@ -100,10 +89,9 @@ class FocusThread(QtCore.QThread):
 			fy = 2
 			data = ndimage.filters.convolve(data, weights=np.full((fx,fy), 1.0/4))
 			
-
 			# Locate local maxima
 			neighborhood_size = 25
-			intensity_threshold = 50
+			intensity_threshold = 30
 			data_max = filters.maximum_filter(data, neighborhood_size)
 			# print(data_max)
 			maxima = (data == data_max)
@@ -136,10 +124,8 @@ class FocusThread(QtCore.QThread):
 
 			self.updatePlot.emit(sigmax, sigmay, sigmaav)
 
-			for i in range(len(x2)):
-				print('amp: %s  sigma_x: %s   sigma_y: %s  Av: %s' % (amplitude[i], sigma_x_fitted[i], sigma_y_fitted[i], (sigma_y_fitted[i]+sigma_x_fitted[i])/2))
-			# print(xy)
-
+			# for i in range(len(x2)):
+			# 	print('amp: %s  sigma_x: %s   sigma_y: %s  Av: %s' % (amplitude[i], sigma_x_fitted[i], sigma_y_fitted[i], (sigma_y_fitted[i]+sigma_x_fitted[i])/2))
 
 	def stop(self):
 		self.threadactive = False
@@ -210,8 +196,6 @@ class FocusThread(QtCore.QThread):
 			x_min = x - segment_radius
 			x_max = x + segment_radius
 
-			# print(np.shape(imarray))
-
 			if y_min < 0:
 				y_min = np.array([0])
 			if y_max > np.shape(imarray)[0]:
@@ -221,14 +205,11 @@ class FocusThread(QtCore.QThread):
 				# print(x_min)
 			if x_max > np.shape(imarray)[1]:
 				x_max = np.array(np.shape(imarray[1]))
-				# print(x_max)
-				# print(np.shape(imarray[1]))
 
 			# # Check for NaN
 			# if np.any(np.isnan([x_min, x_max, y_min, y_max])):
 			# 	continue
 			
-			# print('%s %s %s %s' % (x_min, x_max, y_min, y_max))
 			x_min = int(x_min)
 			x_max = int(x_max)
 			y_min = int(y_min)
@@ -249,7 +230,6 @@ class FocusThread(QtCore.QThread):
 					p0=initial_guess, maxfev=200)
 
 			except RuntimeError:
-				# print('Fitting failed!!!')
 				continue
 
 			# Unpack fitted gaussian parameters
@@ -291,11 +271,6 @@ class FocusThread(QtCore.QThread):
 			if (star_seg_crop.shape[0] == 0) or (star_seg_crop.shape[1] == 0):
 				continue
 
-			# # Gamma correct the star segment
-			# star_seg_crop = Image.gammaCorrection(star_seg_crop.astype(np.float32), 1.0)
-
-			# # Gamma correct the background
-			# bg_corrected = Image.gammaCorrection(offset, 1.0)
 			bg_corrected = offset
 
 			# Subtract background
@@ -331,7 +306,7 @@ class Ui(QtWidgets.QMainWindow):
 
 
 		width = 320
-		height = 785
+		height = 800
 		# setting  the fixed size of window
 		self.setFixedSize(width, height)
 
@@ -354,35 +329,30 @@ class Ui(QtWidgets.QMainWindow):
 		# self.JogSouth_button.clicked.connect(self.jogScope)
 		# self.JogEast_button.clicked.connect(self.jogScope)
 		# self.JogWest_button.clicked.connect(self.jogScope)
-		
-
-		# self.Plot.setXRange(0,1)
 
 		windowWidth = 60
 		self.Sx = list(range(windowWidth))
-		self.Sy = [0 for i in range(windowWidth)]
-		self.ptr = -windowWidth
+		self.Sy = [1 for i in range(windowWidth)]
+		self.Syy = [1 for i in range(windowWidth)]
+		self.Sav = [1 for i in range(windowWidth)]
 
-		# self.plot([1], [1])
-		self.x_line = self.Plot.plot(self.Sx, self.Sy)
+		self.x_line = self.Plot.plot(self.Sx, self.Sy, pen = pg.mkPen(color='r'))
+		self.y_line = self.Plot.plot(self.Sx, self.Syy, pen = pg.mkPen(color='g'))
+		self.av_line = self.Plot.plot(self.Sx, self.Sav, pen = pg.mkPen(color='b'))
 
 		self.thread = FocusThread(self)
 
-
 	def watchthread(self,worker):
 		self.thread = worker(self)
-		# self.thread.grabImage.connect(self.grabImage)
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
 		self.thread.updatePlot.connect(self.updatePlot)
-
-		# self.thread.finished.connect(self.close)
 
 	def startthread(self):
 		self.thread.start()
 
 	def killthread(self):
 		self.thread.stop()
-		print('Say what?')
+		# print('Say what?')
 
 	def plot(self, hour, temperature):
 		labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
@@ -392,34 +362,23 @@ class Ui(QtWidgets.QMainWindow):
 		# self.Plot.setAutoVisible(y=True)
 		self.Plot.autoRange(padding=0)
 
-		# print(self.Plot.ViewBox.screenGeometry())
-
-		# self.Plot.plotItem.getViewBox().setBackgroundColor((192, 192, 192))
-		# self.Plot.setLabel('bottom', 'hour', **labelStyle)
-
-		#######
-
 	def updatePlot(self, sigmax, sigmay, average):
 
 		self.Sx = self.Sx[1:]
 		self.Sx.append(self.Sx[-1] + 1)
 
 		self.Sy = self.Sy[1:]
-		self.Sy.append(average)
+		self.Sy.append(sigmax)
+
+		self.Syy = self.Syy[1:]
+		self.Syy.append(sigmay)
+
+		self.Sav = self.Sav[1:]
+		self.Sav.append(average)
 
 		self.x_line.setData(self.Sx, self.Sy)
-
-
-		# x = [i for i in range(len(sigmax))]
-		# self.Sx[:-1] = self.Sx[1:]
-		# self.Sx[-1] = sigmax
-		# self.ptr += 1
-		# self.Plot.setData(self.Sx)
-		# self.Plot.setPos(self.ptr,0)
-		# QtGui.QApplication.processEvents()
-
-		# self.Plot.plot(x,sigmax)
-
+		self.y_line.setData(self.Sx, self.Syy)
+		self.av_line.setData(self.Sx, self.Sav)
 
 	def connectDevices(self):
 		try:
@@ -428,12 +387,10 @@ class Ui(QtWidgets.QMainWindow):
 			C.Connected = True
 			print('Connected to camera...')
 			# print(C.CanFastReadout)
-			# C.FastReadout = True
+			C.FastReadout = True
 			# print(C.FastReadout)
 		except Exception as e:
 			print(f'ERROR:  {str(e)}')
-
-
 
 	def changeFocus(step,dir):
 		# Adjust focus
@@ -447,62 +404,60 @@ class Ui(QtWidgets.QMainWindow):
 		T.SlewToAltAz()
 
 	def startFocus(self):
-		self.connectDevices()
-		# self.image = self.grabImage(0,0,self.Zoom_slider.value()*50,self.Zoom_slider.value()*50,self.Exposure_spinbox.value())
+		# self.connectDevices()
 
-		# self.updateFocusFrame(self.image)
-
-		self.watchthread(FocusThread)
-		self.startthread()
+		# self.watchthread(FocusThread)
+		# self.startthread()
 
 		# print(self.Start_button.isChecked())
-		# if self.Start_button.isChecked():
-		#     self.watchthread(FocusThread)
-		#     self.startthread()
+		if self.Start_button.isChecked():
+			self.connectDevices()
+			self.watchthread(FocusThread)
+			self.startthread()
 
-		#     # print(self.ctrl)
-		#     # self.ctrl['break'] = False
-		#     # self.start()
-		# else:
-		#     self.killthread()
+		    # print(self.ctrl)
+		    # self.ctrl['break'] = False
+		    # self.start()
+		else:
+		    self.killthread()
 
 	def stopFocus(self):
 		self.killthread()
 
-	def grabImage(self,x,y,sizex,sizey, exposure):
-		C.StartX = x
-		C.StartY = y
-		C.NumX = sizex
-		C.NumY = sizey
-		print('here')
-		C.StartExposure(exposure, True)
-		while not C.ImageReady:
-			time.sleep(0.5)
-			print(f'{C.PercentCompleted}% complete')
-		print('finished')
+	# def grabImage(self,x,y,sizex,sizey, exposure):
+	# 	C.StartX = x
+	# 	C.StartY = y
+	# 	C.NumX = sizex
+	# 	C.NumY = sizey
+	# 	print('here')
+	# 	C.StartExposure(exposure, True)
+	# 	while not C.ImageReady:
+	# 		time.sleep(0.5)
+	# 		print(f'{C.PercentCompleted}% complete')
+	# 	print('finished')
 
-		img = C.ImageArray
-		imginfo = C.ImageArrayInfo
-		if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
-			if C.MaxADU <= 65535:
-				imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
-			else:
-				imgDataType = np.int32
-		elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
-			imgDataType = np.float64
-		#
-		# Make a numpy array of he correct shape for astropy.io.fits
-		#
-		if imginfo.Rank == 2:
-			nda = np.array(img, dtype=imgDataType).transpose()
-		else:
-			nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
+	# 	img = C.ImageArray
+	# 	imginfo = C.ImageArrayInfo
+	# 	if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
+	# 		if C.MaxADU <= 65535:
+	# 			imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
+	# 		else:
+	# 			imgDataType = np.int32
+	# 	elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
+	# 		imgDataType = np.float64
+	# 	#
+	# 	# Make a numpy array of he correct shape for astropy.io.fits
+	# 	#
+	# 	if imginfo.Rank == 2:
+	# 		nda = np.array(img, dtype=imgDataType).transpose()
+	# 	else:
+	# 		nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
-		print(np.shape(nda))
+	# 	print(np.shape(nda))
 
-		# self.updateFocusFrame(nda)
+	# 	# self.updateFocusFrame(nda)
 
-		return nda
+	# 	return nda
 
 	def updateFocusFrame(self, image):
 
@@ -510,44 +465,44 @@ class Ui(QtWidgets.QMainWindow):
 		self.focus_imagewidget.setImage(image)
 		# self.focus_imagewidget.autoRange()
 
-	def readxbytes(fid, numbytes):
-		for i in range(1):
-			data = fid.read(numbytes)
-			if not data:
-				break
-		return data
+	# def readxbytes(fid, numbytes):
+	# 	for i in range(1):
+	# 		data = fid.read(numbytes)
+	# 		if not data:
+	# 			break
+	# 	return data
 
-	@nb.njit(nb.uint16[::1](nb.uint8[::1]),fastmath=True,parallel=True)
-	def nb_read_data(data_chunk):
-		"""data_chunk is a contigous 1D array of uint8 data)
-		eg.data_chunk = np.frombuffer(data_chunk, dtype=np.uint8)"""
-		#ensure that the data_chunk has the right length
+	# @nb.njit(nb.uint16[::1](nb.uint8[::1]),fastmath=True,parallel=True)
+	# def nb_read_data(data_chunk):
+	# 	"""data_chunk is a contigous 1D array of uint8 data)
+	# 	eg.data_chunk = np.frombuffer(data_chunk, dtype=np.uint8)"""
+	# 	#ensure that the data_chunk has the right length
 
-		assert np.mod(data_chunk.shape[0],3)==0
+	# 	assert np.mod(data_chunk.shape[0],3)==0
 
-		out=np.empty(data_chunk.shape[0]//3*2,dtype=np.uint16)
-		image1 = np.empty((2048,2048),dtype=np.uint16)
-		image2 = np.empty((2048,2048),dtype=np.uint16)
+	# 	out=np.empty(data_chunk.shape[0]//3*2,dtype=np.uint16)
+	# 	image1 = np.empty((2048,2048),dtype=np.uint16)
+	# 	image2 = np.empty((2048,2048),dtype=np.uint16)
 
-		for i in nb.prange(data_chunk.shape[0]//3):
-			fst_uint8=np.uint16(data_chunk[i*3])
-			mid_uint8=np.uint16(data_chunk[i*3+1])
-			lst_uint8=np.uint16(data_chunk[i*3+2])
+	# 	for i in nb.prange(data_chunk.shape[0]//3):
+	# 		fst_uint8=np.uint16(data_chunk[i*3])
+	# 		mid_uint8=np.uint16(data_chunk[i*3+1])
+	# 		lst_uint8=np.uint16(data_chunk[i*3+2])
 
-			out[i*2] =   (fst_uint8 << 4) + (mid_uint8 >> 4)
-			out[i*2+1] = ((mid_uint8 % 16) << 8) + lst_uint8
+	# 		out[i*2] =   (fst_uint8 << 4) + (mid_uint8 >> 4)
+	# 		out[i*2+1] = ((mid_uint8 % 16) << 8) + lst_uint8
 
-		return out
+	# 	return out
 
-	def split_images(self,data,pix_h,pix_v,gain):
-		interimg = np.reshape(data, [2*pix_v,pix_h])
+	# def split_images(self,data,pix_h,pix_v,gain):
+	# 	interimg = np.reshape(data, [2*pix_v,pix_h])
 
-		if gain == 'low':
-			image = interimg[::2]
-		else:
-			image = interimg[1::2]
+	# 	if gain == 'low':
+	# 		image = interimg[::2]
+	# 	else:
+	# 		image = interimg[1::2]
 
-		return image
+	# 	return image
 
 def main():
 	app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
