@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
 	
 
-	repro = True
+	repro = False
 
 	# procYMD = str(datetime.datetime.today().strftime('%Y/%m/%d'))
 	# procyear = int(datetime.datetime.today().strftime('%Y'))
@@ -149,6 +149,7 @@ if __name__ == '__main__':
 					# f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
 					f1.write('process_date: %s\n' % process_date)
 					f1.write('run_par: True\n')
+					print('Wrote 1process.txt to %s' % root)
 
 				print('Finished primary processing.')
 
@@ -174,7 +175,7 @@ if __name__ == '__main__':
 			print('Bias subdirectory excluded.')
 		else:
 			if os.path.isfile(os.path.join(d, '2process.txt')) and repro == False:
-				# print(os.path.join(root, '1process.txt'))
+				# print(os.path.join(root, '2process.txt'))
 				secondarydone = True
 				print('1st stage processing already complete on %s' % d)
 				# print('File exisits. Opening existing file.')
@@ -193,12 +194,15 @@ if __name__ == '__main__':
 				obsday = int(dirdaytime[6:8].lstrip("0"))
 				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
 
+				print(basepath)
+				print(obsYMD)
+
 			if secondarydone == True:
 				pass
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_secondary.py'), '-b'+'d:\\', '-d' + '2022/07/20', '-p' + process_date])
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_secondary.py'), '-b'+'d:\\', '-d' + str(obsYMD), '-p' + process_date])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
