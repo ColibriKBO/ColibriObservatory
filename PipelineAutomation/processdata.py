@@ -202,7 +202,7 @@ if __name__ == '__main__':
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_secondary.py'), '-b'+'d:\\', '-d' + str(obsYMD), '-p' + process_date])
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_secondary.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
