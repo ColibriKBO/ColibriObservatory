@@ -764,16 +764,20 @@ var numExposures = 2400;
 var slewAttempt = 0;
 
 var field1 = [273.735, -18.638]; // June/July
-var field2 = [103.263, 24.329]; // January
-var field3 = [129.869, 19.474]; // February
-var field4 = [56.684, 24.313]; // August
-var field5 = [318.657, -13.830]; // December
-var field6 = [222.785, -11.810]; // May
-var field7 = [334.741, -12.383]; // September
-var field8 = [39.791, 16.953]; // November
-var field9 = [8.974, 1.834]; // October
-var field10 = [142.138, 12.533]; // March
-var field11 = [206.512, -10.259]; // April
+var field2 = [288.355, -7.992];
+var field3 = [87.510, 20.819];
+var field4 = [103.263, 24.329]; // January
+var field5 = [129.869, 19.474]; // February
+var field6 = [254.846, -27.353];
+var field7 = [56.684, 24.313]; // August
+var field12 = [318.657, -13.830]; // December
+var field13 = [222.785, -11.810]; // May
+var field14 = [334.741, -12.383]; // September
+var field15 = [39.791, 16.953]; // November
+var field16 = [8.974, 1.834]; // October
+var field18 = [142.138, 12.533]; // March
+var field19 = [206.512, -10.259]; // April
+var field24 = [167.269, 2.203];
 
 // Create new coordinate transform objects and fill with RA/Dec for each of the fields
 // ct1 = Util.NewCThereAndNow(); ct1.RightAscension = field1[0] / 15; ct1.Declination = parseFloat(field1[1]);
@@ -791,16 +795,20 @@ var field11 = [206.512, -10.259]; // April
 // Elevation, Azimuth, field, field name, moon angle, HA, airmass, # of M13 stars, a, b, # of stars visible, rank, ct time #
 fieldInfo = [
     [0, 0, field1, "field1", 0, 0, 1.0, 3900, 0.0009, 1.176, 3900, 0, 0],
-    [0, 0, field2, "field2", 0, 0, 1.0, 560, 0.0005, 1.0951, 560, 0, 0],
-    [0, 0, field3, "field3", 0, 0, 1.0, 321, 0.2717, 0.5509, 321, 0, 0],
-    [0, 0, field4, "field4", 0, 0, 1.0, 304, 0.3736, 0.533, 304, 0, 0],
-    [0, 0, field5, "field5", 0, 0, 1.0, 119, 0.001, 0.9228, 119, 0, 0],
-    [0, 0, field6, "field6", 0, 0, 1.0, 113, 0.0036, 0.8133, 113, 0, 0],
-    [0, 0, field7, "field7", 0, 0, 1.0, 179, 0.0003, 1.0127, 179, 0, 0],
-    [0, 0, field8, "field8", 0, 0, 1.0, 167, 0.0002, 1.0816, 167, 0, 0],
-    [0, 0, field9, "field9", 0, 0, 1.0, 113, 0.00008, 1.1247, 113, 0, 0],
-    [0, 0, field10, "field10", 0, 1.0, 0, 232, 0.0009, 0.966, 232, 0, 0],
-    [0, 0, field11, "field11", 0, 1.0, 0, 131, 0.0014, 0.909, 131, 0, 0]
+    [0, 0, field2, "field2", 0, 0, 1.0, 1268, 0.0005, 1.0, 1268, 0, 0],
+    [0, 0, field3, "field3", 0, 0, 1.0, 918, 0.0005, 1.0, 918, 0, 0],
+    [0, 0, field4, "field4", 0, 0, 1.0, 560, 0.0005, 1.0951, 560, 0, 0],
+    [0, 0, field5, "field5", 0, 0, 1.0, 321, 0.2717, 0.5509, 321, 0, 0],
+    [0, 0, field6, "field6", 0, 0, 1.0, 1455, 0.0005, 1.0, 1455, 0, 0],
+    [0, 0, field7, "field7", 0, 0, 1.0, 304, 0.3736, 0.533, 304, 0, 0],
+    [0, 0, field12, "field12", 0, 0, 1.0, 119, 0.001, 0.9228, 119, 0, 0],
+    [0, 0, field13, "field13", 0, 0, 1.0, 113, 0.0036, 0.8133, 113, 0, 0],
+    [0, 0, field14, "field14", 0, 0, 1.0, 179, 0.0003, 1.0127, 179, 0, 0],
+    [0, 0, field15, "field15", 0, 0, 1.0, 167, 0.0002, 1.0816, 167, 0, 0],
+    [0, 0, field16, "field16", 0, 0, 1.0, 113, 0.00008, 1.1247, 113, 0, 0],
+    [0, 0, field18, "field18", 0, 0, 1.0, 232, 0.0009, 0.966, 232, 0, 0],
+    [0, 0, field19, "field19", 0, 0, 1.0, 131, 0.0014, 0.909, 131, 0, 0],
+    [0, 0, field24, "field24", 0, 0, 1.0, 158, 0.0005, 1.0, 158, 0, 0]
 ];
 
 currentDate = getDate()
