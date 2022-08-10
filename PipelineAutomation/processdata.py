@@ -168,12 +168,13 @@ if __name__ == '__main__':
 				secondarydone = True
 				print('2nd stage processing already complete on %s' % d)
 				# print('File exisits. Opening existing file.')
-				# with open(os.path.join(d, '2process.txt')) as f1:
-				# 	lines = f1.readlines()
-				# 	base_path = lines[0].strip('\n').split()[1]
-				# 	obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-				# 	obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-				# 	obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
+				with open(os.path.join(d, '2process.txt')) as f1:
+					lines = f1.readlines()
+					base_path = lines[0].strip('\n').split()[1]
+					obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+					obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+					obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
+					obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
 			else:
 				secondarydone = False
 				basepath = pathlib.Path('d:')
@@ -206,6 +207,24 @@ if __name__ == '__main__':
 				print('Finished 2nd stage processing.')
 
 	t2 = time.time()-starttime
+
+	###### Step 3... ######
+	print('Calculating bias stats...')
+	print(obsYMD)
+	try:
+		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
+		print('step 3')
+		while p.poll() is None:
+			print('.', end='', flush=True)
+			time.sleep(1)
+	except:
+		pass
+
+	t3 = time.time()-starttime
+
 	print('Completed 1st stage data processing in %s seconds' % t1)
 	print('Completed 2nd stage data processing in  %s seconds' % (t2-t1))
-	print('Total time to process was %s seconds' % (t2))
+	print('Completed bias image stats in %s seconds' % (t3-t2))
+	print('Total time to process was %s seconds' % (t3))
+
+
