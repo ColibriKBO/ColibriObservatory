@@ -47,7 +47,9 @@ function abort(){
     Console.PrintLine("Aborting script!");
     shutDown();
     // Util.AbortScript();
-    WScript.Quit
+    // WScript.Quit
+    main()
+
 }
 
 //////////////////////////////////////////////////
