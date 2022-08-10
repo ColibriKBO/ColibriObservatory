@@ -48,7 +48,7 @@ function abort(){
     shutDown();
     // Util.AbortScript();
     // WScript.Quit
-    main()
+    main();
 
 }
 
@@ -1196,7 +1196,7 @@ function main()
             Console.PrintLine("")
             Console.PrintLine("Too late... We should never have gotten here.")
             ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
-            if (Util.IsTaskActive(tid))
+            // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
             abort()
         }
