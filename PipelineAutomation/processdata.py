@@ -208,11 +208,11 @@ if __name__ == '__main__':
 
 	t2 = time.time()-starttime
 
-	###### Step 3... ######
+	###### Step 4... ######
 	print('Calculating bias stats...')
 	print(obsYMD)
 	try:
-		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
+		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias-old.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
 		print('step 3')
 		while p.poll() is None:
 			print('.', end='', flush=True)
@@ -221,6 +221,11 @@ if __name__ == '__main__':
 		pass
 
 	t3 = time.time()-starttime
+
+	##### Step 5... #####
+	print('Creating bias plots...')
+	try:
+		p=subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/biasPlots.py')])
 
 	print('Completed 1st stage data processing in %s seconds' % t1)
 	print('Completed 2nd stage data processing in  %s seconds' % (t2-t1))
