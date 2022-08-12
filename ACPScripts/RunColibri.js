@@ -74,7 +74,7 @@ function biasCollection(today) {
     Console.PrintLine("Starting bias frame collection...");
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 25 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
+    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
     while (Util.IsTaskActive(tid))
     {
         Util.WaitForMilliseconds(500)
