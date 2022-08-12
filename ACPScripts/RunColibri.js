@@ -46,9 +46,9 @@ String.prototype.trim = function()
 function abort(){
     Console.PrintLine("Aborting script!");
     shutDown();
-    // Util.AbortScript();
+    Util.AbortScript();
     // WScript.Quit
-    main();
+    // main();
 
 }
 
