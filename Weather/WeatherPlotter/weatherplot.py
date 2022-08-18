@@ -136,12 +136,11 @@ def main():
 			rec_data = polaris_socket.recv(1024)
 			msg = str(rec_data, 'utf-8')
 			msg = msg.split('\n')
-			print(msg)
 			polaris_darkness = int(msg[4].split()[1])
 			polaris_found = int(msg[5].split()[1])
 			polaris_mag = float(msg[8].split()[1])
-			print(polaris_darkness)
-			print(polaris_mag)
+			print('Polaris camera darkness level: %s' % polaris_darkness)
+			print('Polaris instrumental magnitude: %s' % polaris_mag)
 
 			# Check to see if state has remained same for 300 seconds
 			run_state = False
