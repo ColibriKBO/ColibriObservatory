@@ -147,18 +147,26 @@ def main():
 			now_time = time.time()
 			elapsed_time = now_time - start_time
 
-			if polaris_found != 1 or polaris_mag > -13.8 or polaris_darkness > 34:
+			if polaris_found != 1 or polaris_mag > -13.8 or polaris_darkness >= 37:
 				print('Polaris is not visible!')
 				cloud_flag = 3
 				alert_flag = 1
 				run_state = False
 				start_time = time.time()
-			elif elapsed_time > 300 and polaris_mag < -14.0:
+			elif elapsed_time > 300 and polaris_mag < -14.0 and polaris_darkness < 34:
 				print('Polaris visible!')
 				cloud_flag = 1
 				alert_flag = 0
 				run_state = True
 				start_time = time.time()
+			elif elapsed_time < 300:
+				print('Polaris is likely visible, but let\'s wait a bit longer...')
+				print('Waiting %s seconds.' % int(300 - elapsed_time))
+			else:
+				print('Polaris outside of expected conditions.')
+				cloud_flag = 1
+				alert_flag = 0
+				run_state = False
 		except:
 			cloud_flag = -999
 			pass
