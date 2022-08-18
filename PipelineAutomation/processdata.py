@@ -222,10 +222,12 @@ if __name__ == '__main__':
 
 	t3 = time.time()-starttime
 
-	##### Step 5... #####
-	print('Creating bias plots...')
-	try:
-		p=subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/biasPlots.py')])
+	# ##### Step 5... #####
+	# print('Creating bias plots...')
+	# try:
+	# 	p=subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/biasPlots.py')])
+	# except:
+	# 	pass
 
 	print('Completed 1st stage data processing in %s seconds' % t1)
 	print('Completed 2nd stage data processing in  %s seconds' % (t2-t1))
