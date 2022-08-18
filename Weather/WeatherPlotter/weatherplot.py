@@ -104,6 +104,7 @@ def main():
 	data.clear_download_cache()
 
 	wx_address= (b'172.16.61.10', 17770)
+	polaris_address = (b'172.16.61.10', 17771)
 	cld_address = (b'10.0.20.10', 8888)
 
 	cld_socket = socket(AF_INET, SOCK_DGRAM)
@@ -117,11 +118,51 @@ def main():
 	logger.addHandler(handler)
 
 	while(1):
+		start_time = time.time()
 		req_data = b'READ\n'
 
 		wx_socket = socket(AF_INET, SOCK_STREAM)
 		wx_socket.settimeout(10)
 		wx_socket.connect(wx_address)
+
+		polaris_socket = socket(AF_INET, SOCK_STREAM)
+		polaris_socket.settimeout(10)
+		polaris_socket.connect(polaris_address)
+
+		try:
+			print('Trying to get Polaris data...')
+
+			polaris_socket.sendall(req_data)
+			rec_data = polaris_socket.recv(1024)
+			msg = str(rec_data, 'utf-8')
+			msg = msg.split('\n')
+			print(msg)
+			polaris_darkness = int(msg[4].split()[1])
+			polaris_found = int(msg[5].split()[1])
+			polaris_mag = float(msg[8].split()[1])
+			print(polaris_darkness)
+			print(polaris_mag)
+
+			# Check to see if state has remained same for 300 seconds
+			run_state = False
+			now_time = time.time()
+			elapsed_time = now_time - start_time
+
+			if polaris_found != 1 or polaris_mag > -13.8 or polaris_darkness > 34:
+				print('Polaris is not visible!')
+				cloud_flag = 3
+				alert_flag = 1
+				run_state = False
+				start_time = time.time()
+			elif elapsed_time > 300 and polaris_mag < -14.0:
+				print('Polaris visible!')
+				cloud_flag = 1
+				alert_flag = 0
+				run_state = True
+				start_time = time.time()
+		except:
+			cloud_flag = -999
+			pass
 
 		try:
 			print('Trying to get cloud data...')
@@ -130,13 +171,14 @@ def main():
 			delta_t = sky_t - ground_t
 			print('Got cloud data! Sky=%s Ground=%s Delta=%s' % (str('%.2f' % sky_t), str('%.2f' % ground_t), str('%.2f' % delta_t)))
 
-			if np.abs(delta_t) > 14:
-				cloud_flag = 1
-			elif np.abs(delta_t > 15) and np.abs(delta_t) < 16:
-				cloud_flag = 2
-			else:
-				cloud_flag = 3
-				alert_flag = 1
+			if cloud_flag == -999:
+				if np.abs(delta_t) > 14:
+					cloud_flag = 1
+				elif np.abs(delta_t > 15) and np.abs(delta_t) < 16:
+					cloud_flag = 2
+				else:
+					cloud_flag = 3
+					alert_flag = 1
 
 			print('Trying to get weather data...')
 
@@ -450,6 +492,7 @@ def main():
 			pass
 
 		wx_socket.close()
+		polaris_socket.close()
 		sleep(30)
 
 if __name__ == "__main__":
