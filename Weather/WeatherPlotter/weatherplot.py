@@ -117,7 +117,7 @@ def main():
 	handler = TimedRotatingFileHandler(log_file, when="midnight", interval=1, backupCount=90)
 	logger.addHandler(handler)
 	start_time = time.time()
-	
+
 	while(1):
 		
 		req_data = b'READ\n'
@@ -154,12 +154,16 @@ def main():
 				alert_flag = 1
 				run_state = False
 				start_time = time.time()
-			elif elapsed_time > 300 and polaris_mag < -14.0 and polaris_darkness < 34:
+			elif elapsed_time > 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == False:
 				print('Polaris visible!')
 				cloud_flag = 1
 				alert_flag = 0
 				run_state = True
 				start_time = time.time()
+			elif elapsed_time < 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == False:
+				print('Polaris is visible. Will start up in %s seconds.' % int(300 - elapsed_time))
+			elif elapsed_time > 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == True:
+				print('Polaris is still visible.')
 			elif elapsed_time < 300:
 				print('Polaris is likely visible, but let\'s wait a bit longer...')
 				print('Waiting %s seconds.' % int(300 - elapsed_time))
