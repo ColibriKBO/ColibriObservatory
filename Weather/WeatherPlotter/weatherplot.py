@@ -162,7 +162,7 @@ def main():
 				start_time = time.time()
 			elif elapsed_time < 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == False:
 				print('Polaris is visible. Will start up in %s seconds.' % int(300 - elapsed_time))
-			elif elapsed_time > 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == True:
+			elif elapsed_time < 300 and polaris_mag < -14.0 and polaris_darkness < 34 and run_state == True:
 				print('Polaris is still visible.')
 			elif elapsed_time < 300:
 				print('Polaris is likely visible, but let\'s wait a bit longer...')
