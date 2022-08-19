@@ -83,6 +83,6 @@ function main()
 	ts.WriteLine(Util.SysUTCDate + " ALERT: ###########################");
 	// ts.WriteBlankLines(2);
 
-	Util.ChainScript("C:\\Users\\RedBird\\Documents\\ACP Astronomy\\Scripts\\RunColibri.js");
+	Util.ChainScript("RunColibri.js");
 	Util.WaitForMilliseconds(3000);
 }
