@@ -116,9 +116,10 @@ def main():
 	logger.setLevel(logging.INFO)
 	handler = TimedRotatingFileHandler(log_file, when="midnight", interval=1, backupCount=90)
 	logger.addHandler(handler)
-
+	start_time = time.time()
+	
 	while(1):
-		start_time = time.time()
+		
 		req_data = b'READ\n'
 
 		wx_socket = socket(AF_INET, SOCK_STREAM)
