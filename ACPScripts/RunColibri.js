@@ -46,9 +46,14 @@ String.prototype.trim = function()
 function abort(){
     Console.PrintLine("Aborting script!");
     shutDown();
+    while (Dome.ShutterStatus != 1) || (Telescope.AtPark != True)
+    {
+        Util.WaitForMilliseconds(5000)
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+    }
     Util.AbortScript();
     // WScript.Quit
-    // main();
+    main();
 
 }
 
@@ -1194,7 +1199,7 @@ function main()
         else if (currentField[0] == 999)
         {
             Console.PrintLine("")
-            Console.PrintLine("Too late... We should never have gotten here.")
+            Console.PrintLine("Too late. Nothing left to observe.")
             ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
