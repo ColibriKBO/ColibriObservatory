@@ -46,7 +46,7 @@ String.prototype.trim = function()
 function abort(){
     Console.PrintLine("Aborting script!");
     shutDown();
-    while (Dome.ShutterStatus != 1) || (Telescope.AtPark != True)
+    while (Dome.ShutterStatus != 1 || Telescope.AtPark != True)
     {
         Util.WaitForMilliseconds(5000)
         Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
