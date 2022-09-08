@@ -921,7 +921,16 @@ function main()
         }
 
         f1 = fso.GetFile(LogFile);
-        ts = f1.OpenAsTextStream(Mode, true);
+        if (fso.FileExists(LogFile)){
+            Console.PrintLine("Log file exists. Appending to existing log file.");
+
+        }
+        else
+        {
+            ts = f1.OpenAsTextStream(Mode, true);
+        }
+        
+
         // Console.Logging = false
         // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
         // Console.Logging = true
