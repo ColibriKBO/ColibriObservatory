@@ -5,6 +5,8 @@ import datetime
 import glob
 import subprocess
 import argparse
+import tkinter as tkinter
+
 from pathlib import Path
 from preparedata import is_dir_too_small
 
@@ -21,6 +23,18 @@ from preparedata import is_dir_too_small
 # STEP 4: Cleanup unnecessary files
 
 if __name__ == '__main__':
+
+	window = tk.Tk()
+
+	    # Create label
+    label_var = tk.StringVar()
+    label_var.set('Colibri data pipeline is running! Do not run any other programs on this machine!')
+    label = tk.Label(window, textvariable=label_var)
+    label.pack()
+
+    # Update and show window once
+    window.update_idletasks()
+    window.update()
 
 	''' Argument parsing added by MJM - July 20, 2022 '''
 	arg_parser = argparse.ArgumentParser(description=""" Run secondary Colibri processing
@@ -234,4 +248,4 @@ if __name__ == '__main__':
 	print('Completed bias image stats in %s seconds' % (t3-t2))
 	print('Total time to process was %s seconds' % (t3))
 
-
+	window.destroy()
