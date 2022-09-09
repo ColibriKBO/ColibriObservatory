@@ -226,7 +226,7 @@ if __name__ == '__main__':
 	print('Calculating bias stats...')
 	print(obsYMD)
 	try:
-		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias-old.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
+		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
 		print('step 3')
 		while p.poll() is None:
 			print('.', end='', flush=True)
