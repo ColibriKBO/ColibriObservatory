@@ -1,3 +1,12 @@
 
 PipelineAutomation/__pycache__/preparedata.cpython-310.pyc
 PipelineAutomation/__pycache__/preparedata.cpython-38.pyc
+*.toc
+*.zip
+*.pyc
+PyFocus/build/PyFocus/warn-PyFocus.txt
+PyFocus/build/PyFocus/xref-PyFocus.html
+PyFocus/PyFocus.spec
+PyFocus/build/PyFocus/PYZ-00.pyz
+PyFocus/build/PyFocus/PyFocus.pkg
+PyFocus/build/PyFocus/PyFocus.exe.manifest
