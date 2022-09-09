@@ -5,7 +5,7 @@ import datetime
 import glob
 import subprocess
 import argparse
-import tkinter as tkinter
+import tkinter as tk
 
 from pathlib import Path
 from preparedata import is_dir_too_small
