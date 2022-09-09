@@ -29,7 +29,7 @@ if __name__ == '__main__':
 	# Create label
 	label_var = tk.StringVar()
 	label_var.set('Colibri data pipeline is running! Do not run any other programs on this machine!')
-	label = tk.Label(window, textvariable=label_var)
+	label = tk.Label(window, textvariable=label_var, font=('Arial',25))
 	label.pack()
 
 	# Update and show window once
