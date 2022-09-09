@@ -27,14 +27,14 @@ if __name__ == '__main__':
 	window = tk.Tk()
 	
 	# Create label
-    label_var = tk.StringVar()
-    label_var.set('Colibri data pipeline is running! Do not run any other programs on this machine!')
-    label = tk.Label(window, textvariable=label_var)
-    label.pack()
+	label_var = tk.StringVar()
+	label_var.set('Colibri data pipeline is running! Do not run any other programs on this machine!')
+	label = tk.Label(window, textvariable=label_var)
+	label.pack()
 
-    # Update and show window once
-    window.update_idletasks()
-    window.update()
+	# Update and show window once
+	window.update_idletasks()
+	window.update()
 
 	''' Argument parsing added by MJM - July 20, 2022 '''
 	arg_parser = argparse.ArgumentParser(description=""" Run secondary Colibri processing
