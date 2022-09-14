@@ -224,7 +224,6 @@ if __name__ == '__main__':
 
 	###### Step 4... ######
 	print('Calculating bias stats...')
-	print(obsYMD)
 	try:
 		p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
 		print('step 3')
