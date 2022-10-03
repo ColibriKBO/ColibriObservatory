@@ -132,13 +132,14 @@ if __name__ == '__main__':
 				obsmonth = int(dirdaytime[4:6].lstrip("0"))
 				obsday = int(dirdaytime[6:8].lstrip("0"))
 				obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+				sigma_threshold = "3.75"
 
 			if primarydone == True:
 				pass
 			else:
 				# Run colibri_main_py3.py
 				try:
-					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYMD])
+					p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYMD, sigma_threshold])
 
 					while p.poll() is None:
 						print('.', end='', flush=True)
@@ -150,6 +151,7 @@ if __name__ == '__main__':
 				with open(os.path.join(d, '1process.txt'), 'w+') as f1:
 					f1.write('base_path: %s\n' % str(basepath))
 					f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
+					f1.write('sigma_threshold : %s\n' % (sigma_threshold))
 					# f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
 					f1.write('process_date: %s\n' % process_date)
 					f1.write('run_par: True\n')
