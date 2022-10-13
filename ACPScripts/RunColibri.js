@@ -880,6 +880,7 @@ function main()
 	{
         if (getDate() != currentDate)
         {
+            currentDate = getDate()
             LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
 
             if (fso.FileExists(LogFile))
@@ -909,6 +910,7 @@ function main()
 
     if (getDate() != currentDate)
     {
+        currentDate = getDate()
         LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
 
         if (fso.FileExists(LogFile))
