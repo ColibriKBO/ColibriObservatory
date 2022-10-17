@@ -208,8 +208,8 @@ if __name__ == '__main__':
                     obsmonth = int(dirdaytime[4:6].lstrip("0"))
                     obsday = int(dirdaytime[6:8].lstrip("0"))
                     obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-					path1=pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
-					path2=pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+                    path1=pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
+                    path2=pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
         
 					
     
@@ -217,9 +217,9 @@ if __name__ == '__main__':
                     pass
                 else:
                     # Run colibri_main_py3.py
-					while not path1.is_file() and path2.is_file():
-						print('Waiting for Red and Blue...')
-						time.sleep(300)
+                    while not path1.is_file() and path2.is_file():
+                        print('Waiting for Red and Blue...')
+                        time.sleep(300)
                     print('Starting 2st stage on: %s' % d)
                     try:
                         p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/simultaneous_occults.py'), '-d ' + str(obsYMD)])
