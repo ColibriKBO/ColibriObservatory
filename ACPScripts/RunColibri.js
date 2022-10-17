@@ -321,29 +321,33 @@ function domeOpen()
 function getDate()
 {
 	var d, s, month, day;
+	
 	d = new Date();
-
 	s = d.getUTCFullYear();
+	
+	month = (d.getUTCMonth()+1).toString()
+	day   = (d.getUTCDate()).toString()
 
-	if (d.getUTCMonth().toString().length == 1)
+	if (month.length == 1)
 	{
-		s += "0" + (d.getUTCMonth()+1);
+		s += "0" + month;
 	}
 	else
 	{
-		s += (d.getUTCMonth()+1);
+		s += month;
 	}
 
-	if (d.getUTCDate().toString().length == 1)
+	if (day.toString().length == 1)
 	{
-		s += "0" + d.getUTCDate();
+		s += "0" + day;
 	}
 	else
 	{
-		s += d.getUTCDate()
+		s += day;
 	}
 	return(s)
 }
+
 
 /////////////////////////////////////////////////////
 // Return the coordinates of the moon in RA and Dec
