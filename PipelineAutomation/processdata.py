@@ -60,7 +60,7 @@ if __name__ == '__main__':
         obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
         datadir = 'd:\\ColibriData\\' + obs_date + '\\'
 		
-        process_date = procYYYYMMDD
+    process_date = procYYYYMMDD
     
 	# Start a timer
     starttime = time.time()
