@@ -144,7 +144,7 @@ if __name__ == '__main__':
                 print('Starting 1st stage on: %s' % d)
                 # Run colibri_main_py3.py
                 try:
-                    p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', obsYYYYMMDD, str(sigma_threshold)])
+                    p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\',str(obsYMD), str(sigma_threshold)])
 
                     while p.poll() is None:
                         print('.', end='', flush=True)
