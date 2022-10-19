@@ -217,7 +217,7 @@ if __name__ == '__main__':
                     pass
                 else:
                     # Run colibri_main_py3.py
-                    while not path1.is_file() and path2.is_file():
+                    while not (path1.is_file() and path2.is_file()):
                         print('Waiting for Red and Blue...')
                         time.sleep(300)
                     print('Starting 2st stage on: %s' % d)
