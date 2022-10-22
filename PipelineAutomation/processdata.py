@@ -151,7 +151,17 @@ if __name__ == '__main__':
                         time.sleep(1)
                 except:
                     print("error in the 1st stage!")
-
+                    
+                print("calculating coordinates")
+                
+                try:
+                    p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/coordsfinder.py'), '-d ' + str(obsYMD)])
+                    while p.poll() is None:
+                        print('.', end='', flush=True)
+                        time.sleep(1)
+                except:
+                    
+                    print("error in calculating solution!")
                 
                 with open(os.path.join(d, '1process.txt'), 'w+') as f1:
                     f1.write('base_path: %s\n' % str(basepath))
@@ -211,7 +221,7 @@ if __name__ == '__main__':
                     path1=pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
                     path2=pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
         
-					
+                    
     
                 if secondarydone == True:
                     pass
