@@ -373,10 +373,69 @@ if __name__ == '__main__':
         
         t4 = time.time()-starttime
         
+            ###### Step 5... ######
+        print('Calculating sensitivity...')
+        for d in dirlist:
+                dirsplit = os.path.split(d)
+        
+                if len(dirsplit[1]) == 0:
+                    print('Root directory excluded')
+                elif dirsplit[-1] == 'ColibriData':
+                    print('ColibriData directory excluded')
+                elif dirsplit[-1] == 'Bias':
+                    print('Bias directory excluded')
+                elif dirsplit[0].split('\\')[-1] == 'Bias':
+                    print('Bias subdirectory excluded.')
+                else:
+                    if os.path.isfile(os.path.join(d, 'sensitivity.txt')) and repro == False:
+                        biasdone = True
+                        print('sensitivity processing already complete on %s' % d)
+                        # print('File exisits. Opening existing file.')
+                        with open(os.path.join(d, 'sensitivity.txt')) as f1:
+                            lines = f1.readlines()
+                            base_path = lines[0].strip('\n').split()[1]
+                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
+                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+                    else:
+                        biasdone = False
+                        basepath = pathlib.Path('d:')
+                        dirdaytime = dirsplit[1]
+                        obsyear = int(dirdaytime[:4])
+                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
+                        obsday = int(dirdaytime[6:8].lstrip("0"))
+                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+        
+                    if biasdone == True:
+                        pass
+                    else:
+                        # Run colibri_main_py3.py
+                        print('Starting sensitivity stage on: %s' % d)
+                        try:
+                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d' + str(obsYMD)])
+                            #print('step 3')
+                            while p.poll() is None:
+                                print('.', end='', flush=True)
+                                time.sleep(1)
+                        except:
+                            print("error in the sensitivity calculation stage!")
+                        with open(os.path.join(d, 'sensitivity.txt'), 'w+') as f1:
+                            f1.write('base_path: %s\n' % str(basepath))
+                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
+                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
+                            f1.write('process_date: %s\n' % process_date)
+                            f1.write('run_par: True\n')
+        t5 = time.time()-starttime
+    
+    
+        
+        print('Completed sensitivity in %s seconds' % (t5-t4))
         
         
         print('Completed bias image stats in %s seconds' % (t4-t3))
-        print('Total time to process was %s seconds' % (t4))
+        print('Total time to process was %s seconds' % (t5))
+        
     
 
     else:
@@ -437,15 +496,64 @@ if __name__ == '__main__':
                             f1.write('run_par: True\n')
         t3 = time.time()-starttime
     
-        # ##### Step 5... #####
-        # print('Creating bias plots...')
-        # try:
-        #   p=subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/biasPlots.py')])
-        # except:
-        #   pass
+            ###### Step 5... ######
+        print('Calculating sensitivity...')
+        for d in dirlist:
+                dirsplit = os.path.split(d)
+        
+                if len(dirsplit[1]) == 0:
+                    print('Root directory excluded')
+                elif dirsplit[-1] == 'ColibriData':
+                    print('ColibriData directory excluded')
+                elif dirsplit[-1] == 'Bias':
+                    print('Bias directory excluded')
+                elif dirsplit[0].split('\\')[-1] == 'Bias':
+                    print('Bias subdirectory excluded.')
+                else:
+                    if os.path.isfile(os.path.join(d, 'sensitivity.txt')) and repro == False:
+                        biasdone = True
+                        print('sensitivity processing already complete on %s' % d)
+                        # print('File exisits. Opening existing file.')
+                        with open(os.path.join(d, 'sensitivity.txt')) as f1:
+                            lines = f1.readlines()
+                            base_path = lines[0].strip('\n').split()[1]
+                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
+                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
+                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
+                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+                    else:
+                        biasdone = False
+                        basepath = pathlib.Path('d:')
+                        dirdaytime = dirsplit[1]
+                        obsyear = int(dirdaytime[:4])
+                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
+                        obsday = int(dirdaytime[6:8].lstrip("0"))
+                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
+        
+                    if biasdone == True:
+                        pass
+                    else:
+                        # Run colibri_main_py3.py
+                        print('Starting sensitivity stage on: %s' % d)
+                        try:
+                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d' + str(obsYMD)])
+                            #print('step 3')
+                            while p.poll() is None:
+                                print('.', end='', flush=True)
+                                time.sleep(1)
+                        except:
+                            print("error in the sensitivity calculation stage!")
+                        with open(os.path.join(d, 'sensitivity.txt'), 'w+') as f1:
+                            f1.write('base_path: %s\n' % str(basepath))
+                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
+                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
+                            f1.write('process_date: %s\n' % process_date)
+                            f1.write('run_par: True\n')
+        t4 = time.time()-starttime
     
     
         print('Completed bias image stats in %s seconds' % (t3-t1))
-        print('Total time to process was %s seconds' % (t3))
+        print('Completed sensitivity in %s seconds' % (t4-t3))
+        print('Total time to process was %s seconds' % (t4))
 
 window.destroy()
