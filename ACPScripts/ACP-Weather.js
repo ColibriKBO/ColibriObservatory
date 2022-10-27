@@ -5,32 +5,37 @@ var SUP;
 // MJM - June 2021
 //////////////////////////////
 
+
 function getDate()
 {
 	var d, s, month, day;
-	d = new Date();
 
+	d = new Date();
 	s = d.getUTCFullYear();
 
-	if (d.getUTCMonth().toString().length == 1)
+	month = (d.getUTCMonth()+1).toString()
+	day   = (d.getUTCDate()).toString()
+
+	if (month.length == 1)
 	{
-		s += "0" + (d.getUTCMonth()+1);
+		s += "0" + month;
 	}
 	else
 	{
-		s += (d.getUTCMonth()+1);
+		s += month;
 	}
 
-	if (d.getUTCDate().toString().length == 1)
+	if (day.toString().length == 1)
 	{
-		s += "0" + d.getUTCDate();
+		s += "0" + day;
 	}
 	else
 	{
-		s += d.getUTCDate()
+		s += day;
 	}
 	return(s)
 }
+
 
 function main()
 {
