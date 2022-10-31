@@ -31,6 +31,7 @@
 //                  for only one 'finalField', added delays to try to prevent camera from
 //                  being killed early
 //                  Created connectScope() function
+// 31/10/22 mjm     Added free space check
 
 var SUP;
 
@@ -312,6 +313,29 @@ function domeOpen()
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
     
+}
+
+////////////////////////////////
+// Returns available disk space
+// MJM - Oct. 2022
+////////////////////////////////
+function freeDiskSpace()
+{
+    Util.Console.PrintLine("WTF");
+    var AX = new ActiveXObject("WScript.Shell");
+    var SE = AX.Exec(ACPApp.Path + "\\test.bat");
+
+    var size = "";
+
+    Util.Console.PrintLine(SE.Status);
+    Util.WaitForMilliseconds(1000);
+    Util.Console.PrintLine(SE.Status);
+
+    size = SE.StdOut.Read(20);   // size in bytes
+    // size = BS.StdOut.Read(20);
+    size = size / 1000000000000; // size in TB
+
+    return(size)
 }
 
 //////////////////////////////
@@ -851,6 +875,9 @@ var pierside = "E"
 
 function main()
 {
+
+    freespace = freeDiskSpace()
+    Util.Console.PrintLine(freespace)
 
 	// Check to see if the weather server is connected. If it isn't ask for permission to continue.
 	if (Weather.Available)
