@@ -879,13 +879,9 @@ function main()
 {
 
     times = twilightTimes(Util.SysJulianDate)
-    // Util.Console.PrintLine(times)
     darkhours = (times[1]-times[0])*24
-    Util.Console.PrintLine(darkhours)
     spaceneeded = darkhours*3600*40*12600000/1000000000000
-    Util.Console.Printline(spaceneeded)
     freespace = freeDiskSpace()
-    Util.Console.PrintLine(freespace)
 
     if (freespace > spaceneeded)
     {
@@ -895,7 +891,7 @@ function main()
     }
     else
     {
-        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. Do you want to continue anyway?"))
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. If you run out of space while this script is running, the script will crash and potentially damage the telescope! Do you want to continue anyway?"))
         {
             ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space.")
 
