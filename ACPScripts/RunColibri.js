@@ -327,15 +327,15 @@ function freeDiskSpace()
 
     var size = "";
 
-    Util.Console.PrintLine(SE.Status);
-    Util.WaitForMilliseconds(1000);
-    Util.Console.PrintLine(SE.Status);
+    // Util.Console.PrintLine(SE.Status);
+    // Util.WaitForMilliseconds(1000);
+    // Util.Console.PrintLine(SE.Status);
 
     size = SE.StdOut.Read(20);   // size in bytes
     // size = BS.StdOut.Read(20);
     size = size / 1000000000000; // size in TB
 
-    Util.Console.PrintLine(size)
+    // Util.Console.PrintLine(size)
 
     return(size)
 }
@@ -879,7 +879,9 @@ function main()
 {
 
     times = twilightTimes(Util.SysJulianDate)
-    Util.Console.PrintLine(times)
+    // Util.Console.PrintLine(times)
+    darkhours = (times[1]-times[0])*24
+    Util.Console.PrintLine(darkhours)
     freespace = freeDiskSpace()
     Util.Console.PrintLine(freespace)
 
