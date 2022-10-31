@@ -315,27 +315,22 @@ function domeOpen()
     
 }
 
-////////////////////////////////
+/////////////////////////////////////////////////////
 // Returns available disk space
+// freespace.bat must exist in the same directory
+// as RunColibri.js as well as in the same directory
+// as ACP.exe (c:\ProgramFiles(x86)\ACP) Obs Control
 // MJM - Oct. 2022
-////////////////////////////////
+/////////////////////////////////////////////////////
 function freeDiskSpace()
 {
-    Util.Console.PrintLine("test");
     var AX = new ActiveXObject("WScript.Shell");
     var SE = AX.Exec(ACPApp.Path + "\\freespace.bat");
 
     var size = "";
 
-    // Util.Console.PrintLine(SE.Status);
-    // Util.WaitForMilliseconds(1000);
-    // Util.Console.PrintLine(SE.Status);
-
     size = SE.StdOut.Read(20);   // size in bytes
-    // size = BS.StdOut.Read(20);
     size = size / 1000000000000; // size in TB
-
-    // Util.Console.PrintLine(size)
 
     return(size)
 }
