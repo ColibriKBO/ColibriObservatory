@@ -882,7 +882,7 @@ function main()
     // Util.Console.PrintLine(times)
     darkhours = (times[1]-times[0])*24
     Util.Console.PrintLine(darkhours)
-    spaceneeded = darkhours*3600*40*12289000/1000000000000
+    spaceneeded = darkhours*3600*40*12600000/1000000000000
     Util.Console.Printline(spaceneeded)
     freespace = freeDiskSpace()
     Util.Console.PrintLine(freespace)
