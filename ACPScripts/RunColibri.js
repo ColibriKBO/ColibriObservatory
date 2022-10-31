@@ -323,7 +323,7 @@ function freeDiskSpace()
 {
     Util.Console.PrintLine("test");
     var AX = new ActiveXObject("WScript.Shell");
-    var SE = AX.Exec(ACPApp.Path + "\\test.bat");
+    var SE = AX.Exec(ACPApp.Path + "\\freespace.bat");
 
     var size = "";
 
@@ -878,6 +878,8 @@ var pierside = "E"
 function main()
 {
 
+    times = twilightTimes(Util.SysJulianDate)
+    Util.Console.PrintLine(times)
     freespace = freeDiskSpace()
     Util.Console.PrintLine(freespace)
 
