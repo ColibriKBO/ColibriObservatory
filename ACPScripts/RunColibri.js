@@ -887,6 +887,23 @@ function main()
     freespace = freeDiskSpace()
     Util.Console.PrintLine(freespace)
 
+    if (freespace > spaceneeded)
+    {
+        Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.")
+        Console.PrintLine("And we have " + freespace + " TB of free space available.")
+        Console.PrintLine("So, we're good to go!")
+    }
+    else
+    {
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. Do you want to continue anyway?"))
+        {
+            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space.")
+
+        }
+        else
+            abort()
+    }
+
 	// Check to see if the weather server is connected. If it isn't ask for permission to continue.
 	if (Weather.Available)
 	{
