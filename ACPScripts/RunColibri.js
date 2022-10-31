@@ -891,9 +891,9 @@ function main()
     }
     else
     {
-        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. If you run out of space while this script is running, the script will crash and potentially damage the telescope! Do you want to continue anyway?"))
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
         {
-            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space.")
+            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
 
         }
         else
