@@ -1,6 +1,6 @@
 @setlocal enableextensions enabledelayedexpansion
 @echo off
-for /f "tokens=3" %%a in ('dir c:\') do (
+for /f "tokens=3" %%a in ('dir d:\') do (
     set bytesfree=%%a
 )
 set bytesfree=%bytesfree:,=%
