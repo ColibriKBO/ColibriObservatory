@@ -321,7 +321,7 @@ function domeOpen()
 ////////////////////////////////
 function freeDiskSpace()
 {
-    Util.Console.PrintLine("WTF");
+    Util.Console.PrintLine("test");
     var AX = new ActiveXObject("WScript.Shell");
     var SE = AX.Exec(ACPApp.Path + "\\test.bat");
 
@@ -334,6 +334,8 @@ function freeDiskSpace()
     size = SE.StdOut.Read(20);   // size in bytes
     // size = BS.StdOut.Read(20);
     size = size / 1000000000000; // size in TB
+
+    Util.Console.PrintLine(size)
 
     return(size)
 }
