@@ -47,8 +47,9 @@ if __name__ == '__main__':
 
     arg_parser.add_argument('-d', '--date', help='Observation date (YYYY/MM/DD) of data to be processed.', default='All')
     arg_parser.add_argument('-p', '--procdate', help='Processing date (YYYY/MM/DD).', default=str(datetime.datetime.today().strftime('%Y/%m/%d')))
-    arg_parser.add_argument('-r', '--repro', help='Reprocess data. True or False.', default=False)
-    arg_parser.add_argument('-s', '--sigma', help='significance treshold.', default='6') #10-05 Roman A
+    arg_parser.add_argument('-r', '--repro', help='Will reprocess data if used.', action="store_true")
+    arg_parser.add_argument('-s', '--sigma', help='Significance treshold.', default='6') #10-05 Roman A
+    arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
     cml_args = arg_parser.parse_args()
 
