@@ -5,7 +5,7 @@ Contact:    pquigley@uwo.ca
 Created:    Wed Oct 19 10:19:07 2022
 Updated:    Wed Oct 19 10:19:07 2022
     
-Usage: python processdata[-d][-p][-r][-s]
+Usage: python processdata.py [-d][-p][-r][-s]
 """
 
 import os, sys, shutil
