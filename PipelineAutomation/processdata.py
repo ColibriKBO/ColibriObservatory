@@ -36,7 +36,8 @@ from preparedata import is_dir_too_small
 #--------------------------------functions------------------------------------#
 
 
-def subprocessLoop(dir_list,subprocess_list,stop_file,repro=False,new_stop=True):
+def subprocessLoop(dir_list,subprocess_list,stop_file,
+                   repro=False,new_stop=True,check_others=False):
     """
     Run a subprocess using the subprocess model iterating through the available
     observation data directories.
@@ -47,10 +48,13 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,repro=False,new_stop=True)
                                 replace "obsYMD" with appropriate variable.
         stop_file (str): Filename of file indicating data has already been
                          processed
+
         repro (bool, optional): Boolean indicating if previously processed data
                                 should be reprocessed
         new_stop (bool, optional): Boolean indicating if a new stop file should
                                    be written after running the subprocess
+        check_others (bool,optional): Boolean indicating if it should check if
+                                      RED and BLUE are done processing
 
     Returns:
         runtime (float): Time to run the subprocess
@@ -96,6 +100,16 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,repro=False,new_stop=True)
                 obsYMD = str('%s/%s/%s' % (obsyear, obsmonth, obsday))
                 subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
                 
+                if check_others == True:
+                    path_RED  = pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
+                    path_BLUE = pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+                    
+                    while not (path_RED.is_file() and path_BLUE.is_file()):
+                        print("Waiting for Red and Blue...")
+                        time.sleep(300)
+                    
+                    print("Red and Blue are ready.")
+                
                 # Run subprocess and write a new stop file if requested
                 try:
                     subp = subprocess.run(subp_list)
@@ -106,18 +120,21 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,repro=False,new_stop=True)
                         
                     if new_stop:
                         with open(os.path.join(d,stop_file),'w') as sf:
+                            # Note that this requires sigma_threshold to be a
+                            # global, defined variable
+                            
                             sf.write(f"base_path: {str(basepath)}\n")
                             sf.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
-                            sf.write(f"sigma_threshold: {sigma_threshold}\n")
                             sf.write(f"process_data: {process_date}\n")
                             sf.write(f"run_par: True\n")
+                            sf.write(f"sigma_threshold: {sigma_threshold}\n")
+                            
+                        print(f"Wrote {stop_file} to {d}")
                         
                 except:
                     print(f"Error occurred running {subprocess_list[1]}!")
                     
     return time.time()-starttime
-            
-
 
 
 
@@ -211,491 +228,70 @@ if __name__ == '__main__':
     print(f"{bad_files} removed for being too small")
     
     t0 = time.time()-starttime
-    print(f"Completed data preparation in {t0} seconds\n",file=sys.stderr)
+    print(f"Completed data preparation in {t0} seconds",file=sys.stderr)
 
 
 ##############################
 ## Primary Pipeline (Initial Dip Detection & Star Finding)
 ##############################
-    print("Starting 1st stage processing...")
+    print("\nStarting 1st stage processing...")
 
-    ## Run primary pipeline using subprocess routine
+    ## Run primary pipeline
     pipeline1_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', 'obsYMD', str(sigma_threshold)]
     t1 = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
     
-    ## Get starcoordinates
+    ## Get star coordinates
     starfinder_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/coordsfinder.py'), '-d obsYMD']
     tsf = subprocessLoop(dirlist,starfinder_list,'1process.txt',repro=repro)
-    
-    
-    
 
 
-
-    ## Loop through all subdirectories in the data directory an analyze only
-    ## those with unprocessed data (unless reproc == True)
-    for d in dirlist:
-        dirsplit = os.path.split(d)
-
-        # Sanitize directories to be analyzed
-        if len(dirsplit[1]) == 0:
-            print('Root directory excluded')
-        elif dirsplit[-1] == 'ColibriData':
-            print('ColibriData directory excluded')
-        elif dirsplit[-1] == 'Bias':
-            print('Bias directory excluded')
-        elif dirsplit[0].split('\\')[-1] == 'Bias':
-            print('Bias subdirectory excluded.')
-            
-        # Found valid data directory
-        else:
-            # Data already processed
-            if os.path.isfile(os.path.join(d, '1process.txt')) and repro == False:
-                print(f"1st stage processing already complete on {d}")
-                
-                # print('File exisits. Opening existing file.')
-                # with open(os.path.join(d, '1process.txt')) as f1:
-                #   lines = f1.readlines()
-                #   base_path = lines[0].strip('\n').split()[1]
-                #   obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                #   obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                #   obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-            
-            # Data not processed or reprocess requested
-            else:
-                print(f"Starting 1st stage on: {d}")
-                
-                # Get data observation date
-                basepath = pathlib.Path('d:')
-                dirdaytime = dirsplit[1]
-                obsyear = int(dirdaytime[:4])
-                obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                obsday = int(dirdaytime[6:8].lstrip("0"))
-                obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                
-                
-                # Run colibri_main_py3.py (primary pipeline)
-                try:
-                    p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\',str(obsYMD), str(sigma_threshold)])
-
-                    while p.poll() is None:
-                        print('.', end='', flush=True)
-                        time.sleep(1)
-                        
-                    with open(os.path.join(d, '1process.txt'), 'w+') as f1:
-                        f1.write(f"base_path: {str(basepath)}\n")
-                        f1.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
-                        f1.write(f"sigma_threshold: {sigma_threshold}\n")
-                        f1.write(f"process_data: {process_date}\n")
-                        f1.write(f"run_par: True\n")
-                    
-                        print(f"Wrote 1process.txt to {root}")
-                except:
-                    print("error in the 1st stage!")
-                    
-                
-                # Run coordsfinder.py (get star coordinates)
-                print("calculating coordinates")
-                try:
-                    p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/coordsfinder.py'), '-d ' + str(obsYMD)])
-                    while p.poll() is None:
-                        print('.', end='', flush=True)
-                        time.sleep(10)
-                except:
-                    print("error in calculating solution!")
-
-    t1 = time.time()-starttime
-    print(f"Completed 1st stage data processing in {t1} seconds",file=sys.stderr)
+    print(f"Completed 1st stage data processing in {t1+tsf} seconds",file=sys.stderr)
 
 
 ##############################
-## Secondary Pipeline (Simultaneous Occultations)
+## GREENBIRD Exclusive Processes:
+##  Secondary Pipeline (Simultaneous Occultations)
+##  Tertiary Pipeline
 ##############################
-    starttime = time.time()
     
     if telescope=="GREENBIRD":
-        print('Starting 2nd stage processing...')
         
-        ## Loop through all subdirectories in the data directory an analyze only
-        ## those with unprocessed data (unless reproc == True)
-        for d in dirlist:
-            dirsplit = os.path.split(d)
-    
-            # Sanitize directories to be analyzed
-            if len(dirsplit[1]) == 0:
-                print('Root directory excluded')
-            elif dirsplit[-1] == 'ColibriData':
-                print('ColibriData directory excluded')
-            elif dirsplit[-1] == 'Bias':
-                print('Bias directory excluded')
-            elif dirsplit[0].split('\\')[-1] == 'Bias':
-                print('Bias subdirectory excluded.')
-                
-            # Found valid data directory
-            else:
-                # Data already processed
-                if os.path.isfile(os.path.join(d, '2process.txt')) and repro == False:
-                    print('2nd stage processing already complete on %s' % d)
-                    # print('File exisits. Opening existing file.')
-                    with open(os.path.join(d, '2process.txt')) as f1:
-                        lines = f1.readlines()
-                        base_path = lines[0].strip('\n').split()[1]
-                        obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                        obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                        obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                        
-                # Data not processed or reprocess requested
-                else:
-                    basepath = pathlib.Path('d:')
-                    dirdaytime = dirsplit[1]
-                    obsyear = int(dirdaytime[:4])
-                    obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                    obsday = int(dirdaytime[6:8].lstrip("0"))
-                    obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                    path1=pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
-                    path2=pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+        ## Run secondary pipeline
+        print('\nStarting 2nd stage processing...')
         
-                    # Check that Red and Blue are finished
-                    while not (path1.is_file() and path2.is_file()):
-                        print('Waiting for Red and Blue...')
-                        time.sleep(300)
-                        
-                    print('Starting 2st stage on: %s' % d)
-                    try:
-                        p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/simultaneous_occults.py'), '-d ' + str(obsYMD)])
-    
-                        while p.poll() is None:
-                            print('.', end='', flush=True)
-                            time.sleep(10)
-
-                        with open(os.path.join(d, '2process.txt'), 'w+') as f1:
-                            f1.write('base_path: %s\n' % str(basepath))
-                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                            f1.write('process_date: %s\n' % process_date)
-                            f1.write('run_par: True\n')
-                    except:
-                        print("error in the 2st stage!")
-    
-
-    
-        t2 = time.time()-starttime
+        pipeline2_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/simultaneous_occults.py'), '-d obsYMD']
+        t2 = subprocessLoop(dirlist,pipeline2_list,'2process.txt',repro=repro,check_others=True)
         print(f"Completed 2nd stage data processing in {t2} seconds",file=sys.stderr)
         
+        ## Run tertiary pipeline
+        print('\nStarting 3rd stage processing...')
         
-##############################
-## Tertiary Pipeline 
-##############################
-        starttime = time.time()
-        
-        print('Starting 3rd stage processing...')
-        for d in dirlist:
-            dirsplit = os.path.split(d)
-    
-            if len(dirsplit[1]) == 0:
-                print('Root directory excluded')
-            elif dirsplit[-1] == 'ColibriData':
-                print('ColibriData directory excluded')
-            elif dirsplit[-1] == 'Bias':
-                print('Bias directory excluded')
-            elif dirsplit[0].split('\\')[-1] == 'Bias':
-                print('Bias subdirectory excluded.')
-            else:
-                if os.path.isfile(os.path.join(d, '3process.txt')) and repro == False:
-                    print('3rd stage processing already complete on %s' % d)
-                    # print('File exisits. Opening existing file.')
-                    with open(os.path.join(d, '3process.txt')) as f1:
-                        lines = f1.readlines()
-                        base_path = lines[0].strip('\n').split()[1]
-                        obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                        obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                        obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                else:
-                    basepath = pathlib.Path('d:')
-                    dirdaytime = dirsplit[1]
-                    obsyear = int(dirdaytime[:4])
-                    obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                    obsday = int(dirdaytime[6:8].lstrip("0"))
-                    obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-    
-                    # Run colibri_main_py3.py
-                    print('Starting 3rd stage on: %s' % d)
-                    try:
-                        p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline//colibri_secondary.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
-    
-                        while p.poll() is None:
-                            print('.', end='', flush=True)
-                            time.sleep(1)
-                    except:
-                        print("error in the 3rd stage!")
-    
-                    with open(os.path.join(d, '3process.txt'), 'w+') as f1:
-                        f1.write('base_path: %s\n' % str(basepath))
-                        f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                        # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                        f1.write('process_date: %s\n' % process_date)
-                        f1.write('run_par: True\n')
-    
-                    print('Finished 3rd stage processing.')
-    
-        t3 = time.time()-starttime
+        pipeline3_list = ['python', os.path.expanduser('~/documents/github/colibripipeline//colibri_secondary.py'), '-b d:\\', '-d obsYMD']
+        t3 = subprocessLoop(dirlist,pipeline3_list,'3process.txt',repro=repro)
         print(f"Completed 3nd stage data processing in {t3} seconds",file=sys.stderr)
         
 
 ##############################
-## Bias Calculations
-##############################
-        starttime = time.time()
-        
-            ###### Step 4... ######
-        print('Calculating bias stats...')
-        for d in dirlist:
-                dirsplit = os.path.split(d)
-        
-                if len(dirsplit[1]) == 0:
-                    print('Root directory excluded')
-                elif dirsplit[-1] == 'ColibriData':
-                    print('ColibriData directory excluded')
-                elif dirsplit[-1] == 'Bias':
-                    print('Bias directory excluded')
-                elif dirsplit[0].split('\\')[-1] == 'Bias':
-                    print('Bias subdirectory excluded.')
-                else:
-                    if os.path.isfile(os.path.join(d, 'biasprocess.txt')) and repro == False:
-                        biasdone = True
-                        print('bias processing already complete on %s' % d)
-                        # print('File exisits. Opening existing file.')
-                        with open(os.path.join(d, 'biasprocess.txt')) as f1:
-                            lines = f1.readlines()
-                            base_path = lines[0].strip('\n').split()[1]
-                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                    else:
-                        biasdone = False
-                        basepath = pathlib.Path('d:')
-                        dirdaytime = dirsplit[1]
-                        obsyear = int(dirdaytime[:4])
-                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                        obsday = int(dirdaytime[6:8].lstrip("0"))
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-        
-                    if biasdone == True:
-                        pass
-                    else:
-                        # Run colibri_main_py3.py
-                        print('Starting bias stage on: %s' % d)
-                        try:
-                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
-                            #print('step 3')
-                            while p.poll() is None:
-                                print('.', end='', flush=True)
-                                time.sleep(1)
-                        except:
-                            print("error in the bias calculation stage!")
-                        with open(os.path.join(d, 'biasprocess.txt'), 'w+') as f1:
-                            f1.write('base_path: %s\n' % str(basepath))
-                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                            f1.write('process_date: %s\n' % process_date)
-                            f1.write('run_par: True\n')
-        
-        t4 = time.time()-starttime
-        print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
-
-
-##############################
-## Sensitivity Calculations
-##############################
-        starttime = time.time()
-
-        print('Calculating sensitivity...')
-        for d in dirlist:
-                dirsplit = os.path.split(d)
-        
-                if len(dirsplit[1]) == 0:
-                    print('Root directory excluded')
-                elif dirsplit[-1] == 'ColibriData':
-                    print('ColibriData directory excluded')
-                elif dirsplit[-1] == 'Bias':
-                    print('Bias directory excluded')
-                elif dirsplit[0].split('\\')[-1] == 'Bias':
-                    print('Bias subdirectory excluded.')
-                else:
-                    if os.path.isfile(os.path.join(d, 'sensitivity.txt')) and repro == False:
-                        biasdone = True
-                        print('sensitivity processing already complete on %s' % d)
-                        # print('File exisits. Opening existing file.')
-                        with open(os.path.join(d, 'sensitivity.txt')) as f1:
-                            lines = f1.readlines()
-                            base_path = lines[0].strip('\n').split()[1]
-                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                    else:
-                        biasdone = False
-                        basepath = pathlib.Path('d:')
-                        dirdaytime = dirsplit[1]
-                        obsyear = int(dirdaytime[:4])
-                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                        obsday = int(dirdaytime[6:8].lstrip("0"))
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-        
-                    if biasdone == True:
-                        pass
-                    else:
-                        # Run colibri_main_py3.py
-                        print('Starting sensitivity stage on: %s' % d)
-                        try:
-                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d' + str(obsYMD)])
-                            #print('step 3')
-                            while p.poll() is None:
-                                print('.', end='', flush=True)
-                                time.sleep(1)
-                        except:
-                            print("error in the sensitivity calculation stage!")
-                        with open(os.path.join(d, 'sensitivity.txt'), 'w+') as f1:
-                            f1.write('base_path: %s\n' % str(basepath))
-                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                            f1.write('process_date: %s\n' % process_date)
-                            f1.write('run_par: True\n')
-
-    
-        t5 = time.time()-starttime
-        print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
-        print(f"Total time to process was {t0+t1+t2+t3+t4+t5} seconds")
-    
-
-##############################
-## Non-GREENBIRD Case
+## Bias & Sensitivity Calculations
 ##############################
 
-    else:
-        print('Completed 1st stage data processing in %s seconds' % t1)
-
-            ###### Step 4... ######
-        print('Calculating bias stats...')
-        for d in dirlist:
-                dirsplit = os.path.split(d)
-        
-                if len(dirsplit[1]) == 0:
-                    print('Root directory excluded')
-                elif dirsplit[-1] == 'ColibriData':
-                    print('ColibriData directory excluded')
-                elif dirsplit[-1] == 'Bias':
-                    print('Bias directory excluded')
-                elif dirsplit[0].split('\\')[-1] == 'Bias':
-                    print('Bias subdirectory excluded.')
-                else:
-                    if os.path.isfile(os.path.join(d, 'biasprocess.txt')) and repro == False:
-                        biasdone = True
-                        print('bias processing already complete on %s' % d)
-                        # print('File exisits. Opening existing file.')
-                        with open(os.path.join(d, 'biasprocess.txt')) as f1:
-                            lines = f1.readlines()
-                            base_path = lines[0].strip('\n').split()[1]
-                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                    else:
-                        biasdone = False
-                        basepath = pathlib.Path('d:')
-                        dirdaytime = dirsplit[1]
-                        obsyear = int(dirdaytime[:4])
-                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                        obsday = int(dirdaytime[6:8].lstrip("0"))
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-        
-                    if biasdone == True:
-                        pass
-                    else:
-                        # Run colibri_main_py3.py
-                        print('Starting bias stage on: %s' % d)
-                        try:
-                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b'+'d:\\', '-d' + str(obsYMD)])
-                            #print('step 3')
-                            while p.poll() is None:
-                                print('.', end='', flush=True)
-                                time.sleep(1)
-                        except:
-                            print("error in the bias calculation stage!")
-                        with open(os.path.join(d, 'biasprocess.txt'), 'w+') as f1:
-                            f1.write('base_path: %s\n' % str(basepath))
-                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                            f1.write('process_date: %s\n' % process_date)
-                            f1.write('run_par: True\n')
-        t3 = time.time()-starttime
+    ## Run image bias stat calculations
+    print('\nStarting bias stat calculations...')
     
-            ###### Step 5... ######
-        print('Calculating sensitivity...')
-        for d in dirlist:
-                dirsplit = os.path.split(d)
-        
-                if len(dirsplit[1]) == 0:
-                    print('Root directory excluded')
-                elif dirsplit[-1] == 'ColibriData':
-                    print('ColibriData directory excluded')
-                elif dirsplit[-1] == 'Bias':
-                    print('Bias directory excluded')
-                elif dirsplit[0].split('\\')[-1] == 'Bias':
-                    print('Bias subdirectory excluded.')
-                else:
-                    if os.path.isfile(os.path.join(d, 'sensitivity.txt')) and repro == False:
-                        biasdone = True
-                        print('sensitivity processing already complete on %s' % d)
-                        # print('File exisits. Opening existing file.')
-                        with open(os.path.join(d, 'sensitivity.txt')) as f1:
-                            lines = f1.readlines()
-                            base_path = lines[0].strip('\n').split()[1]
-                            obsyear = int(lines[1].strip('\n').split()[1].split('/')[0])
-                            obsmonth = int(lines[1].strip('\n').split()[1].split('/')[1])
-                            obsday = int(lines[1].strip('\n').split()[1].split('/')[2])
-                            obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-                    else:
-                        biasdone = False
-                        basepath = pathlib.Path('d:')
-                        dirdaytime = dirsplit[1]
-                        obsyear = int(dirdaytime[:4])
-                        obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                        obsday = int(dirdaytime[6:8].lstrip("0"))
-                        obsYMD = '%s/%s/%s' % (obsyear, obsmonth, obsday)
-        
-                    if biasdone == True:
-                        pass
-                    else:
-                        # Run colibri_main_py3.py
-                        print('Starting sensitivity stage on: %s' % d)
-                        try:
-                            p = subprocess.run(['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d' + str(obsYMD)])
-                            #print('step 3')
-                            while p.poll() is None:
-                                print('.', end='', flush=True)
-                                time.sleep(1)
-                        except:
-                            print("error in the sensitivity calculation stage!")
-                        with open(os.path.join(d, 'sensitivity.txt'), 'w+') as f1:
-                            f1.write('base_path: %s\n' % str(basepath))
-                            f1.write('obs_date: %s/%s/%s\n' % (obsyear, obsmonth, obsday))
-                            # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
-                            f1.write('process_date: %s\n' % process_date)
-                            f1.write('run_par: True\n')
-        t4 = time.time()-starttime
+    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b d:\\', '-d obsYMD']
+    t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
+    print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
     
-    
-        print('Completed bias image stats in %s seconds' % (t3-t1))
-        print('Completed sensitivity in %s seconds' % (t4-t3))
-        print('Total time to process was %s seconds' % (t4))
+    ## Run sensitivity calculations
+    print('\nStarting sensitivity calculations...')
+    sensitivity_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d obsYMD']
+    t5 = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
+    print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
 
 
 ##############################
 ## End Of Script
 ##############################
 
+    print(f"Total time to process was {t0+t1+t2+t3+t4+t5} seconds")
     window.destroy()
