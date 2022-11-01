@@ -1,3 +1,14 @@
+"""
+Filename:   processdata.py
+Author(s):  Mike Mazur, Roman Akhmetshyn, Peter Quigley
+Contact:    pquigley@uwo.ca
+Created:    Wed Oct 19 10:19:07 2022
+Updated:    Wed Oct 19 10:19:07 2022
+    
+Usage:
+$Description$
+"""
+
 import os, sys, shutil
 import time
 import pathlib
@@ -571,4 +582,16 @@ if __name__ == '__main__':
         print('Completed sensitivity in %s seconds' % (t4-t3))
         print('Total time to process was %s seconds' % (t4))
 
+
+##############################
+## End Of Script
+##############################
+    
+    ## Try to rename the log file if one was generated
+    try:
+        os.rename("d:\\Logs\\Pipeline\\tmp.log",
+                  f"d:\\Logs\\Pipeline\\{process_date.replace('/','')}.log")
+    except:
+        pass
+    
     window.destroy()
