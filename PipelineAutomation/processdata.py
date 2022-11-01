@@ -586,12 +586,5 @@ if __name__ == '__main__':
 ##############################
 ## End Of Script
 ##############################
-    
-    ## Try to rename the log file if one was generated
-    try:
-        os.rename("d:\\Logs\\Pipeline\\tmp.log",
-                  f"d:\\Logs\\Pipeline\\{process_date.replace('/','')}.log")
-    except:
-        pass
-    
+
     window.destroy()
