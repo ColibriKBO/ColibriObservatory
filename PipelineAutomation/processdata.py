@@ -266,8 +266,8 @@ if __name__ == '__main__':
     
 
     
-        print('Finished 2nd stage processing.')
         t2 = time.time()-starttime
+        print(f"Completed 2nd stage data processing in {t2} seconds",file=sys.stderr)
         
         
 ##############################
