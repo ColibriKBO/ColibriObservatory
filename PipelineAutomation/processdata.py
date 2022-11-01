@@ -5,8 +5,7 @@ Contact:    pquigley@uwo.ca
 Created:    Wed Oct 19 10:19:07 2022
 Updated:    Wed Oct 19 10:19:07 2022
     
-Usage:
-$Description$
+Usage: python processdata[-d][-p][-r][-s]
 """
 
 import os, sys, shutil
@@ -32,6 +31,97 @@ from preparedata import is_dir_too_small
 #               Open processed.txt and check to see if main was completed
 # STEP 3: Same as STEP 2, but run colibri_secondary.py
 # STEP 4: Cleanup unnecessary files
+
+
+#--------------------------------functions------------------------------------#
+
+
+def subprocessLoop(dir_list,subprocess_list,stop_file,repro=False,new_stop=True):
+    """
+    Run a subprocess using the subprocess model iterating through the available
+    observation data directories.
+
+    Args:
+        dir_list (list): Generator object of data files
+        subprocess_list (list): List to be passed to subprocess.run. Will
+                                replace "obsYMD" with appropriate variable.
+        stop_file (str): Filename of file indicating data has already been
+                         processed
+        repro (bool, optional): Boolean indicating if previously processed data
+                                should be reprocessed
+        new_stop (bool, optional): Boolean indicating if a new stop file should
+                                   be written after running the subprocess
+
+    Returns:
+        runtime (float): Time to run the subprocess
+
+    """
+    
+    ## Begin timing module here
+    starttime = time.time()
+    
+    
+    ## Walk through the directories and find those with less than n files and
+    ## remove them. Check all of the files in the remainining directories to
+    ## ensure that all files are the right size.
+    for d in dir_list:
+        dirsplit = os.path.split(d)
+
+        # Sanitize directories to be analyzed
+        if len(dirsplit[1]) == 0:
+            print('Root directory excluded')
+        elif dirsplit[-1] == 'ColibriData':
+            print('ColibriData directory excluded')
+        elif dirsplit[-1] == 'Bias':
+            print('Bias directory excluded')
+        elif dirsplit[0].split('\\')[-1] == 'Bias':
+            print('Bias subdirectory excluded.')
+            
+        # Found valid data directory
+        else:
+            # Data already processed
+            if os.path.isfile(os.path.join(d,stop_file)) and repro == False:
+                print(f"{stop_file} already found in {d}")
+            
+            # Data not processed or reprocess requested
+            else:
+                print(f"Starting 1st stage on: {d}")
+                
+                # Get data observation date
+                basepath = pathlib.Path('d:')
+                dirdaytime = dirsplit[1]
+                obsyear = int(dirdaytime[:4])
+                obsmonth = int(dirdaytime[4:6].lstrip("0"))
+                obsday = int(dirdaytime[6:8].lstrip("0"))
+                obsYMD = str('%s/%s/%s' % (obsyear, obsmonth, obsday))
+                subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
+                
+                # Run subprocess and write a new stop file if requested
+                try:
+                    subp = subprocess.run(subp_list)
+                    
+                    while subp.poll() is None:
+                        print('.', end='', flush=True)
+                        time.sleep(10)
+                        
+                    if new_stop:
+                        with open(os.path.join(d,stop_file),'w') as sf:
+                            sf.write(f"base_path: {str(basepath)}\n")
+                            sf.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
+                            sf.write(f"sigma_threshold: {sigma_threshold}\n")
+                            sf.write(f"process_data: {process_date}\n")
+                            sf.write(f"run_par: True\n")
+                        
+                except:
+                    print(f"Error occurred running {subprocess_list[1]}!")
+                    
+    return time.time()-starttime
+            
+
+
+
+
+#-----------------------------------main--------------------------------------#
 
 if __name__ == '__main__':
 
@@ -114,20 +204,33 @@ if __name__ == '__main__':
                         os.remove(f)
                         bad_files += 1
 
+    ## Create generator object of the surviving data directories
+    dirlist = [ f.path for f in os.scandir(datadir) if f.is_dir() ]
 
     print(f"{bad_dirs} directories removed for being too small")
     print(f"{bad_files} removed for being too small")
-    print(f"Completed data preparation in {time.time()-starttime} seconds\n",file=sys.stderr)
+    
+    t0 = time.time()-starttime
+    print(f"Completed data preparation in {t0} seconds\n",file=sys.stderr)
 
 
 ##############################
-## Primary Pipeline (Initial Dip Detection)
+## Primary Pipeline (Initial Dip Detection & Star Finding)
 ##############################
     print("Starting 1st stage processing...")
-    starttime = time.time()
 
-    ## Create generator object of the data directory subdirectories
-    dirlist = [ f.path for f in os.scandir(datadir) if f.is_dir() ]
+    ## Run primary pipeline using subprocess routine
+    pipeline1_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', 'obsYMD', str(sigma_threshold)]
+    t1 = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
+    
+    ## Get starcoordinates
+    starfinder_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/coordsfinder.py'), '-d obsYMD']
+    tsf = subprocessLoop(dirlist,starfinder_list,'1process.txt',repro=repro)
+    
+    
+    
+
+
 
     ## Loop through all subdirectories in the data directory an analyze only
     ## those with unprocessed data (unless reproc == True)
@@ -338,10 +441,13 @@ if __name__ == '__main__':
                     print('Finished 3rd stage processing.')
     
         t3 = time.time()-starttime
+        print(f"Completed 3nd stage data processing in {t3} seconds",file=sys.stderr)
         
-        print('Completed 2nd stage data processing in  %s seconds' % (t2-t1))
-        print('Completed 3nd stage data processing in  %s seconds' % (t3-t2))
-        
+
+##############################
+## Bias Calculations
+##############################
+        starttime = time.time()
         
             ###### Step 4... ######
         print('Calculating bias stats...')
@@ -398,8 +504,14 @@ if __name__ == '__main__':
                             f1.write('run_par: True\n')
         
         t4 = time.time()-starttime
-        
-            ###### Step 5... ######
+        print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
+
+
+##############################
+## Sensitivity Calculations
+##############################
+        starttime = time.time()
+
         print('Calculating sensitivity...')
         for d in dirlist:
                 dirsplit = os.path.split(d)
@@ -452,17 +564,16 @@ if __name__ == '__main__':
                             # f1.write('process_date: %s/%s/%s\n' % (procyear, procmonth, procday))
                             f1.write('process_date: %s\n' % process_date)
                             f1.write('run_par: True\n')
+
+    
         t5 = time.time()-starttime
+        print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
+        print(f"Total time to process was {t0+t1+t2+t3+t4+t5} seconds")
     
-    
-        
-        print('Completed sensitivity in %s seconds' % (t5-t4))
-        
-        
-        print('Completed bias image stats in %s seconds' % (t4-t3))
-        print('Total time to process was %s seconds' % (t5))
-        
-    
+
+##############################
+## Non-GREENBIRD Case
+##############################
 
     else:
         print('Completed 1st stage data processing in %s seconds' % t1)
