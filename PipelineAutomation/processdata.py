@@ -233,10 +233,11 @@ if __name__ == '__main__':
 ##############################
 ## Primary Pipeline (Initial Dip Detection & Star Finding)
 ##############################
+
     print("\nStarting 1st stage processing...")
 
     ## Run primary pipeline
-    pipeline1_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', 'obsYMD', str(sigma_threshold)]
+    pipeline1_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', 'obsYMD', f"-s {sigma_threshold}"]
     t1 = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
     
     ## Get star coordinates
