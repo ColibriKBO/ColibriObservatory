@@ -141,7 +141,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
 #-----------------------------------main--------------------------------------#
 
 if __name__ == '__main__':
-
+    totaltime = []
     
 ##############################
 ## Generate Warning Window
@@ -228,6 +228,7 @@ if __name__ == '__main__':
     print(f"{bad_files} removed for being too small")
     
     t0 = time.time()-starttime
+    totaltime.append(t0)
     print(f"Completed data preparation in {t0} seconds",file=sys.stderr)
 
 
@@ -293,5 +294,10 @@ if __name__ == '__main__':
 ## End Of Script
 ##############################
 
-    print(f"Total time to process was {t0+t1+t2+t3+t4+t5} seconds")
+    if telescope == "GREENBIRD":
+        print(f"Total time to process was {t0+t1+tsf+t2+t3+t4+t5} seconds")
+    else:
+        print(f"Total time to process was {t0+t1+tsf+t4+t5}")
+    
     window.destroy()
+    
