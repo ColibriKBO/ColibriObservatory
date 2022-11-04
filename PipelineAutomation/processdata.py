@@ -15,6 +15,7 @@ import datetime
 import glob
 import subprocess
 import argparse
+import logging
 import tkinter as tk
 
 from pathlib import Path
@@ -132,8 +133,12 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                             
                         print(f"Wrote {stop_file} to {d}")
                         
-                except:
+                except Exception as Argument:
                     print(f"Error occurred running {subprocess_list[1]}!")
+                    
+                    with open(f"{process_date}.txt", "a") as err:
+                        err.write(f"Error occurred running {subprocess_list[1]}!")
+                        err.write(str(Argument),'\n')
     
     print("")
     return time.time()-starttime
