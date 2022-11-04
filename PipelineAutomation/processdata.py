@@ -191,7 +191,7 @@ if __name__ == '__main__':
     
     if cml_args.date == 'All':
         datadir = 'd:\\ColibriData\\'
-    if cml_args.test:
+    elif cml_args.test:
         datadir = 'd:\\ColibriData2\\'
     else:
         obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
