@@ -123,6 +123,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                             # Note that this requires sigma_threshold to be a
                             # global, defined variable
                             
+                            print(f"Saving {stop_file} to {os.path.join(d,stop_file)}.")
                             sf.write(f"base_path: {str(basepath)}\n")
                             sf.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
                             sf.write(f"process_data: {process_date}\n")
@@ -133,7 +134,8 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                         
                 except:
                     print(f"Error occurred running {subprocess_list[1]}!")
-                    
+    
+    print("")
     return time.time()-starttime
 
 
@@ -174,7 +176,8 @@ if __name__ == '__main__':
     arg_parser.add_argument('-d', '--date', help='Observation date (YYYY/MM/DD) of data to be processed.', default='All')
     arg_parser.add_argument('-p', '--procdate', help='Processing date (YYYY/MM/DD).', default=str(datetime.datetime.today().strftime('%Y/%m/%d')))
     arg_parser.add_argument('-r', '--repro', help='Will reprocess data if used.', action="store_true")
-    arg_parser.add_argument('-s', '--sigma', help='Significance treshold.', default='6') #10-05 Roman A
+    arg_parser.add_argument('-s', '--sigma', help='Significance treshold.', default='6')
+    arg_parser.add_argument('-t', '--test', help='Use ColibriData2 instead of ColibriData', action='store_true')
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
 
@@ -188,6 +191,8 @@ if __name__ == '__main__':
     
     if cml_args.date == 'All':
         datadir = 'd:\\ColibriData\\'
+    if cml_args.test:
+        datadir = 'd:\\ColibriData2\\'
     else:
         obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
         datadir = 'd:\\ColibriData\\' + obs_date + '\\'
