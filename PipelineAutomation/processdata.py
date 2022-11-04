@@ -102,7 +102,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 
                 if check_others == True:
                     path_RED  = pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
-                    path_BLUE = pathlib.Path('/','Y:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+                    path_BLUE = pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
                     
                     while not (path_RED.is_file() and path_BLUE.is_file()):
                         print("Waiting for Red and Blue...")
@@ -127,7 +127,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                             sf.write(f"base_path: {str(basepath)}\n")
                             sf.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
                             sf.write(f"process_data: {process_date}\n")
-                            sf.write(f"run_par: True\n")
+                            sf.write("run_par: True\n")
                             sf.write(f"sigma_threshold: {sigma_threshold}\n")
                             
                         print(f"Wrote {stop_file} to {d}")
