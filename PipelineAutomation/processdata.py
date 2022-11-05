@@ -141,7 +141,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                     
                     with open(f"{process_date}.txt", "a") as err:
                         err.write(f"Error occurred running {subprocess_list[1]}!")
-                        err.write(str(Argument),'\n')
+                        err.write(str(Argument)+'\n')
     
     print("")
     return time.time()-starttime
