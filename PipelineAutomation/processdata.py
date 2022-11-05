@@ -139,7 +139,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 except Exception as Argument:
                     print(f"Error occurred running {subprocess_list[1]}!")
                     
-                    with open(os.path.join("d:","Logs","Pipeline",f"{process_date}.txt", "a") as err:
+                    with open(os.path.join("d:","Logs","Pipeline",f"{process_date}.txt"), "a") as err:
                         err.write(f"Error occurred running {subprocess_list[1]}!")
                         err.write(str(Argument)+'\n')
     
