@@ -115,9 +115,12 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 try:
                     subp = subprocess.run(subp_list)
                     
-                    while subp.poll() is None:
-                        print('.', end='', flush=True)
-                        time.sleep(10)
+                    try:
+                        while subp.poll() is None:
+                            print('.', end='', flush=True)
+                            time.sleep(10)
+                    except AttributeError:
+                        pass
                         
                     if new_stop:
                         with open(os.path.join(d,stop_file),'w') as sf:
