@@ -127,7 +127,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                             print(f"Saving {stop_file} to {os.path.join(d,stop_file)}.")
                             sf.write(f"base_path: {str(basepath)}\n")
                             sf.write(f"obs_date: {obsyear}{obsmonth}{obsday}\n")
-                            sf.write(f"process_data: {process_date}\n")
+                            sf.write(f"process_date: {process_date}\n")
                             sf.write("run_par: True\n")
                             sf.write(f"sigma_threshold: {sigma_threshold}\n")
                             
@@ -190,7 +190,7 @@ if __name__ == '__main__':
     cml_args = arg_parser.parse_args()
 
     obsYYYYMMDD = cml_args.date
-    process_date = cml_args.procdate
+    process_date = (cml_args.procdate).replace('/','-')
     repro = cml_args.repro
     sigma_threshold = cml_args.sigma
     
