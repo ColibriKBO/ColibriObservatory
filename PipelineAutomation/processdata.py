@@ -96,8 +96,8 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 basepath = pathlib.Path('d:')
                 dirdaytime = dirsplit[1]
                 obsyear = int(dirdaytime[:4])
-                obsmonth = int(dirdaytime[4:6].lstrip("0"))
-                obsday = int(dirdaytime[6:8].lstrip("0"))
+                obsmonth = str(dirdaytime[4:6])
+                obsday = str(dirdaytime[6:8])
                 obsYMD = str('%s/%s/%s' % (obsyear, obsmonth, obsday))
                 subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
                 
@@ -106,7 +106,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                     path_BLUE = pathlib.Path('/','Z:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
                     
                     while not (path_RED.is_file() and path_BLUE.is_file()):
-                        print("Waiting for Red and Blue...")
+                        print("Waiting for %s and %s..." % (path_RED, path_BLUE))
                         time.sleep(300)
                     
                     print("Red and Blue are ready.")
