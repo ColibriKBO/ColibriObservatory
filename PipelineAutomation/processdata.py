@@ -291,7 +291,7 @@ if __name__ == '__main__':
     ## Run image bias stat calculations
     print('\nStarting bias stat calculations...')
     
-    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-b d:\\', '-d obsYMD']
+    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-d obsYMD']
     t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
     print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
     
