@@ -174,6 +174,7 @@ def main():
 				run_state = False
 		except:
 			cloud_flag = -999
+			polaris_flag = 0
 			pass
 
 		try:
@@ -265,7 +266,10 @@ def main():
 			print('File written')
 			f.close()
 
-			logger.info('%s,%s,%s,%s,%s,%s,%s,%s,%s' % (str(time.time()),str(t_out),str(h_out),str(v_wnd_av),str(d_wnd),str(rain),str(round(sky_t,2)),str(round(ground_t)),str(alert_flag)))
+			if polaris_flag != 0:
+				logger.info('%s,%s,%s,%s,%s,%s,%s,%s,%s,%s' % (str(time.time()),str(t_out),str(h_out),str(v_wnd_av),str(d_wnd),str(rain),str(round(sky_t,2)),str(round(ground_t)),str(alert_flag), str(polaris_mag)))
+			else:
+				logger.info('%s,%s,%s,%s,%s,%s,%s,%s,%s,-999' % (str(time.time()),str(t_out),str(h_out),str(v_wnd_av),str(d_wnd),str(rain),str(round(sky_t,2)),str(round(ground_t)),str(alert_flag)))
 
 			print('################')
 			print('# Weather Data #')
