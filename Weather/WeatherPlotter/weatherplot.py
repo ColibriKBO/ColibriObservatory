@@ -177,6 +177,8 @@ def main():
 			cloud_flag = -999
 			polaris_flag = 0
 			pass
+		
+		print(polaris_flag)
 
 		try:
 			print('Trying to get cloud data...')
