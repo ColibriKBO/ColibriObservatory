@@ -1397,34 +1397,27 @@ function main()
             biasCounter++
             Console.PrintLine("Bias counter = " + biasCounter.toString())
 
-            // Console.PrintLine("D:\\ColibriData\\" + today.toString())
-            // Console.PrintLine("ColibriGrab.exe" + "-n " + numExps.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
             // Start grabbing images
             pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExps.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
             
-            // taskid = Util.ShellExec("ColibriGrab.exe", "-n 2500 -w D:\\ColibriData\\202202011")
-            // tid = Util.ShellExec("ColibriGrab.exe", "-n 500 -p Bias_25ms -e 25 -t 0 -f bias -w D:\\ColibriData\\")
-
             Console.PrintLine("Process ID = " + pid.toString())
             Util.WaitForMilliseconds(1000)
-            // Console.PrintLine(taskid)
 
-            while (Util.IsTaskActive(pid)){
-                Util.WaitForMilliseconds(500)
-                // Console.PrintLine("Exposing...")
+            try
+            {
+                while (Util.IsTaskActive(pid)){
+                    Util.WaitForMilliseconds(500)
+                }
+                Console.PrintLine("Done exposing run # " + runCounter.toString())
             }
-
-            // Util.WaitForMilliseconds(60000)
-
-            Console.PrintLine("Done exposing run # " + runCounter.toString())
+            catch(err)
+            {
+                ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
+                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString())
+            }
+          
             runCounter++
-            // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
         }
-
-
-        //     //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
-
-        //     Util.WaitForMilliseconds(1000);
 
     }
 
