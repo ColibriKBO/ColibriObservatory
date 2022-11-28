@@ -142,6 +142,7 @@ def main():
 			polaris_mag = float(msg[8].split()[1])
 			print('Polaris camera darkness level: %s' % polaris_darkness)
 			print('Polaris instrumental magnitude: %s' % polaris_mag)
+			polaris_flag = 1
 
 			# Check to see if state has remained same for 300 seconds
 			run_state = False
