@@ -378,6 +378,7 @@ function getMoon()
 {
 	// finding moon elevation and azimuth
     Util.Console.PrintLine("== Moon Coordinates ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
     var SH = new ActiveXObject("WScript.Shell");
     var BS = SH.Exec(ACPApp.Path + "\\aa.exe -moon");
     var coords = "";
@@ -392,6 +393,7 @@ function getMoon()
     }
     coords = coords.trim();
     Util.Console.PrintLine("== " + coords + " ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: " + coords);
 
     var bits = coords.split(" ");
 
