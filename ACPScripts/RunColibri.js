@@ -329,7 +329,7 @@ function freeDiskSpace()
 
     var size = "";
 
-    size = SE.StdOut.Read(20);   // size in bytes
+    size = SE.StdOut.Read(25);   // size in bytes
     Console.PrintLine(size);
     size = size / 1000000000000; // size in TB
     Console.PrintLine("Size");
