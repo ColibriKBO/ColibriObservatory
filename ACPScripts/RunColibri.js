@@ -326,16 +326,12 @@ function freeDiskSpace()
 {
     var AX = new ActiveXObject("WScript.Shell");
     var SE = AX.Exec(ACPApp.Path + "\\freespace.bat");
-    Console.PrintLine("Path")
-    Console.PrintLine(ACPApp.Path)
 
     var size = "";
 
     size = SE.StdOut.Read(25);   // size in bytes
-    Console.PrintLine(size);
     size = size / 1000000000000; // size in TB
-    Console.PrintLine("Size");
-    Console.PrintLine(size);
+
     return(size)
 }
 
