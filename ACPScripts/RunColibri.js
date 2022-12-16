@@ -63,6 +63,7 @@ function abort(){
         Console.PrintLine("Waiting for script to finish...")
         // Util.WaitForMilliseconds(1000);
     }
+    Console.PrintLine("Aborted script!")
     
 }
 
@@ -74,8 +75,18 @@ function abortAndRestart(){
         Util.WaitForMilliseconds(5000)
         Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
     }
-    Util.AbortScript();
-    // WScript.Quit
+
+    if (Util.ScriptActive)
+    {
+        Console.PrintLine("Aborting...")
+        Util.AbortScript();
+    }
+
+    while (Util.ScriptActive)
+    {
+        Console.PrintLine("Waiting for script to finish...")
+        // Util.WaitForMilliseconds(1000);
+    }    // WScript.Quit
     main();
 
 }
