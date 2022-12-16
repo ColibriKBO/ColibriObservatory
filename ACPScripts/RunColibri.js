@@ -1,7 +1,7 @@
 //tabs=4
 //------------------------------------------------------------------------------
 //
-// Script:      GrabStream.js
+// Script:      RunColibri.js
 // Authors:     Ridhee Gupta, Mike Mazur <mjmazur@gmail.com>
 // Version:     0.1.0
 // Requires:    ACP 7.1 or later (PinPoint 6 or later)
@@ -10,8 +10,8 @@
 // Environment: This script is written to run under the ACP scripting
 //              console. 
 //
-// Description: Grabs a stream of images from Kepler 4040 camera running over
-//              fibre. Uses external program called ColibriGrab.
+// Description: Schedules and runs automated observations with the 
+//              Colibri telesopes
 //
 // Revision History:
 //
@@ -45,6 +45,28 @@ String.prototype.trim = function()
 // MJM - 2021-06-24
 /////////////////////
 function abort(){
+    Console.PrintLine("Aborting script!")
+    shutDown();
+    while (Dome.ShutterStatus !=1 || Telescope.AtPark != true)
+        {
+            Util.WaitForMilliseconds(5000);
+            Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
+        }
+    if (Util.ScriptActive)
+    {
+        Console.PrintLine("Aborting...")
+        Util.AbortScript();
+    }
+
+    while (Util.ScriptActive)
+    {
+        Console.PrintLine("Waiting for script to finish...")
+        // Util.WaitForMilliseconds(1000);
+    }
+    
+}
+
+function abortAndRestart(){
     Console.PrintLine("Aborting script!");
     shutDown();
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
@@ -786,6 +808,7 @@ function whichField(time)
 //
 ///////////////////////////////////////////////////////////////////////////////////
 
+var logconsole = true;
 var fso, f1, ts;
 var Mode = 8;
 
@@ -847,6 +870,12 @@ fieldInfo = [
 
 currentDate = getDate()
 
+if (logconsole == true)
+{
+    Console.LogFile = "d:\\Logs\\ACP\\" + currentDate + "-ACPconsole.log";
+    Console.Logging = true;
+}
+
 LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log";
 fso = new ActiveXObject("Scripting.FileSystemObject");
 
@@ -891,10 +920,10 @@ function main()
         if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
         {
             ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
-
         }
         else
             abort()
+
     }
 
 	// Check to see if the weather server is connected. If it isn't ask for permission to continue.
@@ -1263,13 +1292,13 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
-            abort()
+            abortAndRestart()
         }
         else if (currentField[2] < 0 && currField[0] != -1)
         {
             Console.PrintLine("Negative loops remaining. Past last field. Closing up.")
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.")
-            abort()
+            abortAndRestart()
 
         }
 
