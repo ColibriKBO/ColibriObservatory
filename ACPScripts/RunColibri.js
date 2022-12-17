@@ -63,7 +63,6 @@ function abort(){
         Console.PrintLine("Waiting for script to finish...")
         // Util.WaitForMilliseconds(1000);
     }
-    Console.PrintLine("Aborted script!")
     
 }
 
@@ -1210,7 +1209,7 @@ function main()
      {
         finalFields[i].push(finalFields[i][12],0)
      }
-     Console.PrintLine("Yay " + finalFields[i])
+     Console.PrintLine("Final Fields: " + finalFields[i])
     }
 
     // for (i=0; i<finalFields.length; i++)
@@ -1455,7 +1454,9 @@ function main()
             catch(err)
             {
                 ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
-                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString())
+                ts.WriteLine("ERROR: " + err)
+                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
+                Console.PrintLine(err)
             }
           
             runCounter++
