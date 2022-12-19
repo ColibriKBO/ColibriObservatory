@@ -662,7 +662,8 @@ function whichField(time)
     // Console.PrintLine(finalFields)
     // currField = 0
     // targetDur = finalFields[0][12]-time
-    Console.PrintLine(finalFields.length)
+    Console.PrintLine("Called whichField function...")
+    Console.PrintLine("Number of fields in finalFields: " + finalFields.length)
     if (finalFields.length == 2)
     {
         Console.PrintLine("Only one field to observe!")
@@ -729,7 +730,7 @@ function whichField(time)
 
             ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
 
-            // Console.PrintLine(targetLST)
+            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
             // Console.PrintLine(targetLoops)
             // Console.PrintLine(targetDur)
 
@@ -773,14 +774,8 @@ function whichField(time)
             fieldName = finalFields[finalFields.length-2][3].toString()
             ts.WriteLine(Util.SysUTCDate + " INFO: Between last two times")
 
-            // Console.PrintLine(time)
-            // Console.PrintLine(finalFields[finalFields.length-2][12])
-            // Console.PrintLine(finalFields[finalFields.length-1][12])
-            // Console.PrintLine(targetLST)
-            // Console.PrintLine(targetLoops)
-            // Console.PrintLine(targetDur)
+            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            
             break
         }
         else if (time > finalFields[finalFields.length-1][12])
