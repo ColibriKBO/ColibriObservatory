@@ -1053,10 +1053,11 @@ function main()
 
     // Length of night
     timesTomorrow = twilightTimes(Util.SysJulianDate+1)
-    Console.PrintLine("Times tomorrow: " + timesTomorrow)
-    Console.PrintLine(Util.SysJulianDate)
-    Console.PrintLine((Util.SysJulianDate - times[1])*24)
-    Console.PrintLine("Length of night: " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
+
+    timeUntilSunrise = (Util.SysJulianDate - times[1])*24 // hours
+
+    Console.PrintLine("Length of night (sunset-to-sunrise): " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
+    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
     ts.WriteLine(Util.SysUTCDate + " INFO: Length of night: " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
     Console.PrintLine(" ")
 
