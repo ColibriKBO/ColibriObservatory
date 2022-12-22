@@ -18,3 +18,6 @@ colibri_photometry.html
 *.toc
 *.zip
 PyFocus/PyFocus.spec
+
+# ignore weather script identity notification
+ACPScripts/WhichWeatherScript.txt
