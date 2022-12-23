@@ -1057,6 +1057,16 @@ function main()
     timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
     timeUntilSunrise = (timesTomorrow[0] - Util.SysJulianDate)*24 // hours
 
+    if (timeUntilSunset > 0)
+    {
+        isAfterSunset = false
+    }
+    else
+    {
+        isAfterSunset = true
+    }
+    
+
     Console.PrintLine("Length of night (sunset-to-sunrise): " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
     Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
     Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
@@ -1104,7 +1114,41 @@ function main()
 
     // startLST = Util.NowLST()
     // times[1] is today's sunset time
-    startLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+
+    // If we're already past sunset, make sure to do field calculations from now.
+    if (isAfterSunset)
+    {
+        startLST = Util.NowLST()
+    }
+    else
+    {
+        startLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+    }
+    
+    Console.PrintLine(isAfterSunset)
+
+    if (!isAfterSunset)
+    {
+        Console.PrintLine("")
+        Console.PrintLine("Be patient. It's too early to start operations. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+        ts.WriteLine(Util.SysUTCDate + " INFO: It's too early. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+        while (!isAfterSunset)
+        {
+            Util.WaitForMilliseconds(5000)
+            timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
+
+            
+            if (timeUntilSunset > 0)
+            {
+                Console.PrintLine("")
+                Console.PrintLine("It's still too early to begin... Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+            }
+            else
+            {
+                isAfterSunset = true
+            }
+        }
+    }
 
     for (k=0; k<n; k++)
     {
