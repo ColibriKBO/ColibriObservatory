@@ -90,6 +90,31 @@ function abortAndRestart(){
 
 }
 
+function andRestart(){
+    Console.PrintLine("Shutting down and restarting!");
+    shutDown();
+    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
+    {
+        Util.WaitForMilliseconds(5000)
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+    }
+
+    // if (Util.ScriptActive)
+    // {
+    //     Console.PrintLine("Aborting...")
+    //     Util.AbortScript();
+    // }
+
+    // while (Util.ScriptActive)
+    // {
+    //     Console.PrintLine("Waiting for script to finish...")
+    //     // Util.WaitForMilliseconds(1000);
+    // }    // WScript.Quit
+
+    main();
+
+}
+
 //////////////////////////////////////////////////
 // Function called when Alert button is pressed
 //////////////////////////////////////////////////
@@ -1348,13 +1373,15 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
-            abortAndRestart()
+            // abortAndRestart()
+            andRestart()
         }
         else if (currentField[2] < 0 && currField[0] != -1)
         {
             Console.PrintLine("Negative loops remaining. Past last field. Closing up.")
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.")
-            abortAndRestart()
+            // abortAndRestart()
+            andRestart()
 
         }
 
