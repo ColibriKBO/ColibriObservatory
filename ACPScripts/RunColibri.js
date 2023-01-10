@@ -744,8 +744,8 @@ function whichField(time)
     {
         if (time > finalFields[i*2][12] && time < finalFields[i*2+2][12])
         {
-            targetLST = finalFields[i+2][12]
-            targetDur = finalFields[i+2][12] - time
+            targetLST = finalFields[i*2+2][12]
+            targetDur = finalFields[i*2+2][12] - time
             targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
             currField = i*2
             nextField = i*2+2
@@ -1389,7 +1389,7 @@ function main()
         {
             Console.PrintLine("")
             Console.PrintLine("Too late. Nothing left to observe.")
-            ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
+            ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
             // abortAndRestart()
