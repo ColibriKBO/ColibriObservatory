@@ -90,6 +90,31 @@ function abortAndRestart(){
 
 }
 
+function andRestart(){
+    Console.PrintLine("Shutting down and restarting!");
+    shutDown();
+    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
+    {
+        Util.WaitForMilliseconds(5000)
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+    }
+
+    // if (Util.ScriptActive)
+    // {
+    //     Console.PrintLine("Aborting...")
+    //     Util.AbortScript();
+    // }
+
+    // while (Util.ScriptActive)
+    // {
+    //     Console.PrintLine("Waiting for script to finish...")
+    //     // Util.WaitForMilliseconds(1000);
+    // }    // WScript.Quit
+
+    main();
+
+}
+
 //////////////////////////////////////////////////
 // Function called when Alert button is pressed
 //////////////////////////////////////////////////
@@ -662,7 +687,8 @@ function whichField(time)
     // Console.PrintLine(finalFields)
     // currField = 0
     // targetDur = finalFields[0][12]-time
-    Console.PrintLine(finalFields.length)
+    Console.PrintLine("Called whichField function...")
+    Console.PrintLine("Number of fields in finalFields: " + finalFields.length)
     if (finalFields.length == 2)
     {
         Console.PrintLine("Only one field to observe!")
@@ -729,7 +755,7 @@ function whichField(time)
 
             ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
 
-            // Console.PrintLine(targetLST)
+            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
             // Console.PrintLine(targetLoops)
             // Console.PrintLine(targetDur)
 
@@ -773,14 +799,8 @@ function whichField(time)
             fieldName = finalFields[finalFields.length-2][3].toString()
             ts.WriteLine(Util.SysUTCDate + " INFO: Between last two times")
 
-            // Console.PrintLine(time)
-            // Console.PrintLine(finalFields[finalFields.length-2][12])
-            // Console.PrintLine(finalFields[finalFields.length-1][12])
-            // Console.PrintLine(targetLST)
-            // Console.PrintLine(targetLoops)
-            // Console.PrintLine(targetDur)
+            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            
             break
         }
         else if (time > finalFields[finalFields.length-1][12])
@@ -1077,7 +1097,24 @@ function main()
 
     // Length of night
     timesTomorrow = twilightTimes(Util.SysJulianDate+1)
-    Console.PrintLine("Length of night: " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
+
+    timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
+    timeUntilSunrise = (timesTomorrow[0] - Util.SysJulianDate)*24 // hours
+
+    if (timeUntilSunset > 0)
+    {
+        isAfterSunset = false
+    }
+    else
+    {
+        isAfterSunset = true
+    }
+    
+
+    Console.PrintLine("Length of night (sunset-to-sunrise): " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
+    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
+    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
+
     ts.WriteLine(Util.SysUTCDate + " INFO: Length of night: " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
     Console.PrintLine(" ")
 
@@ -1121,7 +1158,41 @@ function main()
 
     // startLST = Util.NowLST()
     // times[1] is today's sunset time
-    startLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+
+    // If we're already past sunset, make sure to do field calculations from now.
+    if (isAfterSunset)
+    {
+        startLST = Util.NowLST()
+    }
+    else
+    {
+        startLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+    }
+    
+    Console.PrintLine(isAfterSunset)
+
+    if (!isAfterSunset)
+    {
+        Console.PrintLine("")
+        Console.PrintLine("Be patient. It's too early to start operations. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+        ts.WriteLine(Util.SysUTCDate + " INFO: It's too early. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+        while (!isAfterSunset)
+        {
+            Util.WaitForMilliseconds(5000)
+            timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
+
+            
+            if (timeUntilSunset > 0)
+            {
+                Console.PrintLine("")
+                Console.PrintLine("It's still too early to begin... Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+            }
+            else
+            {
+                isAfterSunset = true
+            }
+        }
+    }
 
     for (k=0; k<n; k++)
     {
@@ -1321,13 +1392,15 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " INFO: Too late... We should never have gotten here.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
-            abortAndRestart()
+            // abortAndRestart()
+            andRestart()
         }
         else if (currentField[2] < 0 && currField[0] != -1)
         {
             Console.PrintLine("Negative loops remaining. Past last field. Closing up.")
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.")
-            abortAndRestart()
+            // abortAndRestart()
+            andRestart()
 
         }
 
