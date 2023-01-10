@@ -742,7 +742,7 @@ function whichField(time)
 
     for (i=0; i<finalFields.length/2-1; i++)
     {
-        if (time > finalFields[i*2][12] & time < finalFields[i*2+2][12])
+        if (time > finalFields[i*2][12] && time < finalFields[i*2+2][12])
         {
             targetLST = finalFields[i+2][12]
             targetDur = finalFields[i+2][12] - time
@@ -786,7 +786,7 @@ function whichField(time)
             fieldName = "TooEarly"
             break
         }
-        else if (time > finalFields[finalFields.length-2][12] & time < finalFields[finalFields.length-1][12])
+        else if (time > finalFields[finalFields.length-2][12] && time < finalFields[finalFields.length-1][12])
         {
             Console.PrintLine("Between last two times")
             targetLST = finalFields[finalFields.length-1][12]
@@ -1344,7 +1344,7 @@ function main()
     runNum = 0
     currentField = [0,0,0,0,0,"None"]
 
-    while (currentField[0] > -1 & currentField[0] < 999)
+    while (currentField[0] > -1 && currentField[0] < 999)
     {    //
         currentLST = Util.NowLST()
         currentField = whichField(currentLST)
