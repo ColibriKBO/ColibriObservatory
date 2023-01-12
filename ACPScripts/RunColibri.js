@@ -1147,7 +1147,6 @@ function main()
 
     fieldsToObserve = [] // Array containing best field info in 6 minute increments
 
-
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
     // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], LST [12]
     
@@ -1162,12 +1161,12 @@ function main()
     // If we're already past sunset, make sure to do field calculations from now.
     if (isAfterSunset)
     {
-        startLST = Math.Ciel(Util.NowLST()*10)/10
+        startLST = Math.ceil(Util.NowLST()*10)/10
     }
     else
     {
-        currLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
-        startLST = Math.Ciel(currLST*10)/10
+        advLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+        startLST = Math.ceil(advLST*10)/10
     }
     
     Console.PrintLine(isAfterSunset)
