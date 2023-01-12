@@ -1162,11 +1162,12 @@ function main()
     // If we're already past sunset, make sure to do field calculations from now.
     if (isAfterSunset)
     {
-        startLST = Util.NowLST()
+        startLST = Math.Ciel(Util.NowLST()*10)/10
     }
     else
     {
-        startLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+        currLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
+        startLST = Math.Ciel(currLST*10)/10
     }
     
     Console.PrintLine(isAfterSunset)
