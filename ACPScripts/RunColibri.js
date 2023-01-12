@@ -1194,6 +1194,9 @@ function main()
         }
     }
 
+    prevField = ""
+    minDiff = 2
+
     for (k=0; k<n; k++)
     {
         // Assume that the moon angle is constant throughout the night
@@ -1258,7 +1261,22 @@ function main()
 
         sortFields(goodFields)
 
-        fieldsToObserve.push(sortedFields[0])
+        if (sortedFields.length == 1)
+        {
+            fieldsToObserve.push(sortedFields[0])
+            prevField = sortedFields[0][3]
+        }
+        else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] <= minDiff)
+        {
+            fieldsToObserve.push(sortedFields[1])
+            prevField = sortedFields[1][3]
+        }
+        else
+        {
+            fieldsToObserve.push(sortedFields[0])
+            prevField = sortedFields[0][3]
+        }
+
     }
 
     // for (k=0; k < fieldsToObserve.length; k++)
