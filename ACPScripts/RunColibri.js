@@ -1194,8 +1194,10 @@ function main()
         }
     }
 
+    // Setup to prevent rapid switching
     prevField = ""
     minDiff = 2
+    timestep = 0.5 // time between field calculations in hours
 
     for (k=0; k<n; k++)
     {
@@ -1204,8 +1206,8 @@ function main()
         // aa.exe doesn't allow time input from command line, so we'll
         // fix this later
 
-        // Create a new coordinate transform
-        ct = Util.NewCT(Telescope.SiteLatitude, startLST+k*0.1)
+        // Create a new coordinate transform at intervals of timestep
+        ct = Util.NewCT(Telescope.SiteLatitude, startLST+k*timestep)
 
         // Start a loop to calculate approximate number of stars in fields
         for (j=0; j < fieldInfo.length; j++)
@@ -1265,6 +1267,7 @@ function main()
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
         // TODO: make this if/else more clever
+        /*
         if (sortedFields.length == 1)
         {
             fieldsToObserve.push(sortedFields[0])
@@ -1280,6 +1283,7 @@ function main()
             fieldsToObserve.push(sortedFields[0])
             prevField = sortedFields[0][3]
         }
+        */
 
     }
 
