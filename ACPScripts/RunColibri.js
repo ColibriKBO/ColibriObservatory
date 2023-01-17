@@ -1285,6 +1285,7 @@ function main()
         }
         */
 
+        fieldsToObserve.push(sortedFields[0])
     }
 
     // for (k=0; k < fieldsToObserve.length; k++)
