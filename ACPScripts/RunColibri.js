@@ -838,18 +838,33 @@ function whichField(time)
 //
 ///////////////////////////////////////////////////////////////////////////////////
 
+
+/* --------------------------- Setup ----------------------------------------*/
+
+// ACP Variables
 var logconsole = true;
+var firstRun = true;
+var isAfterSunset = false;
 var fso, f1, ts;
 var Mode = 8;
+var currentDate = getDate();
+var pierside = "E";
 
+// Magic numbers
 var curTarget = null;
-var elevationLimit = 10;
-var minMoonOffset = 15;
+var elevationLimit = 10; // minimum elevation of field in degrees
+var minMoonOffset = 15; // angular seperation from moon in degrees
+var numExposures = 2400; // exposures/min
+var timestep = 0.5; // time between fields in hours
+var minDiff = 2; // minimum difference between fields to justify a switch
+var magnitudeLimit = 12; // dimmest visible star
+var extScale = 0.4; // extinction scaling factor
 
-var numExposures = 2400;
-
+// Iterables
 var slewAttempt = 0;
 
+
+// Field coordinates
 var field1  = [273.736, -18.640];
 var field2  = [92.419,  23.902];
 var field3  = [287.740, -17.914];
@@ -917,7 +932,7 @@ fieldInfo = [
     [0, 0, field24, "field24", 0, 0, 1.0, 184,  0.0005, 1.0, 184, 0, 0]
 ];
 
-currentDate = getDate()
+
 
 if (logconsole == true)
 {
@@ -948,16 +963,53 @@ Console.PrintLine("Log file ready.")
 //     if (fieldInfo)
 // }
 
-var pierside = "E"
+
+
+/*---------------------------------------------------------------------------*/
+/*-----------------------------------Main------------------------------------*/
+/*---------------------------------------------------------------------------*/
 
 function main()
 {
 
-    times = twilightTimes(Util.SysJulianDate)
-    darkhours = (times[1]-times[0])*24
-    spaceneeded = darkhours*3600*40*12600000/1000000000000
-    freespace = freeDiskSpace()
+    // Get times of sunrise and sunset
+    // twilightTimes: [0] - JD of sunrise, [1] - JD of sunset
+    // Note! The calculation for sunsetLST only works if you are west of Greenwich
+    sunset  = twilightTimes(Util.SysJulianDate)[1]
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0]
+    sunsetLST = Math.ceil((Util.Julian_GMST(sunset) + 15*Telescope.SiteLongitude) * 10) / 10
 
+    // Length of night
+    darkHours = (sunset - sunset)*24
+    timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
+    timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
+
+    // Print today's time of nautical sunrise and sunset.
+    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
+    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset))
+    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
+    ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
+    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise))
+    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
+    Console.PrintLine("Current LST: " + Util.NowLST())
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset LST: " + sunsetLST)
+    ts.WriteLine(Util.SysUTCDate + " INFO: Current LST: " + Util.NowLST())
+    
+    Console.PrintLine("Length of the Night: " + darkHours + "hours")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + "hours")
+    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
+    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
+
+
+/*-----------------------------Prestart Checks-------------------------------*/
+
+    // Check if there is enough space for this to run
+    spaceneeded = darkHours*3600*40*12600000/1000000000000
+    freespace = freeDiskSpace()
     if (freespace > spaceneeded)
     {
         Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.")
@@ -971,11 +1023,14 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
         }
         else
+        {
             abort()
+        }
 
     }
 
-	// Check to see if the weather server is connected. If it isn't ask for permission to continue.
+	// Check to see if the weather server is connected. If it isn't ask for
+	// permission to continue.
 	if (Weather.Available)
 	{
 		Console.PrintLine("Weather server is connected. Continuing with operations.");
@@ -995,9 +1050,8 @@ function main()
 			abort()
 	}
 
-	// Run function to wait until sunset before starting operations
-	// waitUntilSunset(2000); // Variable is time (in ms) between updates
-
+	// If the weather server is connected and the weather is not safe, wait
+	// until it becomes safe.
     if (Weather.Available && !Weather.safe)
     {
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.")
@@ -1035,6 +1089,7 @@ function main()
         Util.WaitForMilliseconds(300000)
 	}
 
+    // Update currentDate variable to be correct
     if (getDate() != currentDate)
     {
         currentDate = getDate()
@@ -1065,8 +1120,39 @@ function main()
         // Console.Logging = true
     }
 
+    // Wait until sunset to begin operation
+    if (timeUntilSunset < 0)
+    {
+        isAfterSunset = true
+        startLST = Math.ceil(Util.NowLST()*10)/10
+    }
+    else
+    {
+        Console.PrintLine("")
+        Console.PrintLine("Be patient. It's too early to start operations.")
+        
+        while (timeUntilSunset > 0)
+        {
+            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+
+            Util.WaitForMilliseconds(5000)
+            timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
+        }
+        
+        isAfterSunset = true
+        startLST = Math.ceil(Util.NowLST()*10)/10
+    }
+    
+    //
+    Console.PrintLine("")
+    Console.PrintLine("It is after sunset... Creating observation plan now.")
+
+
+/*-----------------------------Observing Plan--------------------------------*/
+
+
 	// Create directory for tonight's data and collect bias frames
-	if (firstRun = 1)
+	if (firstRun = true)
     {
         var today = getDate(); // Today's UTC date to be used to define data directory
         // Console.Logging = false
@@ -1077,128 +1163,36 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting bias frames...")
         biasCollection(today)
-        firstRun = 0
+        firstRun = false
     }
 
-    // Get today's time of nautical sunrise and sunset.
-    times = twilightTimes(Util.SysJulianDate); // [0] - JD of sunrise, [1] - JD of sunset
-    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(times[0]))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(times[0]))
-    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(times[1]))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(times[1]))
-    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(times[0]))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(times[0]))
-    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(times[1]))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(times[1]))
-    Console.PrintLine("Current LST: " + Util.NowLST())
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current LST: " + Util.NowLST())
-    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-
-    // Length of night
-    timesTomorrow = twilightTimes(Util.SysJulianDate+1)
-
-    timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
-    timeUntilSunrise = (timesTomorrow[0] - Util.SysJulianDate)*24 // hours
-
-    if (timeUntilSunset > 0)
-    {
-        isAfterSunset = false
-    }
-    else
-    {
-        isAfterSunset = true
-    }
-    
-
-    Console.PrintLine("Length of night (sunset-to-sunrise): " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
-    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
-    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
-
-    ts.WriteLine(Util.SysUTCDate + " INFO: Length of night: " + (timesTomorrow[0]-times[1]).toFixed(4)*24 + " hours")
-    Console.PrintLine(" ")
-
-    // Where is the moon? Calculate field-moon angle for each field.
+    // Calculate field-moon angle for each field.
     moonAngles = []
-    
-
     moonct = getMoon()
-
     for (i=0; i<fieldInfo.length; i++)
     {
         b = (90-fieldInfo[i][2][1])*Math.PI/180
         c = (90-moonct.Declination)*Math.PI/180
         aa = Math.abs(fieldInfo[i][2][0]-moonct.RightAscension)*Math.PI/180
-        moonAngle = [Math.acos((Math.cos(b)*Math.cos(c)) + (Math.sin(b)*Math.sin(c)*Math.cos(aa)))*180/Math.PI]
+        moonAngle = Math.acos((Math.cos(b)*Math.cos(c)) + (Math.sin(b)*Math.sin(c)*Math.cos(aa)))*180/Math.PI
         moonAngles.push(moonAngle)
         fieldInfo[i][4] = moonAngle
     }
-
-    // Ideally we would run the following code many times to create a 
-    // table of best fields in 10 minute intervals.
-    
-    // Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(times[0]))
-    // Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(times[1]))
-    // Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(times[0]))
-    // Console.PrintLine("Sunset UTC: " + Util.Julian_Date(times[1]))
-    // Console.PrintLine("Current LST: " + Util.NowLST())
-    // Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    // Console.PrintLine(" ")
 
     fieldsToObserve = [] // Array containing best field info in 6 minute increments
 
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
     // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], LST [12]
     
-    // timesTomorrow contains tomorrow's sunrise (timesTomorrow[0]) and sunset (timesTomorrow[1])
-    // times. n is the number of samples in 6 minute intervals that will be computed.
-    n = Math.round((timesTomorrow[0]-Util.SysJulianDate).toFixed(2)*24*10)
-    Console.PrintLine("# of samples: " + n)
+    // n is the number of samples in one observing block (length = timestep)
+    // that will be computed.
+    n = Math.round(darkHours.toFixed(2)/timestep)
+    Console.PrintLine("# of samples tonight: " + n)
 
-    // startLST = Util.NowLST()
-    // times[1] is today's sunset time
 
-    // If we're already past sunset, make sure to do field calculations from now.
-    if (isAfterSunset)
-    {
-        startLST = Math.ceil(Util.NowLST()*10)/10
-    }
-    else
-    {
-        advLST = Util.NowLST() + (times[1]-Util.SysJulianDate)*24
-        startLST = Math.ceil(advLST*10)/10
-    }
-    
-    Console.PrintLine(isAfterSunset)
 
-    if (!isAfterSunset)
-    {
-        Console.PrintLine("")
-        Console.PrintLine("Be patient. It's too early to start operations. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
-        ts.WriteLine(Util.SysUTCDate + " INFO: It's too early. Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
-        while (!isAfterSunset)
-        {
-            Util.WaitForMilliseconds(5000)
-            timeUntilSunset = (times[1] - Util.SysJulianDate)*24 // hours
-
-            
-            if (timeUntilSunset > 0)
-            {
-                Console.PrintLine("")
-                Console.PrintLine("It's still too early to begin... Waiting for " + ((times[1] - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
-            }
-            else
-            {
-                isAfterSunset = true
-            }
-        }
-    }
-
-    // Setup to prevent rapid switching
-    prevField = ""
-    minDiff = 2
-    timestep = 0.5 // time between field calculations in hours
-
+    // Calcuate the local coordinates of each field at each timestep and the
+    // number of visible stars in each field when accounting for extinction
     for (k=0; k<n; k++)
     {
         // Assume that the moon angle is constant throughout the night
@@ -1207,22 +1201,26 @@ function main()
         // fix this later
 
         // Create a new coordinate transform at intervals of timestep
-        ct = Util.NewCT(Telescope.SiteLatitude, startLST+k*timestep)
+        ct = Util.NewCT(Telescope.SiteLatitude, sunset+k*timestep)
 
         // Start a loop to calculate approximate number of stars in fields
         for (j=0; j < fieldInfo.length; j++)
         {
-            // Set RA and DEC to field 'j' coordinates   
-            ct.RightAscension = fieldInfo[j][2][0] / 15;
-            ct.Declination = parseFloat(fieldInfo[j][2][1]);
+            // Set RA and DEC to field 'j' coordinates  
+            ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
+            ct.Declination = fieldInfo[j][2][1]; // in degrees
 
+            // Field coordinate definitions
             lat = ct.Latitude
             alt = ct.Elevation
             LST = ct.SiderealTime
+            HA = LST - ct.RightAscension
+            
 
-            // Set fieldInfo fields for elevation and azimuth
+            // Set fieldInfo fields for spatial/temporal fields
             fieldInfo[j][0] = ct.Elevation
             fieldInfo[j][1] = ct.Azimuth
+            fieldInfo[j][5] = HA
             fieldInfo[j][12] = LST
 
             // Calculate approx. # of stars in field using airmass/extinction
@@ -1231,22 +1229,17 @@ function main()
             // Calculate extinction at current airmass
             // With this new magnitude calculate approx. # of stars
 
+            // Calculate airmass and extinction
             airmass = 1 / Math.cos((90-alt)*Math.PI/180)
             fieldInfo[j][6] = airmass
-            extinction = (airmass-1) * 0.4
-            magnitudeLimit = 12
+            extinction = (airmass-1) * extScale
 
-            if (airmass > 0)
-            {
-                numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9]*(magnitudeLimit-extinction)))
-                // Console.PrintLine("Airmass: " + airmass)
-                // Console.PrintLine("Number of visible M" + (magnitudeLimit-extinction).toPrecision(3) + " stars: " + numVisibleStars)
-                fieldInfo[j][10] = numVisibleStars
-            }
+            // Calculate the true number of visible stars, accounting for extinction
+            numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9]*(magnitudeLimit-extinction)))
+            fieldInfo[j][10] = numVisibleStars
+            // Console.PrintLine("Airmass: " + airmass)
+            // Console.PrintLine("Number of visible M" + (magnitudeLimit-extinction).toPrecision(3) + " stars: " + numVisibleStars)
 
-            RA = ct.RightAscension
-            HA = LST - RA
-            fieldInfo[j][5] = HA
         }
 
         // Create goodFields array to hold fields that are above the horizon
@@ -1273,7 +1266,7 @@ function main()
             fieldsToObserve.push(sortedFields[0])
             prevField = sortedFields[0][3]
         }
-        else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] <= minDiff)
+        else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] < minDiff)
         {
             fieldsToObserve.push(sortedFields[1])
             prevField = sortedFields[1][3]
@@ -1288,13 +1281,11 @@ function main()
         fieldsToObserve.push(sortedFields[0])
     }
 
-    // for (k=0; k < fieldsToObserve.length; k++)
-    // {
-    //     ts.WriteLine(fieldsToObserve[k])
-    // }
+    // Check length of fields to observe
+    Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
+    Console.PrintLine("")
 
-    m = fieldsToObserve.length
-    
+    // Generate fields to observe list, eliminating all doubles counted
     finalFields = []
     
     finalFields.push(fieldsToObserve[0])
