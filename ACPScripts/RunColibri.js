@@ -980,7 +980,7 @@ function main()
     sunsetLST = Math.ceil((Util.Julian_GMST(sunset) + 15*Telescope.SiteLongitude) * 10) / 10
 
     // Length of night
-    darkHours = (sunset - sunset)*24
+    darkHours = (sunrise - sunset)*24
     timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
     timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
 
@@ -1000,7 +1000,7 @@ function main()
     ts.WriteLine(Util.SysUTCDate + " INFO: Current LST: " + Util.NowLST())
     
     Console.PrintLine("Length of the Night: " + darkHours + "hours")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + "hours")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
     Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
     Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
 
