@@ -977,7 +977,7 @@ function main()
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
     sunset  = twilightTimes(Util.SysJulianDate)[1]
     sunrise = twilightTimes(Util.SysJulianDate + 1)[0]
-    sunsetLST = Math.ceil((Util.Julian_GMST(sunset) + 15*Telescope.SiteLongitude) * 10) / 10
+    sunsetLST = (Util.Julian_GMST(sunset) + Telescope.SiteLongitude/15).toFixed(1)
 
     // Length of night
     darkHours = (sunrise - sunset)*24
