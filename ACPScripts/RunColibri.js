@@ -780,11 +780,8 @@ function whichField(time)
             targetDec =finalFields[i*2][2][1]
             fieldName = finalFields[i*2][3].toString()
 
-            ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
-
-            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
-            // Console.PrintLine(targetLoops)
-            // Console.PrintLine(targetDur)
+            //ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
+            //Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
             break
         }
@@ -799,9 +796,12 @@ function whichField(time)
             targetRA = finalFields[finalFields.length-2][2][0]
             targetDec = finalFields[finalFields.length-2][2][1]
             fieldName = finalFields[finalFields.length-2][3].toString()
+
+            Console.PrintLine("Between last two times")
             ts.WriteLine(Util.SysUTCDate + " INFO: Between last two times")
 
-            Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
+            //ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
+            //Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
             break
         }
@@ -1357,11 +1357,10 @@ function main()
     currentField = [0,0,0,0,0,"None",0]
 
     while (currentField[0] > -1 && currentField[0] < 999)
-    {    //
+    {
+        // Identify the current field in the finalFields list based on the time
         currentLST = Util.NowLST()
         currentField = whichField(currentLST)
-        Console.PrintLine("Current field: " + currentField)
-        // endLST = currentLST + currentField[1]
         endLST = currentField[6]
 
         // whichField returns [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
