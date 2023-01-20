@@ -740,6 +740,55 @@ function whichField(time)
         // }
     }
 
+
+    if (currentLST < finalFields[0][12])
+    {
+        Console.PrintLine("\r\n  Earlier than first observation time.")
+        Console.PrintLine("************************************")
+        targetLST = finalFields[0][12]
+        // In this case, targetDur is the time to wait as a negative number
+        targetDur = time - finalFields[0][12]
+        // targetDur = finalFields[1][12] - finalFields[0][12]
+        targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
+        targetRA = finalFields[0][2][0]
+        targetDec =finalFields[0][2][1]
+
+        Console.PrintLine("\r\nThe LST start time is " + targetLST.toFixed(4))
+        Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.")
+        Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.")
+
+        // Console.PrintLine(time)
+        // Console.PrintLine(finalFields[finalFields.length-2][12])
+        // Console.PrintLine(finalFields[finalFields.length-1][12])
+
+        currField = -1
+        nextField = 0
+        fieldName = "TooEarly"
+        break
+    }
+    else if (time > finalFields[finalFields.length-1][12])
+    {
+        // Console.PrintLine(time)
+        // Console.PrintLine(finalFields[finalFields.length-1][12])
+        Console.PrintLine("After last time.")
+        targetLST = 999
+        targetDur = 999
+        targetLoops = 0
+        currField = 999
+        nextField = 999
+        targetRA = 0
+        targetDec = 0
+        fieldName = "TooLate"
+
+        ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
+        Telescope.Park()
+        trkOff()
+        domeClose()
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
+    }
+
+
+    // Scan the finalFields list to identify the current field
     for (i=0; i<finalFields.length/2-1; i++)
     {
         if (time > finalFields[i*2][12] && time < finalFields[i*2+2][12])
@@ -761,31 +810,6 @@ function whichField(time)
 
             break
         }
-        else if (currentLST < finalFields[0][12])
-        {
-            Console.PrintLine("\r\n  Earlier than first observation time.")
-            Console.PrintLine("************************************")
-            targetLST = finalFields[0][12]
-            // In this case, targetDur is the time to wait as a negative number
-            targetDur = time - finalFields[0][12]
-            // targetDur = finalFields[1][12] - finalFields[0][12]
-            targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
-            targetRA = finalFields[0][2][0]
-            targetDec =finalFields[0][2][1]
-
-            Console.PrintLine("\r\nThe LST start time is " + targetLST.toFixed(4))
-            Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.")
-            Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.")
-
-            // Console.PrintLine(time)
-            // Console.PrintLine(finalFields[finalFields.length-2][12])
-            // Console.PrintLine(finalFields[finalFields.length-1][12])
-
-            currField = -1
-            nextField = 0
-            fieldName = "TooEarly"
-            break
-        }
         else if (time > finalFields[finalFields.length-2][12] && time < finalFields[finalFields.length-1][12])
         {
             Console.PrintLine("Between last two times")
@@ -803,27 +827,8 @@ function whichField(time)
 
             break
         }
-        else if (time > finalFields[finalFields.length-1][12])
-        {
-            // Console.PrintLine(time)
-            // Console.PrintLine(finalFields[finalFields.length-1][12])
-            Console.PrintLine("After last time.")
-            targetLST = 999
-            targetDur = 999
-            targetLoops = 0
-            currField = 999
-            nextField = 999
-            targetRA = 0
-            targetDec = 0
-            fieldName = "TooLate"
-
-            ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
-            Telescope.Park()
-            trkOff()
-            domeClose()
-            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
-        }
     }
+
 
     return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
 }
@@ -1123,8 +1128,6 @@ function main()
 
 
     // Wait until sunset to begin operation
-
-        
     while (timeUntilSunset > 0)
     {
         Console.PrintLine("")
@@ -1361,18 +1364,19 @@ function main()
     }
 
 
-    //abort()
+
+/*-----------------------------Begin Operations------------------------------*/
+    //abort() // used for testing
 
     // Loop through final field list to find first target
     // Calculate time to run as target end time minus current LST
     // Number of loops = Math.ceil(targetDur*3600 / 0.025 / 2400)
     
-    // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
-    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], LST [12]
-    
-    // currentField [0] = field index for finalFields, [1] = time until end of field, [2] = number of loops
+    // currentField [0] = field index for finalFields, 
+    // [1] = time until end of field, [2] = number of loops, [3] = field RA, 
+    // [4] = field DEC, [5] = field name, [6] = end LST
     runNum = 0
-    currentField = [0,0,0,0,0,"None"]
+    currentField = [0,0,0,0,0,"None",0]
 
     while (currentField[0] > -1 && currentField[0] < 999)
     {    //
