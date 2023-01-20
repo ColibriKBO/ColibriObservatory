@@ -1123,26 +1123,15 @@ function main()
 
 
     // Wait until sunset to begin operation
-    if (timeUntilSunset < 0)
-    {
-        isAfterSunset = true
-        startLST = Math.ceil(Util.NowLST()*10)/10
-    }
-    else
+
+        
+    while (timeUntilSunset > 0)
     {
         Console.PrintLine("")
-        Console.PrintLine("Be patient. It's too early to start operations.")
+        Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
         
-        while (timeUntilSunset > 0)
-        {
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
-
-            Util.WaitForMilliseconds(5000)
-            timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
-        }
-        
-        isAfterSunset = true
-        startLST = Math.ceil(Util.NowLST()*10)/10
+        Util.WaitForMilliseconds(5000)
+        timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
     }
     
     // Ready to go. Print alert that we will start observations now.
