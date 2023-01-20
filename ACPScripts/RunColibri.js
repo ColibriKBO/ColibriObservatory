@@ -689,13 +689,13 @@ function whichField(time)
     // targetDur = finalFields[0][12]-time
     Console.PrintLine("Called whichField function...")
     Console.PrintLine("Number of fields in finalFields: " + finalFields.length)
-    if (finalFields.length == 2)
+    if (finalFields.length == 1)
     {
         Console.PrintLine("Only one field to observe!")
         ts.WriteLine(Util.SysUTCDate + " INFO: (whichField) Only one field to observe!")
         
-        targetLST = finalFields[1][12]
-        targetDur = finalFields[1][12] - time
+        targetLST = sunsetLST
+        targetDur = sunsetLST - time
         targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
         currField = 1
         nextField = -999
@@ -709,7 +709,6 @@ function whichField(time)
         Console.PrintLine("Target duration: " + targetDur)
 
         Console.PrintLine("finalFields: " + finalFields[0][12])
-        Console.PrintLine("finalFields: " + finalFields[1][12])
 
         Console.PrintLine("LST: " + currentLST)
         Console.PrintLine("target LST: " + targetLST)
@@ -744,7 +743,7 @@ function whichField(time)
         
         return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
     }
-    else if (time > finalFields[finalFields.length-1][12])
+    else if (time > sunsetLST)
     {
         // Console.PrintLine(time)
         // Console.PrintLine(finalFields[finalFields.length-1][12])
@@ -767,38 +766,38 @@ function whichField(time)
 
 
     // Scan the finalFields list to identify the current field
-    for (i=0; i<finalFields.length/2-1; i++)
+    for (i=0; i<finalFields.length-1; i++)
     {
-        if (time > finalFields[i*2][12] && time < finalFields[i*2+2][12])
+        if (time > finalFields[i][12] && time < finalFields[i+1][12])
         {
-            targetLST = finalFields[i*2+2][12]
-            targetDur = finalFields[i*2+2][12] - time
+            targetLST = finalFields[i+1][12]
+            targetDur = finalFields[i+1][12] - time
             targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
-            currField = i*2
-            nextField = i*2+2
-            targetRA = finalFields[i*2][2][0]
-            targetDec =finalFields[i*2][2][1]
-            fieldName = finalFields[i*2][3].toString()
+            currField = i
+            nextField = i + 1
+            targetRA = finalFields[i][2][0]
+            targetDec =finalFields[i][2][1]
+            fieldName = finalFields[i][3].toString()
 
             //ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
             //Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
             break
         }
-        else if (time > finalFields[finalFields.length-2][12] && time < finalFields[finalFields.length-1][12])
+        else if (time > finalFields[finalFields.length-1][12] && time < sunsetLST)
         {
-            Console.PrintLine("Between last two times")
-            targetLST = finalFields[finalFields.length-1][12]
-            targetDur = finalFields[finalFields.length-1][12] - time
-            targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
-            currField = finalFields.length-2
-            nextField = finalFields.length-1
-            targetRA = finalFields[finalFields.length-2][2][0]
-            targetDec = finalFields[finalFields.length-2][2][1]
-            fieldName = finalFields[finalFields.length-2][3].toString()
+            Console.PrintLine("At last field")
+            ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
 
-            Console.PrintLine("Between last two times")
-            ts.WriteLine(Util.SysUTCDate + " INFO: Between last two times")
+            targetLST = sunsetLST
+            targetDur = sunsetLST - time
+            targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
+            currField = finalFields.length-1
+            nextField = 999
+            targetRA = finalFields[finalFields.length-1][2][0]
+            targetDec = finalFields[finalFields.length-1][2][1]
+            fieldName = finalFields[finalFields.length-1][3].toString()
+
 
             //ts.WriteLine(Util.SysUTCDate + " INFO: Target LST = " + targetLST + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
             //Console.PrintLine(fieldName + " Target LST = " + targetLST + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
@@ -960,7 +959,8 @@ function main()
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
     sunset  = twilightTimes(Util.SysJulianDate)[1]
     sunrise = twilightTimes(Util.SysJulianDate + 1)[0]
-    sunsetLST = (Util.Julian_GMST(sunset) + Telescope.SiteLongitude/15).toFixed(1)
+    sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude/15).toFixed(1)
+    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude/15).toFixed(1)
 
     // Length of night
     darkHours = (sunrise - sunset)*24
@@ -1284,24 +1284,14 @@ function main()
     }
     finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
-    for (i=0; i<finalFields.length; i++)
+    // Calculate the duration of each field and append it onto the end of its
+    // finalFields object. The last element goes to sunrise
+    for (i=0; i<finalFields.length-1; i++)
     {
         finalFields[i].push(finalFields[i+1][12]-finalFields[i][12])
         //finalFields[i+1].push(finalFields[i*2+1][12]-finalFields[i*2][12])
     }
-
-    for (i=0; i<finalFields.length; i++)
-    {
-     if (finalFields[i][12] >= 24.0)
-     {
-        finalFields[i].push(finalFields[i][12]-24.0,1)
-     }
-     else
-     {
-        finalFields[i].push(finalFields[i][12],0)
-     }
-     Console.PrintLine("Final Fields: " + finalFields[i])
-    }
+    finalFields[finalFields.length-1].push(sunriseLST - finalFields[finalFields.length-1][12])
 
     // for (i=0; i<finalFields.length; i++)
     // {
