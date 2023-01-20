@@ -1121,6 +1121,7 @@ function main()
         // Console.Logging = true
     }
 
+
     // Wait until sunset to begin operation
     if (timeUntilSunset < 0)
     {
@@ -1144,7 +1145,7 @@ function main()
         startLST = Math.ceil(Util.NowLST()*10)/10
     }
     
-    //
+    // Ready to go. Print alert that we will start observations now.
     Console.PrintLine("")
     Console.PrintLine("It is after sunset... Creating observation plan now.")
 
@@ -1191,9 +1192,9 @@ function main()
     Console.PrintLine("# of samples tonight: " + n)
 
 
-
     // Calcuate the local coordinates of each field at each timestep and the
     // number of visible stars in each field when accounting for extinction
+    prevField = ""
     for (k=0; k<n; k++)
     {
         // Assume that the moon angle is constant throughout the night
@@ -1202,14 +1203,15 @@ function main()
         // fix this later
 
         // Create a new coordinate transform at intervals of timestep
-        ct = Util.NewCT(Telescope.SiteLatitude, sunset+k*timestep)
+        newLST = parseFloat(sunsetLST) + k*timestep
+        ct = Util.NewCT(Telescope.SiteLatitude, newLST)
 
         // Start a loop to calculate approximate number of stars in fields
         for (j=0; j < fieldInfo.length; j++)
         {
             // Set RA and DEC to field 'j' coordinates  
             ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
-            ct.Declination = fieldInfo[j][2][1]; // in degrees
+            ct.Declination = parseFloat(fieldInfo[j][2][1]);; // in degrees
 
             // Field coordinate definitions
             lat = ct.Latitude
@@ -1251,7 +1253,7 @@ function main()
         {
             if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset)
             {
-                goodFields.push(fieldInfo[j])
+                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]])
             }
         }
 
@@ -1261,46 +1263,63 @@ function main()
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
         // TODO: make this if/else more clever
-        /*
+        
         if (sortedFields.length == 1)
         {
-            fieldsToObserve.push(sortedFields[0])
+            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
             prevField = sortedFields[0][3]
         }
         else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] < minDiff)
         {
-            fieldsToObserve.push(sortedFields[1])
+            fieldsToObserve.push([sortedFields[1][0],sortedFields[1][1],sortedFields[1][2],sortedFields[1][3],sortedFields[1][4],sortedFields[1][5],sortedFields[1][6],sortedFields[1][7],sortedFields[1][8],sortedFields[1][9],sortedFields[1][10],sortedFields[1][11],sortedFields[1][12]]);
             prevField = sortedFields[1][3]
         }
         else
         {
-            fieldsToObserve.push(sortedFields[0])
+            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
             prevField = sortedFields[0][3]
         }
-        */
+        
 
-        fieldsToObserve.push(sortedFields[0])
+        // Print statements for testing
+        //Console.PrintLine(prevField)
+        //Console.PrintLine(sortedFields[0][3] + " " + sortedFields[0][10] + " / " + sortedFields[1][3] + " " + sortedFields[1][10])
+        //Console.PrintLine("10: " + fieldInfo[9][10] + " 7: " + fieldInfo[6][10])
+        //Console.PrintLine(sortedFields[0])
+        //Console.PrintLine(fieldsToObserve);
+
+        // Default option
+        //fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
+
     }
 
     // Check length of fields to observe
     Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
     Console.PrintLine("")
 
+    /* Temp block */
+    for (i=0; i<fieldsToObserve.length; i++)
+    {
+        //Console.PrintLine("Length of block " + i + ": " + fieldsToObserve[i].length)
+        //Console.PrintLine("Block " + i + ": " + fieldsToObserve[i][12])
+    }
+
     // Generate fields to observe list, eliminating all doubles counted
     finalFields = []
     
-    finalFields.push(fieldsToObserve[0])
+    finalFields.push([fieldsToObserve[0][0],fieldsToObserve[0][1],fieldsToObserve[0][2],fieldsToObserve[0][3],fieldsToObserve[0][4],fieldsToObserve[0][5],fieldsToObserve[0][6],fieldsToObserve[0][7],fieldsToObserve[0][8],fieldsToObserve[0][9],fieldsToObserve[0][10],fieldsToObserve[0][11],fieldsToObserve[0][12]])
     for (i=0; i<fieldsToObserve.length-1; i++)
     {
         if (fieldsToObserve[i][3] != fieldsToObserve[i+1][3])
         {
-            finalFields.push(fieldsToObserve[i])
-            finalFields.push(fieldsToObserve[i+1])
+            finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
+            finalFields.push([fieldsToObserve[i+1][0],fieldsToObserve[i+1][1],fieldsToObserve[i+1][2],fieldsToObserve[i+1][3],fieldsToObserve[i+1][4],fieldsToObserve[i+1][5],fieldsToObserve[i+1][6],fieldsToObserve[i+1][7],fieldsToObserve[i+1][8],fieldsToObserve[i+1][9],fieldsToObserve[i+1][10],fieldsToObserve[i+1][11],fieldsToObserve[i+1][12]])
+
             // Console.PrintLine(i.toString())
         }
     }
     
-    finalFields.push(fieldsToObserve[fieldsToObserve.length-1])
+    finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
     for (i=0; i<finalFields.length/2; i++)
     {
@@ -1351,6 +1370,9 @@ function main()
     {
         ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1])
     }
+
+
+    //abort()
 
     // Loop through final field list to find first target
     // Calculate time to run as target end time minus current LST
