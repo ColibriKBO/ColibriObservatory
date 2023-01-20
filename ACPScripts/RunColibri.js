@@ -1284,10 +1284,10 @@ function main()
     }
     finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
-    for (i=0; i<finalFields.length/2; i++)
+    for (i=0; i<finalFields.length; i++)
     {
-        finalFields[i*2].push(finalFields[i*2+1][12]-finalFields[i*2][12])
-        finalFields[i*2+1].push(finalFields[i*2+1][12]-finalFields[i*2][12])
+        finalFields[i].push(finalFields[i+1][12]-finalFields[i][12])
+        //finalFields[i+1].push(finalFields[i*2+1][12]-finalFields[i*2][12])
     }
 
     for (i=0; i<finalFields.length; i++)
