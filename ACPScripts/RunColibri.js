@@ -1227,13 +1227,13 @@ function main()
             }
         }
 
-        sortFields(goodFields)
+
 
 
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
         // TODO: make this if/else more clever
-        
+        sortFields(goodFields)
         if (sortedFields.length == 1)
         {
             fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
@@ -1267,28 +1267,21 @@ function main()
     Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
     Console.PrintLine("")
 
-    /* Temp block */
-    for (i=0; i<fieldsToObserve.length; i++)
-    {
-        //Console.PrintLine("Length of block " + i + ": " + fieldsToObserve[i].length)
-        //Console.PrintLine("Block " + i + ": " + fieldsToObserve[i][12])
-    }
-
-    // Generate fields to observe list, eliminating all doubles counted
+    // Push first field, then check if the following field is the same. If it
+    // is, move onto the next field. Repeat until the end of the list and
+    // then push the final field
     finalFields = []
-    
     finalFields.push([fieldsToObserve[0][0],fieldsToObserve[0][1],fieldsToObserve[0][2],fieldsToObserve[0][3],fieldsToObserve[0][4],fieldsToObserve[0][5],fieldsToObserve[0][6],fieldsToObserve[0][7],fieldsToObserve[0][8],fieldsToObserve[0][9],fieldsToObserve[0][10],fieldsToObserve[0][11],fieldsToObserve[0][12]])
     for (i=0; i<fieldsToObserve.length-1; i++)
     {
         if (fieldsToObserve[i][3] != fieldsToObserve[i+1][3])
         {
-            finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
+            //finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
             finalFields.push([fieldsToObserve[i+1][0],fieldsToObserve[i+1][1],fieldsToObserve[i+1][2],fieldsToObserve[i+1][3],fieldsToObserve[i+1][4],fieldsToObserve[i+1][5],fieldsToObserve[i+1][6],fieldsToObserve[i+1][7],fieldsToObserve[i+1][8],fieldsToObserve[i+1][9],fieldsToObserve[i+1][10],fieldsToObserve[i+1][11],fieldsToObserve[i+1][12]])
 
             // Console.PrintLine(i.toString())
         }
     }
-    
     finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
     for (i=0; i<finalFields.length/2; i++)
