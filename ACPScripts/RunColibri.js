@@ -841,6 +841,8 @@ var timestep = 0.5; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
+var biasInterval = 15 // Number of minutes between bias series collection
+
 
 // Iterables
 var slewAttempt = 0;
@@ -1263,9 +1265,13 @@ function main()
 
     }
 
+
+/*---------------------------Order & Print Plan------------------------------*/
+
     // Check length of fields to observe
     Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
     Console.PrintLine("")
+
 
     // Push first field, then check if the following field is the same. If it
     // is, move onto the next field. Repeat until the end of the list and
@@ -1284,6 +1290,7 @@ function main()
     }
     finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
+
     // Calculate the duration of each field and append it onto the end of its
     // finalFields object. The last element goes to sunrise
     for (i=0; i<finalFields.length-1; i++)
@@ -1293,20 +1300,19 @@ function main()
     }
     finalFields[finalFields.length-1].push(sunriseLST - finalFields[finalFields.length-1][12])
 
-    // for (i=0; i<finalFields.length; i++)
-    // {
-    //     Console.PrintLine(finalFields[i])
-    // }
 
-    // ts.WriteLine(Util.SysUTCDate + " === finalFields ===")
-
-    // for (k=0; k < finalFields.length; k++)
-    // {
-    //     ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k])
-    // }
-
+    // Print table of raw finalFields array
     Console.PrintLine("")
-    // ts.WriteBlankLines(1)
+    Console.PrintLine("=== finalFields ===")
+    ts.WriteLine(Util.SysUTCDate + " === finalFields ===")
+    for (k=0; k < finalFields.length; k++)
+    {
+        ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k])
+        Console.PrintLine(finalFields[k])
+    }
+
+    // Print table of formatted finalFields array
+    Console.PrintLine("")
     Console.PrintLine("=== Final Field Short List ===")
     ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Short List ===")
 
@@ -1346,6 +1352,7 @@ function main()
         currentField = whichField(currentLST)
         endLST = currentField[6]
 
+        // Log outputs of whichField
         // whichField returns [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
         Console.PrintLine("")
         ts.WriteLine(Util.SysUTCDate + " INFO: Field Info")
@@ -1362,6 +1369,8 @@ function main()
         Console.PrintLine("Field Name: " + currentField[5])
         ts.WriteLine(Util.SysUTCDate + " INFO: Field Name: " + currentField[5])
 
+        // Safeguard against opening before the start of the observing plan or
+        // after the end of the observing plan
         if (currentField[0] == -1)
         {
             Console.PrintLine("")
@@ -1395,44 +1404,38 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.")
             // abortAndRestart()
             andRestart()
-
         }
 
-        // Add Goto and all that stuff.
-        if (Weather.Available && Weather.safe)
+        // Monitor the weather status, if the weather script is active
+        // TODO: Add Goto and all that stuff.
+        if ((Weather.Available && Weather.safe) || (ignoreWeather == true))
         {
             connectScope()
             domeOpen()
             trkOn()
         }
-        else if (ignoreWeather == true)
-        {
-            connectScope()
-            domeOpen()
-            trkOn()
-        }
-        // else if ()
-        //     Console.PrintLine("Weather unavailable or unsafe!")
-        //     Console.PrintLine("This")
-        //     abort()
 
+        // Create coordinate transform for the current field
         currentFieldCt = Util.NewCThereAndNow()
         currentFieldCt.RightAscension = currentField[3]/15
         currentFieldCt.Declination = currentField[4]
 
+        // Monitor and log the coordinates which the telescope slews to
         Console.PrintLine("")
         Console.PrintLine("Slewing to...")
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
         Console.PrintLine("RA: " + currentFieldCt.RightAscension)
-        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
         Console.PrintLine("Dec: " + currentFieldCt.Declination)
+        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
+        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
         ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination)
-
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
 
+        // Slew to the current field
         gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination)
 
+        // Slave the dome to the telescope and wait until they are both in
+        // the correct position to begin observing
         while (Telescope.Slewing == true)
         {
             Console.PrintLine("Huh. Still Slewing...")
@@ -1440,7 +1443,6 @@ function main()
         }
 
         Dome.UnparkHome()
-
         if (Dome.slave == false)
         {
             Dome.slave == true
@@ -1483,17 +1485,17 @@ function main()
         //     pierside = "W"
         // }
 
+/*-----------------------------Data Collection-------------------------------*/
+
         Console.PrintLine("")
         Console.Printline("Starting data collection...")
+        Console.PrintLine("Running from " + Util.nowLST() + " until " + endLST)
         ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
 
+        // Iterables
         biasCounter = 15 // Set equal to interval so that bias set is collected on first run
-        biasInterval = 15 // Number of minutes between bias series collection
-        numExps = 2400
         runCounter = 1
 
-        Console.PrintLine(Util.nowLST())
-        Console.PrintLine(endLST)
         while (Util.nowLST() < endLST)
         {
 
@@ -1525,7 +1527,7 @@ function main()
             Console.PrintLine("Bias counter = " + biasCounter.toString())
 
             // Start grabbing images
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExps.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
+            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
             
             Console.PrintLine("Process ID = " + pid.toString())
             Util.WaitForMilliseconds(1000)
