@@ -714,30 +714,7 @@ function whichField(time)
         Console.PrintLine("LST: " + currentLST)
         Console.PrintLine("target LST: " + targetLST)
 
-        // if (currentLST < finalFields[0][12])
-        // {
-        //     Console.PrintLine("\r\n  Earlier than first observation time.")
-        //     Console.PrintLine("************************************")
-        //     targetLST = finalFields[0][12]
-        //     // In this case, targetDur is the time to wait as a negative number
-        //     targetDur = time - finalFields[0][12]
-        //     // targetDur = finalFields[1][12] - finalFields[0][12]
-        //     targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
-        //     targetRA = finalFields[0][2][0]
-        //     targetDec =finalFields[0][2][1]
-
-        //     Console.PrintLine("\r\nThe LST start time is " + targetLST.toFixed(4))
-        //     Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.")
-        //     Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.")
-
-        //     // Console.PrintLine(time)
-        //     // Console.PrintLine(finalFields[finalFields.length-2][12])
-        //     // Console.PrintLine(finalFields[finalFields.length-1][12])
-
-        //     currField = -1
-        //     nextField = 0
-        //     fieldName = "TooEarly"
-        // }
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
     }
 
 
@@ -764,7 +741,8 @@ function whichField(time)
         currField = -1
         nextField = 0
         fieldName = "TooEarly"
-        break
+        
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
     }
     else if (time > finalFields[finalFields.length-1][12])
     {
