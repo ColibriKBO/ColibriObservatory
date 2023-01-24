@@ -743,7 +743,7 @@ function whichField(time)
         
         return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
     }
-    else if (time > sunsetLST)
+    else if (time > sunriseLST)
     {
         // Console.PrintLine(time)
         // Console.PrintLine(finalFields[finalFields.length-1][12])
@@ -1369,8 +1369,7 @@ function main()
         Console.PrintLine("Field Name: " + currentField[5])
         ts.WriteLine(Util.SysUTCDate + " INFO: Field Name: " + currentField[5])
 
-        // Safeguard against opening before the start of the observing plan or
-        // after the end of the observing plan
+        // Safeguard against opening before the start of the observing plan
         if (currentField[0] == -1)
         {
             Console.PrintLine("")
@@ -1388,7 +1387,9 @@ function main()
                 }
             }
         }
-        else if (currentField[0] == 999)
+        
+        // Safeguard against opening after the end of the observing plan/sunrise
+        if (currentField[0] == 999)
         {
             Console.PrintLine("")
             Console.PrintLine("Too late. Nothing left to observe.")
@@ -1410,6 +1411,7 @@ function main()
         // TODO: Add Goto and all that stuff.
         if ((Weather.Available && Weather.safe) || (ignoreWeather == true))
         {
+            Console.PrintLine("Checking Weather")
             connectScope()
             domeOpen()
             trkOn()
