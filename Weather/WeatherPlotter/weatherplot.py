@@ -194,7 +194,7 @@ def main():
 					cloud_flag = 2
 				else:
 					cloud_flag = 3
-					alert_flag = 1
+					# alert_flag = 1
 
 			print('Trying to get weather data...')
 
