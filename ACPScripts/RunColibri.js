@@ -426,6 +426,35 @@ function getDate()
 	return(s)
 }
 
+function formatDate(givenDate)
+{
+	var s, month, day;
+	
+	s = givenDate.getUTCFullYear();
+	
+	month = (givenDate.getUTCMonth()+1).toString()
+	day   = (givenDate.getUTCDate()).toString()
+
+	if (month.length == 1)
+	{
+		s += "0" + month;
+	}
+	else
+	{
+		s += month;
+	}
+
+	if (day.toString().length == 1)
+	{
+		s += "0" + day;
+	}
+	else
+	{
+		s += day;
+	}
+	return(s)
+}
+
 
 /////////////////////////////////////////////////////
 // Return the coordinates of the moon in RA and Dec
@@ -600,6 +629,11 @@ function trkOff()
         Telescope.Tracking = false;
         Console.PrintLine("--> Tracking is turned off.");
     }
+    else if (Telescope.Tracking && !Telescope.CanSetTracking)
+    {
+        Console.PrintLine("Failed to disable tracking")
+        ts.WriteLine(" WARNING: Failed to disable telescope tracking")
+    }
 }
 
 //////////////////////////////////////////////////////////////
@@ -613,6 +647,11 @@ function trkOn()
         Telescope.Unpark()
         Telescope.Tracking = true;
         Console.PrintLine("--> Tracking is turned on :-)");
+    }
+    else if (Telescope.Tracking && !Telescope.CanSetTracking)
+    {
+        Console.PrintLine("Failed to enable tracking")
+        ts.WriteLine(" WARNING: Failed to enable telescope tracking")
     }
 }
 
@@ -646,15 +685,15 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 function waitUntilSunset(updatetime)
 {
 	var currentJD = Util.SysJulianDate
-	while (currentJD - times[1] < 0)
+	while (currentJD < sunset)
 	{
 		Console.Clear()
-		if (currentJD > times[0] && currentJD < times[1])
+		if (currentJD > sunrise && currentJD < sunset)
 		{
 			Console.PrintLine("Sun is up")
-			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - times[0])*24,"h ","m ","s"))
-			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - times[1])*24,"h ","m ","s"))
-			Console.PrintLine("Waiting " + -1*(currentJD - times[1])*24 + " hours to start operations.")
+			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
+			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
+			Console.PrintLine("Waiting " + -1*(currentJD - sunrise)*24 + " hours to start operations.")
 			Util.WaitForMilliseconds(updatetime)
 			currentJD = Util.SysJulianDate
 		}
@@ -1099,11 +1138,6 @@ function main()
         {
             ts = f1.OpenAsTextStream(Mode, true);
         }
-        
-
-        // Console.Logging = false
-        // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
-        // Console.Logging = true
     }
 
 
