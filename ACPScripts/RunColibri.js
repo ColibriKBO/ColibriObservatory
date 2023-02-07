@@ -426,14 +426,17 @@ function getDate()
 	return(s)
 }
 
-function formatDate(givenDate)
+function JDtoUTC(JulianDate)
 {
 	var s, month, day;
+
+	var millis = (JulianDate - 2440587.5) * 86400000
+	var toUTC = new Date(millis)
 	
-	s = givenDate.getUTCFullYear();
+	s = toUTC.getUTCFullYear();
 	
-	month = (givenDate.getUTCMonth()+1).toString()
-	day   = (givenDate.getUTCDate()).toString()
+	month = (toUTC.getUTCMonth()+1).toString()
+	day   = (toUTC.getUTCDate()).toString()
 
 	if (month.length == 1)
 	{
@@ -963,7 +966,8 @@ if (logconsole == true)
     Console.Logging = true;
 }
 
-LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log";
+sunset  = twilightTimes(Util.SysJulianDate)[1]
+LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 fso = new ActiveXObject("Scripting.FileSystemObject");
 
 if (fso.FileExists(LogFile))
@@ -1087,7 +1091,7 @@ function main()
         if (getDate() != currentDate)
         {
             currentDate = getDate()
-            LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
+            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
 
             if (fso.FileExists(LogFile))
             {
@@ -1118,7 +1122,7 @@ function main()
     if (getDate() != currentDate)
     {
         currentDate = getDate()
-        LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
+        LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
 
         if (fso.FileExists(LogFile))
         {
@@ -1162,7 +1166,7 @@ function main()
 	// Create directory for tonight's data and collect bias frames
 	if (firstRun = true)
     {
-        var today = getDate(); // Today's UTC date to be used to define data directory
+        var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
         // Console.Logging = false
         // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
         // Console.Logging = true
