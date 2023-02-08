@@ -134,7 +134,6 @@ function getMoon()
     }
     coords = coords.trim();
     Util.Console.PrintLine("== " + coords + " ==");
-    ts.WriteLine(Util.SysUTCDate + " INFO: " + coords);
 
     var bits = coords.split(" ");
 
