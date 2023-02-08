@@ -696,7 +696,7 @@ function waitUntilSunset(updatetime)
 			Console.PrintLine("Sun is up")
 			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
 			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
-			Console.PrintLine("Waiting " + -1*(currentJD - sunrise)*24 + " hours to start operations.")
+			Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.")
 			Util.WaitForMilliseconds(updatetime)
 			currentJD = Util.SysJulianDate
 		}
@@ -731,34 +731,8 @@ function whichField(time)
     // targetDur = finalFields[0][12]-time
     Console.PrintLine("Called whichField function...")
     Console.PrintLine("Number of fields in finalFields: " + finalFields.length)
-    if (finalFields.length == 1)
-    {
-        Console.PrintLine("Only one field to observe!")
-        ts.WriteLine(Util.SysUTCDate + " INFO: (whichField) Only one field to observe!")
-        
-        targetLST = sunsetLST
-        targetDur = sunsetLST - time
-        targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
-        currField = 1
-        nextField = -999
-
-        targetRA = finalFields[0][2][0]
-        targetDec = finalFields[0][2][1]
-        fieldName = finalFields[0][3].toString()
-
-        Console.PrintLine(targetLST)
-        Console.PrintLine("Number of loops: " + targetLoops)
-        Console.PrintLine("Target duration: " + targetDur)
-
-        Console.PrintLine("finalFields: " + finalFields[0][12])
-
-        Console.PrintLine("LST: " + currentLST)
-        Console.PrintLine("target LST: " + targetLST)
-
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
-    }
-
-
+    
+    // Ensure observations take place during the dark
     if (currentLST < finalFields[0][12])
     {
         Console.PrintLine("\r\n  Earlier than first observation time.")
@@ -803,6 +777,34 @@ function whichField(time)
         Telescope.Park()
         trkOff()
         domeClose()
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
+    }
+
+
+    if (finalFields.length == 1)
+    {
+        Console.PrintLine("Only one field to observe!")
+        ts.WriteLine(Util.SysUTCDate + " INFO: (whichField) Only one field to observe!")
+        
+        targetLST = sunriseLST
+        targetDur = sunriseLST - time
+        targetLoops = Math.ceil(targetDur*3600 / 0.025 / numExposures)
+        currField = 0
+        nextField = -999
+
+        targetRA = finalFields[0][2][0]
+        targetDec = finalFields[0][2][1]
+        fieldName = finalFields[0][3].toString()
+
+        Console.PrintLine(targetLST)
+        Console.PrintLine("Number of loops: " + targetLoops)
+        Console.PrintLine("Target duration: " + targetDur)
+
+        Console.PrintLine("finalFields: " + finalFields[0][12])
+
+        Console.PrintLine("LST: " + currentLST)
+        Console.PrintLine("target LST: " + targetLST)
+
         return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetLST]
     }
 
