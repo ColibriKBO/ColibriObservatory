@@ -116,6 +116,36 @@ function sortFields(fieldtosort) // Sorts fields based on the number of visible 
     return sortedFields
 }
 
+function getMoon()
+{
+	// finding moon elevation and azimuth
+    Util.Console.PrintLine("== Moon Coordinates ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
+    var SH = new ActiveXObject("WScript.Shell");
+    var BS = SH.Exec(ACPApp.Path + "\\aa.exe -moon");
+    var coords = "";
+
+    while(BS.Status != 1)
+    {
+        while(!BS.StdOut.AtEndOfStream)
+        {
+            coords += BS.StdOut.Read(1);
+        }
+        Util.WaitForMilliseconds(100);
+    }
+    coords = coords.trim();
+    Util.Console.PrintLine("== " + coords + " ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: " + coords);
+
+    var bits = coords.split(" ");
+
+    ct = Util.NewCThereAndNow();
+    ct.RightAscension = bits[0];
+    ct.Declination = bits[1];
+
+    return ct
+}
+
 
 /*---------------------------------------------------------------------------*/
 /*-----------------------------------Main------------------------------------*/
