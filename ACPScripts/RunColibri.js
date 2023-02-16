@@ -149,6 +149,31 @@ function biasCollection(today) {
     Console.PrintLine("Finished collecting bias frames...");
 }
 
+////////////////////////////////////////////////////
+// Does the dirty work of collecting bias data.
+// RG
+// MJM - Added naming of directory to today's date
+////////////////////////////////////////////////////
+function darkCollection(today) {
+    var tid;
+    // var today = getDate();
+    // Console.Printline(today.toString());
+
+    Console.PrintLine("Starting bias frame collection...");
+    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
+
+    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
+    while (Util.IsTaskActive(tid))
+    {
+        Util.WaitForMilliseconds(500)
+        // Console.PrintLine("Collecting bias frames...")
+    }
+
+    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
+    Util.WaitForMilliseconds(100)
+    Console.PrintLine("Finished collecting bias frames...");
+}
+
 ///////////////////////////
 // Function to connect the telescope
 // MJM -
@@ -213,7 +238,9 @@ function domeClose()
             
         }
         else
+        {
             Console.PrintLine("--> Dome is NOT open.");
+        }
         break;
 
         ////////////////////
@@ -249,7 +276,7 @@ function domeClose()
         // Dome is closing. Let it close and then open it. //
         /////////////////////////////////////////////////////
         case 3:
-        while (Dome.ShutterStatus ==3)
+        while (Dome.ShutterStatus == 3)
         {
             Console.PrintLine("*** Dome shutter is closing. Waiting for it close...");
             Util.WaitForMilliseconds(2000);
@@ -984,13 +1011,6 @@ f1 = fso.GetFile(LogFile);
 ts = f1.OpenAsTextStream(Mode, true);
 Console.PrintLine("Log file ready.")
 
-// visibleFields =[]
-// for (i=0; i<fieldInfo.length; i++)
-// {
-//     if (fieldInfo)
-// }
-
-
 
 /*---------------------------------------------------------------------------*/
 /*-----------------------------------Main------------------------------------*/
@@ -1174,7 +1194,7 @@ function main()
         Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting bias frames...")
-        biasCollection(today)
+        darkCollection(today)
         firstRun = false
     }
 
@@ -1560,7 +1580,7 @@ function main()
             // Collect biases when biasInterval is reached
             if (biasCounter == biasInterval)
             {
-               biasCollection(today) 
+               darkCollection(today) 
                biasCounter = 0
             }
             biasCounter++
