@@ -46,6 +46,7 @@ String.prototype.trim = function()
 /////////////////////
 function abort(){
     Console.PrintLine("Aborting script!")
+    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!")
     shutDown();
     while (Dome.ShutterStatus !=1 || Telescope.AtPark != true)
         {
@@ -68,6 +69,7 @@ function abort(){
 
 function abortAndRestart(){
     Console.PrintLine("Aborting script!");
+    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script! Restarting script!")
     shutDown();
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
@@ -150,7 +152,7 @@ function biasCollection(today) {
 }
 
 ////////////////////////////////////////////////////
-// Does the dirty work of collecting bias data.
+// Does the dirty work of collecting dark data.
 // RG
 // MJM - Added naming of directory to today's date
 ////////////////////////////////////////////////////
@@ -162,7 +164,7 @@ function darkCollection(today) {
     Console.PrintLine("Starting bias frame collection...");
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
+    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Bias_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
     while (Util.IsTaskActive(tid))
     {
         Util.WaitForMilliseconds(500)
