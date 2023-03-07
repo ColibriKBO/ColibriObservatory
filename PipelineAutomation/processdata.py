@@ -220,7 +220,7 @@ if __name__ == '__main__':
     for root, dirs, files in os.walk(datadir):
         
         if root != datadir and os.path.split(root)[-1] != 'Bias' and len(os.path.split(root)[-1]) != 8:
-            if is_dir_too_small(root, 30):
+            if is_dir_too_small(root, 9):
                 #print('Dir is too small')
                 print('Removing directory %s' % root)
                 shutil.rmtree(root)
