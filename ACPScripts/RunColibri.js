@@ -164,7 +164,7 @@ function darkCollection(today) {
     Console.PrintLine("Starting bias frame collection...");
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Bias_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
+    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Bias_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
     while (Util.IsTaskActive(tid))
     {
         Util.WaitForMilliseconds(500)
