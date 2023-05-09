@@ -1036,6 +1036,12 @@ function main()
     timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
     timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
 
+    // Dark hours left
+    if (darkHours > timeUntilSunrise):
+        darkHoursLeft = timeUntilSunrise
+    else:
+        darkHoursLeft = darkHours
+
     // Print today's time of nautical sunrise and sunset.
     Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
     ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
@@ -1056,12 +1062,13 @@ function main()
     ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
     Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
     Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours")
 
 
 /*-----------------------------Prestart Checks-------------------------------*/
 
     // Check if there is enough space for this to run
-    spaceneeded = darkHours*3600*40*12600000/1000000000000
+    spaceneeded = darkHoursLeft*3600*40*12600000/1000000000000
     freespace = freeDiskSpace()
     if (freespace > spaceneeded)
     {
@@ -1071,7 +1078,7 @@ function main()
     }
     else
     {
-        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) +" TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) + " TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
         {
             ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
         }
