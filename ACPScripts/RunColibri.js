@@ -1049,6 +1049,8 @@ function main()
     ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
     Console.PrintLine("Sunset LST: " + sunsetLST)
     ts.WriteLine(Util.SysUTCDate + " INFO: Sunset LST: " + sunsetLST)
+    Console.PrintLine("Sunrise LST: " + sunriseLST)
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise LST: " + sunriseLST)
     Console.PrintLine("Current LST: " + Util.NowLST())
     ts.WriteLine(Util.SysUTCDate + " INFO: Current LST: " + Util.NowLST())
     
