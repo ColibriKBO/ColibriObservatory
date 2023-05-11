@@ -1045,8 +1045,8 @@ function main()
     Console.PrintLine("Sunset JD: " + sunset)
     ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset)
     Console.PrintLine("Sunrise JD: " + sunrise)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunriseLST)
-    Console.PrintLine("Current JD: " + Util.NowJD())
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise)
+    Console.PrintLine("Current JD: " + Util.SysJulianDate)
     ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate)
 
     /* LST transformations
