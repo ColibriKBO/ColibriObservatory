@@ -1037,10 +1037,10 @@ function main()
     timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
 
     // Dark hours left
-    if (darkHours > timeUntilSunrise):
-        darkHoursLeft = timeUntilSunrise
-    else:
-        darkHoursLeft = darkHours
+    if (darkHours > timeUntilSunrise)
+        {darkHoursLeft = timeUntilSunrise}
+    else
+        {darkHoursLeft = darkHours}
 
     // Print today's time of nautical sunrise and sunset.
     Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
