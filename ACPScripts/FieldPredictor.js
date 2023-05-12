@@ -164,6 +164,12 @@ function main()
     timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
     timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
 
+    // Dark hours left
+    if (darkHours > timeUntilSunrise):
+        darkHoursLeft = timeUntilSunrise
+    else:
+        darkHoursLeft = darkHours
+
     // Print today's time of nautical sunrise and sunset.
     Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
     Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
@@ -176,6 +182,7 @@ function main()
     Console.PrintLine("Length of the Night: " + darkHours + "hours")
     Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
     Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
+    Console.PrintLine("Dark hours left: " + darkHoursLeft + " hours")
     
     
 /*-----------------------------Observing Plan--------------------------------*/
