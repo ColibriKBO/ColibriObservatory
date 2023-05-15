@@ -905,7 +905,7 @@ var curTarget = null;
 var elevationLimit = 10; // minimum elevation of field in degrees
 var minMoonOffset = 15; // angular seperation from moon in degrees
 var numExposures = 2400; // exposures/min
-var timestep = 0.5; // time between fields in hours
+var timestep = 1.0; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
@@ -1394,9 +1394,9 @@ function main()
 
     for (i=0; i<finalFields.length-1; i++)
     {
-        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours")
+        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours")
         Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
-        ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours with " + finalFields[i][10].toString() + " visible stars")
+        ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars")
     }
         // Console.PrintLine(finalFields[i][3] + " Alt:" + finalFields[i][0].toFixed(2) + " Az:" + finalFields[i][1].toFixed(2) + " Num *:" + finalFields[i][10] + " starting at " + finalFields[i][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours")
     
