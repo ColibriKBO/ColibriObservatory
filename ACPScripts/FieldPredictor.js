@@ -26,7 +26,7 @@ String.prototype.trim = function()
 // Magic numbers
 var elevationLimit = 10; // minimum elevation of field in degrees
 var minMoonOffset = 15; // angular seperation from moon in degrees
-var timestep = 0.5; // time between fields in hours
+var timestep = 1.0; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
