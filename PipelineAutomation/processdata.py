@@ -102,8 +102,8 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
                 
                 if check_others == True:
-                    path_RED  = pathlib.Path('/','R:','/'+obsYMD.replace('/','-'),'REDBIRD_done.txt')
-                    path_BLUE = pathlib.Path('/','B:','/'+obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+                    path_RED  = pathlib.Path('R:','ColibiArchive/',obsYMD.replace('/','-'),'REDBIRD_done.txt')
+                    path_BLUE = pathlib.Path('B:','ColibriArchive',obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
                     
                     while not (path_RED.is_file() and path_BLUE.is_file()):
                         print("Waiting for %s and %s..." % (path_RED, path_BLUE))
