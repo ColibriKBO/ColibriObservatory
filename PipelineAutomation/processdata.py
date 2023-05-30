@@ -259,6 +259,24 @@ if __name__ == '__main__':
 
 
     print(f"Completed 1st stage data processing in {t1+tsf} seconds",file=sys.stderr)
+        
+
+##############################
+## Bias & Sensitivity Calculations
+##############################
+
+    ## Run image bias stat calculations
+    print('\nStarting bias stat calculations...')
+    
+    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-d obsYMD']
+    t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
+    print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
+    
+    ## Run sensitivity calculations
+    print('\nStarting sensitivity calculations...')
+    sensitivity_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d obsYMD']
+    t5 = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
+    print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
 
 
 ##############################
@@ -282,24 +300,12 @@ if __name__ == '__main__':
         pipeline3_list = ['python', os.path.expanduser('~/documents/github/colibripipeline//colibri_secondary.py'), '-b d:\\', '-d obsYMD']
         t3 = subprocessLoop(dirlist,pipeline3_list,'3process.txt',repro=repro)
         print(f"Completed 3nd stage data processing in {t3} seconds",file=sys.stderr)
-        
 
-##############################
-## Bias & Sensitivity Calculations
-##############################
+        ## Run timeline generator
+        print('\nStarting timeline generation...')
 
-    ## Run image bias stat calculations
-    print('\nStarting bias stat calculations...')
-    
-    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-d obsYMD']
-    t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
-    print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
-    
-    ## Run sensitivity calculations
-    print('\nStarting sensitivity calculations...')
-    sensitivity_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d obsYMD']
-    t5 = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
-    print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
+        timeline_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/timeline.py'), '-d obsYMD']
+        t6 = subprocessLoop(dirlist,timeline_list,'timeline.txt',repro=repro)
 
 
 ##############################
@@ -307,9 +313,8 @@ if __name__ == '__main__':
 ##############################
 
     if telescope == "GREENBIRD":
-        print(f"Total time to process was {t0+t1+tsf+t2+t3+t4+t5} seconds")
+        print(f"Total time to process was {t0+t1+tsf+t2+t3+t4+t5+t6} seconds")
     else:
         print(f"Total time to process was {t0+t1+tsf+t4+t5}")
     
     window.destroy()
-    
