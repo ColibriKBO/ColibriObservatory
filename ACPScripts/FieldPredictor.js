@@ -353,30 +353,19 @@ function main()
     // Print table of raw finalFields array
     Console.PrintLine("")
     Console.PrintLine("=== finalFields ===")
-    ts.WriteLine(Util.SysUTCDate + " === finalFields ===")
     for (k=0; k < finalFields.length; k++)
     {
-        ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k])
         Console.PrintLine(finalFields[k])
     }
 
     // Print table of formatted finalFields array
     Console.PrintLine("")
     Console.PrintLine("=== Final Field Short List ===")
-    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Short List ===")
 
     for (i=0; i<finalFields.length-1; i++)
     {
         Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours")
         Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
-        ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars")
     }
-        // Console.PrintLine(finalFields[i][3] + " Alt:" + finalFields[i][0].toFixed(2) + " Az:" + finalFields[i][1].toFixed(2) + " Num *:" + finalFields[i][10] + " starting at " + finalFields[i][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours")
-    
-    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===")
-    for (i=0; i<finalFields.length-1; i++)
-    {
-        ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1])
-    }
-    
+        
 }
