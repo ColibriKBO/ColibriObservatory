@@ -337,7 +337,7 @@ function main()
             // Console.PrintLine(i.toString())
         }
     }
-    finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
+    //finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
 
     // Calculate the duration of each field and append it onto the end of its
@@ -367,5 +367,8 @@ function main()
         Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours")
         Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
     }
-        
+    
+    Console.PrintLine(finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours")
+    Console.PrintLine("     with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
+
 }
