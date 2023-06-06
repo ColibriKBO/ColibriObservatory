@@ -279,8 +279,6 @@ function main()
         }
 
 
-
-
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
         // TODO: make this if/else more clever

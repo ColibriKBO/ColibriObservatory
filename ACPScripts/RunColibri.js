@@ -796,8 +796,9 @@ function whichField(timeJD)
         targetLoops = 0
         currField = 999
         nextField = 999
-        targetRA  = 0
-        targetDec = 0
+        // Given Polaris to target by default to be safe
+        targetRA  = 37.75
+        targetDec = 89.15
         fieldName = "TooLate"
 
         ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
@@ -850,32 +851,51 @@ function whichField(timeJD)
             //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
             //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            break
+            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
         }
-        else if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunset))
-        {
-            Console.PrintLine("At last field")
-            ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
+    }
+    // Check final entry in finalFields list
+    if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunrise))
+    {
+        Console.PrintLine("At last field")
+        ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
 
-            targetJD  = sunrise
-            targetDur = sunrise - timeJD
-            targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-            currField = finalFields.length-1
-            nextField = 999
-            targetRA = finalFields[finalFields.length-1][2][0]
-            targetDec = finalFields[finalFields.length-1][2][1]
-            fieldName = finalFields[finalFields.length-1][3].toString()
+        targetJD  = sunrise
+        targetDur = sunrise - timeJD
+        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
+        currField = finalFields.length-1
+        nextField = 999
+        targetRA = finalFields[finalFields.length-1][2][0]
+        targetDec = finalFields[finalFields.length-1][2][1]
+        fieldName = finalFields[finalFields.length-1][3].toString()
 
 
-            //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
-            //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
+        //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
+        //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            break
-        }
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
     }
 
 
+    // Default if no valid fields are found (for any reason)
+    // Given Polaris to target by default to be safe
+    Console.PrintLine("No valid fields")
+    ts.WriteLine(Util.SysUTCDate + " INFO: No valid fields")
+    targetJD  = 999 //TODO: This is a hack. Need to fix this to work with JD.
+    targetDur = 999
+    targetLoops = 0
+    currField = 999
+    nextField = 999
+    targetRA  = 37.75
+    targetDec = 89.15
+    fieldName = "NoFields"
+
+    ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
+    Telescope.Park()
+    trkOff()
+    domeClose()
     return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+    
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -1231,7 +1251,7 @@ function main()
     fieldsToObserve = [] // Array containing best field info in 6 minute increments
 
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
-    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], JD [12]
+    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], start JD [12]
     
     // n is the number of samples in one observing block (length = timestep)
     // that will be computed.
