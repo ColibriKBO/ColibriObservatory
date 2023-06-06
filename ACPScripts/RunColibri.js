@@ -1399,7 +1399,7 @@ function main()
     }
     Console.PrintLine(finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours")
     Console.PrintLine("     with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
-    ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + finalFields[sunrise][12].toFixed(3) + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
+    ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise.toFixed(3) + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
     
     ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===")
     for (i=0; i<finalFields.length; i++)
