@@ -165,10 +165,10 @@ function main()
     timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
 
     // Dark hours left
-    if (darkHours > timeUntilSunrise):
-        darkHoursLeft = timeUntilSunrise
-    else:
-        darkHoursLeft = darkHours
+    if (darkHours > timeUntilSunrise)
+        {darkHoursLeft = timeUntilSunrise}
+    else
+        {darkHoursLeft = darkHours}
 
     // Print today's time of nautical sunrise and sunset.
     Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
@@ -176,8 +176,9 @@ function main()
     Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
     Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
     Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
-    Console.PrintLine("Sunset LST: " + sunsetLST)
-    Console.PrintLine("Current LST: " + Util.NowLST())
+    Console.PrintLine("Sunset JD: " + sunset)
+    Console.PrintLine("Sunrise JD: " + sunrise)
+    Console.PrintLine("Current JD: " + Util.SysJulianDate)
     
     Console.PrintLine("Length of the Night: " + darkHours + "hours")
     Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
@@ -203,7 +204,7 @@ function main()
     fieldsToObserve = [] // Array containing best field info in 6 minute increments
 
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
-    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], LST [12]
+    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], JD [12]
     
     // n is the number of samples in one observing block (length = timestep)
     // that will be computed.
@@ -223,6 +224,7 @@ function main()
 
         // Create a new coordinate transform at intervals of timestep
         newLST = parseFloat(sunsetLST) + k*timestep
+        newJD  = sunset + k*timestep/24
         ct = Util.NewCT(Telescope.SiteLatitude, newLST)
 
         // Start a loop to calculate approximate number of stars in fields
@@ -243,7 +245,7 @@ function main()
             fieldInfo[j][0] = ct.Elevation
             fieldInfo[j][1] = ct.Azimuth
             fieldInfo[j][5] = HA
-            fieldInfo[j][12] = LST
+            fieldInfo[j][12] = newJD
 
             // Calculate approx. # of stars in field using airmass/extinction
             // Know limiting magnitude at zenith (say 12 in 25 ms)
@@ -267,6 +269,7 @@ function main()
         // Create goodFields array to hold fields that are above the horizon
         // and far enough from the moon
         goodFields = []
+
         for (j=0; j < fieldInfo.length; j++)
         {
             if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset)
@@ -274,6 +277,7 @@ function main()
                 goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]])
             }
         }
+
 
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
@@ -295,6 +299,17 @@ function main()
             prevField = sortedFields[0][3]
         }
         
+
+        // Print statements for testing
+        //Console.PrintLine(prevField)
+        //Console.PrintLine(sortedFields[0][3] + " " + sortedFields[0][10] + " / " + sortedFields[1][3] + " " + sortedFields[1][10])
+        //Console.PrintLine("10: " + fieldInfo[9][10] + " 7: " + fieldInfo[6][10])
+        //Console.PrintLine(sortedFields[0])
+        //Console.PrintLine(fieldsToObserve);
+
+        // Default option
+        //fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
+
     }
 
 
@@ -314,10 +329,13 @@ function main()
     {
         if (fieldsToObserve[i][3] != fieldsToObserve[i+1][3])
         {
+            //finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
             finalFields.push([fieldsToObserve[i+1][0],fieldsToObserve[i+1][1],fieldsToObserve[i+1][2],fieldsToObserve[i+1][3],fieldsToObserve[i+1][4],fieldsToObserve[i+1][5],fieldsToObserve[i+1][6],fieldsToObserve[i+1][7],fieldsToObserve[i+1][8],fieldsToObserve[i+1][9],fieldsToObserve[i+1][10],fieldsToObserve[i+1][11],fieldsToObserve[i+1][12]])
+
+            // Console.PrintLine(i.toString())
         }
     }
-    finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
+    //finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
 
     // Calculate the duration of each field and append it onto the end of its
@@ -325,8 +343,9 @@ function main()
     for (i=0; i<finalFields.length-1; i++)
     {
         finalFields[i].push(finalFields[i+1][12]-finalFields[i][12])
+        //finalFields[i+1].push(finalFields[i*2+1][12]-finalFields[i*2][12])
     }
-    finalFields[finalFields.length-1].push(sunriseLST - finalFields[finalFields.length-1][12])
+    finalFields[finalFields.length-1].push(sunrise - finalFields[finalFields.length-1][12])
 
 
     // Print table of raw finalFields array
@@ -343,8 +362,11 @@ function main()
 
     for (i=0; i<finalFields.length-1; i++)
     {
-        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours")
+        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours")
         Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
     }
     
+    Console.PrintLine(finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours")
+    Console.PrintLine("     with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
+
 }

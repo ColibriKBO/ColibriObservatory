@@ -796,8 +796,9 @@ function whichField(timeJD)
         targetLoops = 0
         currField = 999
         nextField = 999
-        targetRA  = 0
-        targetDec = 0
+        // Given Polaris to target by default to be safe
+        targetRA  = 37.75
+        targetDec = 89.15
         fieldName = "TooLate"
 
         ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
@@ -850,32 +851,51 @@ function whichField(timeJD)
             //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
             //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            break
+            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
         }
-        else if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunset))
-        {
-            Console.PrintLine("At last field")
-            ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
+    }
+    // Check final entry in finalFields list
+    if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunrise))
+    {
+        Console.PrintLine("At last field")
+        ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
 
-            targetJD  = sunrise
-            targetDur = sunrise - timeJD
-            targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-            currField = finalFields.length-1
-            nextField = 999
-            targetRA = finalFields[finalFields.length-1][2][0]
-            targetDec = finalFields[finalFields.length-1][2][1]
-            fieldName = finalFields[finalFields.length-1][3].toString()
+        targetJD  = sunrise
+        targetDur = sunrise - timeJD
+        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
+        currField = finalFields.length-1
+        nextField = 999
+        targetRA = finalFields[finalFields.length-1][2][0]
+        targetDec = finalFields[finalFields.length-1][2][1]
+        fieldName = finalFields[finalFields.length-1][3].toString()
 
 
-            //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
-            //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
+        //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
+        //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-            break
-        }
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
     }
 
 
+    // Default if no valid fields are found (for any reason)
+    // Given Polaris to target by default to be safe
+    Console.PrintLine("No valid fields")
+    ts.WriteLine(Util.SysUTCDate + " INFO: No valid fields")
+    targetJD  = 999 //TODO: This is a hack. Need to fix this to work with JD.
+    targetDur = 999
+    targetLoops = 0
+    currField = 999
+    nextField = 999
+    targetRA  = 37.75
+    targetDec = 89.15
+    fieldName = "NoFields"
+
+    ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
+    Telescope.Park()
+    trkOff()
+    domeClose()
     return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+    
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -1231,7 +1251,7 @@ function main()
     fieldsToObserve = [] // Array containing best field info in 6 minute increments
 
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
-    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], JD [12]
+    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], start JD [12]
     
     // n is the number of samples in one observing block (length = timestep)
     // that will be computed.
@@ -1364,7 +1384,6 @@ function main()
             // Console.PrintLine(i.toString())
         }
     }
-    finalFields.push([fieldsToObserve[fieldsToObserve.length-1][0],fieldsToObserve[fieldsToObserve.length-1][1],fieldsToObserve[fieldsToObserve.length-1][2],fieldsToObserve[fieldsToObserve.length-1][3],fieldsToObserve[fieldsToObserve.length-1][4],fieldsToObserve[fieldsToObserve.length-1][5],fieldsToObserve[fieldsToObserve.length-1][6],fieldsToObserve[fieldsToObserve.length-1][7],fieldsToObserve[fieldsToObserve.length-1][8],fieldsToObserve[fieldsToObserve.length-1][9],fieldsToObserve[fieldsToObserve.length-1][10],fieldsToObserve[fieldsToObserve.length-1][11],fieldsToObserve[fieldsToObserve.length-1][12]])
 
 
     // Calculate the duration of each field and append it onto the end of its
@@ -1398,10 +1417,12 @@ function main()
         Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
         ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars")
     }
-        // Console.PrintLine(finalFields[i][3] + " Alt:" + finalFields[i][0].toFixed(2) + " Az:" + finalFields[i][1].toFixed(2) + " Num *:" + finalFields[i][10] + " starting at " + finalFields[i][12].toFixed(3) + " for " + finalFields[i][13].toFixed(3) + " hours")
+    Console.PrintLine(finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours")
+    Console.PrintLine("     with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
+    ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise.toFixed(3) + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
     
     ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===")
-    for (i=0; i<finalFields.length-1; i++)
+    for (i=0; i<finalFields.length; i++)
     {
         ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1])
     }
