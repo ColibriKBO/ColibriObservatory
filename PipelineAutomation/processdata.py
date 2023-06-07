@@ -102,7 +102,7 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
                 
                 if check_others == True:
-                    path_RED  = pathlib.Path('R:/','ColibriArchive/',obsYMD.replace('/','-'),'REDBIRD_done.txt')
+                    path_RED  = pathlib.Path('R:/','ColibriArchive',obsYMD.replace('/','-'),'REDBIRD_done.txt')
                     path_BLUE = pathlib.Path('B:/','ColibriArchive',obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
                     
                     while not (path_RED.is_file() and path_BLUE.is_file()):
@@ -205,6 +205,9 @@ if __name__ == '__main__':
         obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
         datadir = 'd:\\ColibriData\\' + obs_date + '\\'
 
+    ## GitHub Script Repository
+    scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline').expanduser()
+
 
 ##############################
 ## Directory/File Cleanup
@@ -250,11 +253,13 @@ if __name__ == '__main__':
     print("\nStarting 1st stage processing...")
 
     ## Run primary pipeline
-    pipeline1_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/colibri_main_py3.py'), 'd:\\', 'obsYMD', f"-s {sigma_threshold}"]
+    pipeline1_program = str(scripts / 'colibri_main_py3.py')
+    pipeline1_list = ['python', pipeline1_program, 'd:\\', 'obsYMD', f"-s {sigma_threshold}"]
     t1 = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
     
     ## Get star coordinates
-    starfinder_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/coordsfinder.py'), '-d obsYMD']
+    starfinder_program = str(scripts / 'coordsfinder.py')
+    starfinder_list = ['python', starfinder_program, '-d obsYMD']
     tsf = subprocessLoop(dirlist,starfinder_list,'1process.txt',repro=repro)
 
 
@@ -267,14 +272,17 @@ if __name__ == '__main__':
 
     ## Run image bias stat calculations
     print('\nStarting bias stat calculations...')
-    
-    biasstat_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/image_stats_bias.py'), '-d obsYMD']
+
+    biasstat_program = str(scripts / 'image_stats_bias.py')
+    biasstat_list = ['python', biasstat_program, '-d obsYMD']
     t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
     print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
     
     ## Run sensitivity calculations
     print('\nStarting sensitivity calculations...')
-    sensitivity_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/sensitivity.py'),  '-d obsYMD']
+
+    sensitivity_program = str(scripts / 'sensitivity.py')
+    sensitivity_list = ['python', sensitivity_program,  '-d obsYMD']
     t5 = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
     print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
 
@@ -290,21 +298,24 @@ if __name__ == '__main__':
         ## Run secondary pipeline
         print('\nStarting 2nd stage processing...')
         
-        pipeline2_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/simultaneous_occults.py'), '-d obsYMD']
+        pipeline2_program = str(scripts / 'simultaneous_occults.py')
+        pipeline2_list = ['python', pipeline2_program, '-d obsYMD']
         t2 = subprocessLoop(dirlist,pipeline2_list,'2process.txt',repro=repro,check_others=True)
         print(f"Completed 2nd stage data processing in {t2} seconds",file=sys.stderr)
         
         ## Run tertiary pipeline
         print('\nStarting 3rd stage processing...')
         
-        pipeline3_list = ['python', os.path.expanduser('~/documents/github/colibripipeline//colibri_secondary.py'), '-b d:\\', '-d obsYMD']
+        pipeline3_program = str(scripts / 'colibri_secondary.py')
+        pipeline3_list = ['python', pipeline3_program, '-b d:\\', '-d obsYMD']
         t3 = subprocessLoop(dirlist,pipeline3_list,'3process.txt',repro=repro)
         print(f"Completed 3nd stage data processing in {t3} seconds",file=sys.stderr)
 
         ## Run timeline generator
         print('\nStarting timeline generation...')
 
-        timeline_list = ['python', os.path.expanduser('~/documents/github/colibripipeline/timeline.py'), '-d obsYMD']
+        timeline_program = str(scripts / 'timeline.py')
+        timeline_list = ['python', timeline_program, '-d obsYMD']
         t6 = subprocessLoop(dirlist,timeline_list,'timeline.txt',repro=repro)
 
 
