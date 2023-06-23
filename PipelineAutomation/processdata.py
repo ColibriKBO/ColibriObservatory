@@ -101,11 +101,14 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 obsYMD = str('%s/%s/%s' % (obsyear, obsmonth, obsday))
                 subp_list = [item.replace("obsYMD",obsYMD) for item in subprocess_list]
                 
+                # If this is a Green-exclusive process, wait for Red and Blue to finish
                 if check_others == True:
                     path_RED  = pathlib.Path('R:/','ColibriArchive',obsYMD.replace('/','-'),'REDBIRD_done.txt')
                     path_BLUE = pathlib.Path('B:/','ColibriArchive',obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
                     
-                    while not (path_RED.is_file() and path_BLUE.is_file()):
+                    # Wait until processing is done, if processing has started
+                    while not (path_RED.is_file() == path_RED.parent.is_dir()) and \
+                          not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
                         print("Waiting for %s and %s..." % (path_RED, path_BLUE))
                         time.sleep(300)
                     
