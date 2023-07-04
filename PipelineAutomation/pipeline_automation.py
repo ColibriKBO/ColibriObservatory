@@ -12,12 +12,12 @@ Usage: python processdata.py [-d][-p][-r][-s]
 import os, sys, shutil
 import time
 import pathlib
-import datetime
 import glob
 import subprocess
 import argparse
 import tkinter as tk
 from pathlib import Path
+from datetime import datetime
 
 # Custom Script Imports
 from preparedata import is_dir_too_small
@@ -123,7 +123,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
         t_start = time.time()
         try:
             print(f"Initializing subprocess {process + '.py'}...")
-            subp = subprocess.run(['python', scripts / process + '.py', *cml_args])
+            subp = subprocess.run(['python', scripts / (process + '.py'), *cml_args])
 
             # Wait until the subprocess has completed
             try:
