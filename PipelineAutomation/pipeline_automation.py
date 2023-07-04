@@ -242,7 +242,7 @@ if __name__ == '__main__':
         other_telescopes = [Path("G:","ColibriData"), Path("B:", "ColibriData")]
     elif telescope == "GREENBIRD":
         other_telescopes = [Path("R:","ColibriData"), Path("B:", "ColibriData")]
-    elif telescope == "REDBIRD":
+    elif telescope == "BLUEBIRD":
         other_telescopes = [Path("R:","ColibriData"), Path("G:", "ColibriData")]
 
     # Generate night directories for other telescopes if they don't exist
