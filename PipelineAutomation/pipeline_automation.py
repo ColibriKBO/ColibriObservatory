@@ -81,7 +81,7 @@ def cleanThumbsdb():
     
     """
 
-    if DATA_PATH / 'Thumbs.db':
+    if (DATA_PATH / 'Thumbs.db').exists():
         try:
             # If Thumbs is empty, rmdir will work
             (DATA_PATH / 'Thumbs.db').rmdir()
