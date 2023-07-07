@@ -269,6 +269,7 @@ def main():
 			print('File written')
 			f.close()
 
+			# unixtime, t_out, h_out, v_wnd_av, d_wnd, rain, sky_t, ground_t, alert_flag, polaris_mag
 			if polaris_flag != 0:
 				logger.info('%s,%s,%s,%s,%s,%s,%s,%s,%s,%s' % (str(time.time()),str(t_out),str(h_out),str(v_wnd_av),str(d_wnd),str(rain),str(round(sky_t,2)),str(round(ground_t)),str(alert_flag), str(polaris_mag)))
 			else:

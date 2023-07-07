@@ -136,7 +136,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
             if new_stop:
                 print(f"Writing stop file for {process + '.py'}...")
                 with open(stopfile_dir / stop_file, 'w') as sfile:
-                    sfile.write(['python', process + '.py', *cml_args])
+                    sfile.write(f'python {process}.py {cml_args}')
 
         # If subprocess fails, skip the pipeline
         except Exception as Argument:
