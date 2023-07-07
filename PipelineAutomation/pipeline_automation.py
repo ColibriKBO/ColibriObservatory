@@ -53,6 +53,26 @@ BARE_FORMAT = '%Y-%m-%d_%H%M%S_%f'
 scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline').expanduser()
 
 
+#----------------------------------class--------------------------------------#
+
+class ErrorTracker(object):
+    """
+    Indicates if any errors or warnings occured during the running of the program.
+    """
+
+    def __init__(self):
+
+        self.errors = []
+
+
+    def addError(self, error_msg):
+
+        self.errors.append(error_msg)
+        print(error_msg)
+
+err = ErrorTracker()
+
+
 #--------------------------------functions------------------------------------#
 
 def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
@@ -63,18 +83,18 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     # Define the raw data directory and check that the directory exists
     raw_dir = DATA_PATH / obsdate
     if not raw_dir.exists():
-        print(f"ERROR: No raw data found on {obsdate}! Skipping primary processing!")
+        err.addError(f"ERROR: No raw data found on {obsdate}! Skipping primary processing!")
         return
     
     # Collect the contents of the data directory and check that some raw data was collected
     minute_dirs = [min_dir for min_dir in raw_dir.iterdir() if min_dir.is_dir()]
     if len(minute_dirs) <= 1:
-        print(f"WARNING: No data found in {obsdate}! Skipping primary processing!")
+        err.addError(f"WARNING: No data found in {obsdate}! Skipping primary processing!")
         return
 
     # Run all processes and get the runtime as a return
     runtime = runProcesses(raw_dir, repro=False, new_stop=True, **kwargs)
-    print("#"*30 + f"\nAll processes on raw data are complete for {obsdate}!\n" + "#"*30)
+    print("\n" + "#"*30 + f"\nAll processes on raw data are complete for {obsdate}!\n" + "#"*30 + "\n")
     return runtime
 
     
@@ -91,15 +111,15 @@ def proceessArchive(obsdate, repro=False, new_stop=True, **kwargs):
     raw_dir = DATA_PATH / obsdate
     archive_dir = ARCHIVE_PATH / hyphonateDate(obsdate)
     if not raw_dir.exists():
-        print(f"WARNING: No raw data found on {obsdate}.")
+        err.addError(f"WARNING: No raw data found on {obsdate}.")
         raw_dir.mkdir()
     if not archive_dir.exists():
-        print(f"WARNING: No archive directory found on {obsdate}.")
+        err.addError(f"WARNING: No archive directory found on {obsdate}.")
         archive_dir.mkdir()
     
     # Run all processes and get the runtime as a return
     runtime = runProcesses(raw_dir, repro=False, new_stop=True, **kwargs)
-    print("#"*30 + f"\nAll secondary processes are complete for {obsdate}!\n" + "#"*30)
+    print("\n" + "#"*30 + f"\nAll secondary processes are complete for {obsdate}!\n" + "#"*30 + "\n")
     return runtime
 
 
@@ -140,7 +160,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
 
         # If subprocess fails, skip the pipeline
         except Exception as Argument:
-            print(f"ERROR: {process + '.py'} failed with error {Argument}! Skipping...")
+            err.addError(f"ERROR: {process + '.py'} failed with error {Argument}! Skipping...")
 
         # Record the runtime of the subprocess
         runtime.append(time.time() - t_start)
@@ -378,7 +398,7 @@ if __name__ == '__main__':
     for obsdate in obs_dates:
     
         # If the list of artificial lightcurves has not been created, wait 5 minutes
-        gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt', 'r'
+        gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
         while not gat_file.exists():
             time.sleep(300)
         
@@ -446,8 +466,16 @@ if __name__ == '__main__':
 ## End Of Script
 ##############################
 
+    print("#" + "-"*50 + "#")
+
     # Print total time
     print(f"Total time to process was {sum(tot_runtime)} seconds")
+
+    # Print errors
+    if len(err.errors) > 0:
+        print("The following errors were encountered:")
+        for error in err.errors:
+            print(error)
     
     # Close tkinter window
     window.destroy()
