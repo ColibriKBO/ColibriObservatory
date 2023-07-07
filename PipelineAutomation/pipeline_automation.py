@@ -82,6 +82,8 @@ def cleanThumbsdb():
     """
 
     if (DATA_PATH / 'Thumbs.db').exists():
+        err.addError("WARNING: Thumbs.db file found in data directory!")
+
         try:
             # If Thumbs is empty, rmdir will work
             (DATA_PATH / 'Thumbs.db').rmdir()
