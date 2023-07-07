@@ -75,6 +75,26 @@ err = ErrorTracker()
 
 #--------------------------------functions------------------------------------#
 
+def cleanThumbsdb():
+    """
+    Deletes all thumbs.db files in the data directory.
+    
+    """
+
+    if DATA_PATH / 'Thumbs.db':
+        try:
+            # If Thumbs is empty, rmdir will work
+            (DATA_PATH / 'Thumbs.db').rmdir()
+        except:
+            # If Thumbs is not empty, rmtree will work
+            for item in (DATA_PATH / 'Thumbs.db').iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            (DATA_PATH / 'Thumbs.db').rmdir()
+
+
 def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     """
     
@@ -240,6 +260,7 @@ if __name__ == '__main__':
         DATA_PATH = BASE_PATH / 'LongTermStorage'
     
     # Get dates to process
+    cleanThumbsdb()
     if cml_args.date is None:
         data_dirs = sorted(DATA_PATH.iterdir())
     elif len(cml_args.date) == 0:
