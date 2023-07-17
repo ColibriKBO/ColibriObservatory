@@ -82,7 +82,7 @@ def cleanThumbsdb():
     """
 
     if (DATA_PATH / 'Thumbs.db').is_dir():
-        err.addError("WARNING: Thumbs.db file found in data directory!")
+        err.addError("WARNING: Thumbs.db dir found in data directory!")
 
         try:
             # If Thumbs is empty, rmdir will work
@@ -95,7 +95,8 @@ def cleanThumbsdb():
                 else:
                     item.unlink()
             (DATA_PATH / 'Thumbs.db').rmdir()
-    elif (DATA_PATH / 'Thumbs.db').is_file():
+    if (DATA_PATH / 'Thumbs.db').is_file():
+        err.addError("WARNING: Thumbs.db file found in data directory!")
         (DATA_PATH / 'Thumbs.db').unlink()
 
 
