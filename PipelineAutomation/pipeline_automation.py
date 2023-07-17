@@ -95,6 +95,8 @@ def cleanThumbsdb():
                 else:
                     item.unlink()
             (DATA_PATH / 'Thumbs.db').rmdir()
+    elif (DATA_PATH / 'Thumbs.db').is_file():
+        (DATA_PATH / 'Thumbs.db').unlink()
 
 
 def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
