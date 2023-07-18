@@ -45,13 +45,40 @@ def removeStopFile(stopfile_names):
                         file.unlink()
                         print(f'Removed {file.name} from {subdir.name}.')
 
+
+def removeAllStops():
+    """
+    Remove all stopfiles from all data subdirectories.
+
+    Args:
+        None
+    
+    Returns:
+        None
+
+    """
+
+    # Walk through all data subdirectories
+    for subdir in DATA_PATH.iterdir():
+        if subdir.is_dir():
+            # Walk through all files in the subdirectory
+            for file in subdir.iterdir():
+                if file.is_file():
+                    # If the file is a stopfile, remove it
+                    if file.name.endswith('.txt'):
+                        file.unlink()
+                        print(f'Removed {file.name} from {subdir.name}.')
+
 #----------------------------------main---------------------------------------#
 
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('stopfile_names', nargs='+', help='Stopfile names to remove.')
+    parser.add_argument('stopfile_names', nargs='+', help='Stopfile names to remove. "*" removes all stopfiles.')
     args = parser.parse_args()
 
     # Remove the stopfiles
-    removeStopFile(args.stopfile_names)
+    if args.stopfile_names[0] == '*':
+        removeAllStops()
+    else:
+        removeStopFile(args.stopfile_names)
