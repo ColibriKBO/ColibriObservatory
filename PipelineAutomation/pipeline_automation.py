@@ -323,7 +323,7 @@ if __name__ == '__main__':
         # handle the raw data. To add a script, just add to this
         # dictionary. Format is {script_basename : [list_of_cml_args]}.
         raw_processes = {
-                'colibri_main_py3': ['d:\\', slashDate(obsdate), f'-s {sigma_threshold}'],
+                'colibri_main_py3': ['d:/', slashDate(obsdate), f'-s {sigma_threshold}'],
                 'coordsfinder': [f'-d {slashDate(obsdate)}'],
                 'image_stats_bias': [f'-d {slashDate(obsdate)}'],
                 'sensitivity': [f'-d {slashDate(obsdate)}']
@@ -380,7 +380,7 @@ if __name__ == '__main__':
             # dictionary. Format is {script_basename : [list_of_cml_args]}.
             GREEN1_processes =  {
                     'simultaneous_occults': [f'{obsdate}'],
-                    'colibri_secondary': ['-b d:\\',f'-d {slashDate(obsdate)}']
+                    'colibri_secondary': [f'-d {slashDate(obsdate)}']
                                 }
             
             GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
