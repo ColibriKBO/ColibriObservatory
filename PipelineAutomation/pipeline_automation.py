@@ -493,7 +493,7 @@ if __name__ == '__main__':
 ## End Of Script
 ##############################
 
-    print("#" + "-"*50 + "#")
+    print("\n#" + "-"*50 + "#\n")
 
     # Print total time
     print(f"Total time to process was {sum(filter(None,tot_runtime))} seconds")
