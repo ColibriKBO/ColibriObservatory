@@ -380,7 +380,7 @@ if __name__ == '__main__':
             # dictionary. Format is {script_basename : [list_of_cml_args]}.
             GREEN1_processes =  {
                     'simultaneous_occults': [f'{obsdate}'],
-                    'colibri_secondary': ['-b d:\\',f'-d {hyphonateDate(obsdate)}']
+                    'colibri_secondary': ['-b d:\\',f'-d {slashDate(obsdate)}']
                                 }
             
             GREEN1_runtime = processRawData(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
