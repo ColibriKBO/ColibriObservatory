@@ -438,7 +438,7 @@ if __name__ == '__main__':
                 tot_gat_runtime += sum(filter(None, gat_runtime))
 
         # Delete gat file
-        gat_file.unlink()
+        #gat_file.unlink()
 
         # Record runtime
         tot_runtime.append(tot_gat_runtime)
