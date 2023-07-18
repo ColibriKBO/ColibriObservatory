@@ -412,7 +412,7 @@ if __name__ == '__main__':
                     'wcsmatching': [f'{obsdate}','-m']
                               }
             
-            BLUE_runtime = processArchive(obsdate, repro=repro, new_stop=True, **BLUE_processes)
+            BLUE_runtime = processArchive(obsdate, repro=True, new_stop=True, **BLUE_processes)
             tot_runtime.append(BLUE_runtime)
 
 
