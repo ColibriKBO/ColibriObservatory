@@ -441,7 +441,7 @@ if __name__ == '__main__':
         gat_file.unlink()
 
         # Record runtime
-        tot_runtime.append(gat_runtime)
+        tot_runtime.append(tot_gat_runtime)
                 
 
 ##############################
