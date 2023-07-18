@@ -399,8 +399,8 @@ if __name__ == '__main__':
             
             # Wait until processing is done, if processing has started
             while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
-                    not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
-                print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+                    not (path_GREEN.is_file() == path_GREEN.parent.is_dir()):
+                print("Waiting for %s and %s..." % (path_RED, path_GREEN))
                 time.sleep(300)
             
             print(f"Red and Green are ready for BLUE {obsdate} processing.")
