@@ -118,7 +118,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
         return
 
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=False, new_stop=True, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
     print("\n" + "#"*30 + f"\nAll processes on raw data are complete for {obsdate}!\n" + "#"*30 + "\n")
     return runtime
 
@@ -143,7 +143,7 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
         archive_dir.mkdir()
     
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=False, new_stop=True, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
     print("\n" + "#"*30 + f"\nAll secondary processes are complete for {obsdate}!\n" + "#"*30 + "\n")
     return runtime
 
