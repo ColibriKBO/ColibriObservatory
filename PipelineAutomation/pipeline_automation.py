@@ -431,10 +431,11 @@ if __name__ == '__main__':
         
         # Read lines from generate_artificial.txt
         with open(gat_file, 'r') as gat:
-            gat_runtime = 0
+            tot_gat_runtime = 0
             for line in gat.readlines():
-                gat_runtime += runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate), new_stop=False,
+                gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate), new_stop=False,
                                             generate_specific_lightcurve=line.strip('\n').split(' '))
+                tot_gat_runtime += sum(filter(None, gat_runtime))
 
         # Delete gat file
         gat_file.unlink()
