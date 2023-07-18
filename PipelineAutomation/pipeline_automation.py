@@ -330,7 +330,7 @@ if __name__ == '__main__':
                         }
         
         raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
-        tot_runtime.append(raw_runtime)
+        tot_runtime += raw_runtime
 
 ##############################
 ## Archival Data Processing
@@ -348,7 +348,7 @@ if __name__ == '__main__':
                             }
         
         archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
-        tot_runtime.append(archive_runtime)
+        tot_runtime += archive_runtime
 
 ##############################
 ## Split-Responsibility Processing
@@ -384,7 +384,7 @@ if __name__ == '__main__':
                                 }
             
             GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
-            tot_runtime.append(GREEN1_runtime)
+            tot_runtime += GREEN1_runtime
 
     # Blue-specific
     if telescope == "BLUEBIRD":
@@ -413,7 +413,7 @@ if __name__ == '__main__':
                               }
             
             BLUE_runtime = processArchive(obsdate, repro=True, new_stop=True, **BLUE_processes)
-            tot_runtime.append(BLUE_runtime)
+            tot_runtime += BLUE_runtime
 
 
 ##############################
@@ -486,7 +486,7 @@ if __name__ == '__main__':
                              }
             
             end_runtime = processRawData(obsdate, repro=repro, new_stop=True, **end_processes)
-            tot_runtime.append(end_runtime)
+            tot_runtime += end_runtime
 
 
 ##############################
