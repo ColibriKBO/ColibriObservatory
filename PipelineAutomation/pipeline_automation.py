@@ -495,7 +495,7 @@ if __name__ == '__main__':
     print("#" + "-"*50 + "#")
 
     # Print total time
-    print(f"Total time to process was {sum(tot_runtime)} seconds")
+    print(f"Total time to process was {sum(filter(None,tot_runtime))} seconds")
 
     # Print errors
     if len(err.errors) > 0:
