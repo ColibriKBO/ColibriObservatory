@@ -124,7 +124,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
 
     
 
-def proceessArchive(obsdate, repro=False, new_stop=True, **kwargs):
+def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
     """
     
     """
@@ -347,7 +347,7 @@ if __name__ == '__main__':
                 'wcsmatching': [f'{obsdate}']
                             }
         
-        archive_runtime = processRawData(obsdate, repro=repro, new_stop=True, **archive_processes)
+        archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
         tot_runtime.append(archive_runtime)
 
 ##############################
@@ -383,7 +383,7 @@ if __name__ == '__main__':
                     'colibri_secondary': ['-b d:\\',f'-d {slashDate(obsdate)}']
                                 }
             
-            GREEN1_runtime = processRawData(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
+            GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
             tot_runtime.append(GREEN1_runtime)
 
     # Blue-specific
@@ -412,7 +412,7 @@ if __name__ == '__main__':
                     'wcsmatching': [f'{obsdate}','-m']
                               }
             
-            BLUE_runtime = processRawData(obsdate, repro=repro, new_stop=True, **BLUE_processes)
+            BLUE_runtime = processArchive(obsdate, repro=repro, new_stop=True, **BLUE_processes)
             tot_runtime.append(BLUE_runtime)
 
 
