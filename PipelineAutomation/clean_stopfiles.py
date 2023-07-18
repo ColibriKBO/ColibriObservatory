@@ -74,7 +74,8 @@ def removeAllStops():
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('stopfile_names', nargs='+', help='Stopfile names to remove. "*" removes all stopfiles.')
+    parser.add_argument('stopfile_names', nargs='+', 
+                        help='Stopfile names to remove. "*" removes all stopfiles.')
     args = parser.parse_args()
 
     # Remove the stopfiles
