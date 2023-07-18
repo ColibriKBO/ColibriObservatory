@@ -109,13 +109,13 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     raw_dir = DATA_PATH / obsdate
     if not raw_dir.exists():
         err.addError(f"ERROR: No raw data found on {obsdate}! Skipping primary processing!")
-        return
+        return []
     
     # Collect the contents of the data directory and check that some raw data was collected
     minute_dirs = [min_dir for min_dir in raw_dir.iterdir() if min_dir.is_dir()]
     if len(minute_dirs) <= 1:
         err.addError(f"WARNING: No data found in {obsdate}! Skipping primary processing!")
-        return
+        return []
 
     # Run all processes and get the runtime as a return
     runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
