@@ -295,7 +295,7 @@ def getSolution(image_file, save_file, order):
     return wcs_header
 
 
-def getWCSTransform(fits_filepath, file_str='ast_corr', soln_order=4):
+def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
     Required to have a list of median-combined images (median_combos)
@@ -303,7 +303,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr', soln_order=4):
 
     Args:
         fits_filepath (str): Path to the fits file
-        file_str (str): Basename of saved WCS solution file
+        file_str (str): Filename of saved WCS solution file
         soln_order (int): Order of the WCS solution
 
     Returns:
@@ -313,12 +313,15 @@ def getWCSTransform(fits_filepath, file_str='ast_corr', soln_order=4):
 
     # TODO: Fix this function
 
+    # Set WCS solution file path
+    wcs_filepath = BASE_PATH / "tmp" / file_str
+
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(fits_filepath, file_str, soln_order)
+        wcs_header = getLocalSolution(fits_filepath, wcs_filepath, soln_order)
     except:
-        wcs_header = getSolution(fits_filepath, file_str, soln_order)
+        wcs_header = getSolution(fits_filepath, wcs_filepath, soln_order)
 
     #calculate coordinate transformation
     transform = wcs.WCS(wcs_header)
