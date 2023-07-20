@@ -307,7 +307,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
         soln_order (int): Order of the WCS solution
 
     Returns:
-        wcs (astropy.wcs.wcs.WCS): WCS solution for the image        
+        transform (astropy.wcs.wcs.WCS): WCS solution for the image        
 
     """
 
@@ -325,6 +325,8 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
 
     #calculate coordinate transformation
     transform = wcs.WCS(wcs_header)
+
+    return transform
 
 
 ###########################
