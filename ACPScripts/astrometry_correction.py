@@ -25,6 +25,7 @@ import binascii
 import numpy as np
 import numba as nb
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from astropy.io import fits
 from astropy.io.fits import Header
 from astropy import wcs
@@ -485,7 +486,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         # Plot the reference image and mark the central pixel
-        ax.imshow(ref_data, cmap='gray', origin='upper')
+        ax.imshow(ref_data, cmap='gray', origin='upper', norm=LogNorm())
         ax.plot(IMG_WIDTH/2, IMG_WIDTH/2, 'r+', label='Center')
 
         # Calculate pixel coordinates of the target and mark it
