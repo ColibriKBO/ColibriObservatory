@@ -9,7 +9,8 @@ Usage: python processdata.py [-d][-p][-r][-s]
 """
 
 # Module Imports
-import os, sys, shutil
+import os, sys
+import shutil
 import time
 import pathlib
 import glob
@@ -114,39 +115,49 @@ def prepareData(eval_img_size=False):
     min_images = 100
     min_biases = 9
     image_size = 12_583_296 # size in bytes of a 2048x2048x12-bit image plus header
-    min_size = min_images * image_size
+
+    # Clean thumbs.db files
+    cleanThumbsdb()
 
     # Loop through obsdate directories
     for datadir_item in DATA_PATH.iterdir():
+
+        print(f"Cleaning {datadir_item}...")
         
         # For data directories, check minute subdirectories
-        if datadir_item.is_dir():
-            for min_dir in datadir_item.iterdir():
-                # Get number of items in the directory
-                num_images = len(list(min_dir.iterdir()))
+        for min_dir in datadir_item.iterdir():
 
-                # If the directory is a bias directory, check for the minimum
-                # number of biases.
-                if 'Bias' in min_dir.name:
+            # Ignore stop files
+            if min_dir.is_file():
+                continue
+
+            # If the directory is a bias directory, check for the minimum
+            # number of biases.
+            elif 'Bias' in min_dir.name:
+                for bias_dir in min_dir.iterdir():
+                    num_images = len(list(bias_dir.iterdir()))
                     if num_images < min_biases:
                         err.addError(f"WARNING: {min_dir} contains {num_images} biases and will be deleted!")
-                        #shutil.rmtree(min_dir)
+                        shutil.rmtree(min_dir)
                         continue
                     else:
                         continue
 
-                # If the directory contains fewer than the required number of
-                # images, delete the directory.
-                if num_images < min_images:
-                    err.addError(f"WARNING: {min_dir} contains {num_images} images and will be deleted!")
-                    #shutil.rmtree(min_dir)
-                    continue
+            # Get number of items in the directory
+            num_images = len(list(min_dir.iterdir()))
 
-                # If eval_img_size is True, check the image size of each
-                elif (eval_img_size) and (getDirSize(min_dir) < min_size):
-                    err.addError(f"WARNING: {min_dir} contains images smaller than 100x100 and will be deleted!")
-                    shutil.rmtree(min_dir)
-                    continue
+            # If the directory contains fewer than the required number of
+            # images, delete the directory.
+            if num_images < min_images:
+                err.addError(f"WARNING: {min_dir} contains {num_images} images and will be deleted!")
+                #shutil.rmtree(min_dir)
+                continue
+
+            # If eval_img_size is True, check the image size of each
+            elif (eval_img_size) and (getDirSize(min_dir) < num_images * image_size):
+                err.addError(f"WARNING: {min_dir} contains images of a smaller size than expected!")
+                shutil.rmtree(min_dir)
+                continue
 
 
 def cleanThumbsdb():
