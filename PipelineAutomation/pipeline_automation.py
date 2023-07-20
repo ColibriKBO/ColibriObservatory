@@ -137,11 +137,10 @@ def prepareData(eval_img_size=False):
                 for bias_dir in min_dir.iterdir():
                     num_images = len(list(bias_dir.iterdir()))
                     if num_images < min_biases:
-                        err.addError(f"WARNING: {min_dir} contains {num_images} biases and will be deleted!")
+                        err.addError(f"WARNING: {bias_dir} contains {num_images} biases and will be deleted!")
                         shutil.rmtree(min_dir)
-                        continue
-                    else:
-                        continue
+
+                continue
 
             # Get number of items in the directory
             num_images = len(list(min_dir.iterdir()))
