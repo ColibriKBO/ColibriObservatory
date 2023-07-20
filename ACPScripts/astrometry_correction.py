@@ -295,15 +295,16 @@ def getSolution(image_file, save_file, order):
     return wcs_header
 
 
-def getWCSTransform(hdict, image_data, file_str='ast_corr', soln_order=4):
+def getWCSTransform(fits_filepath, file_str='ast_corr', soln_order=4):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
     Required to have a list of median-combined images (median_combos)
 
 
     Args:
-        hdict (dict): Dictionary of header data for the image
-        image_data (arr): 2D array of image flux data
+        fits_filepath (str): Path to the fits file
+        file_str (str): Basename of saved WCS solution file
+        soln_order (int): Order of the WCS solution
 
     Returns:
         wcs (astropy.wcs.wcs.WCS): WCS solution for the image        
@@ -312,16 +313,12 @@ def getWCSTransform(hdict, image_data, file_str='ast_corr', soln_order=4):
 
     # TODO: Fix this function
 
-    # Save the header and data as a fits file
-    FITS_path = BASE_PATH / 'tmp' / (file_str + '.fits')
-    writeToFITS(FITS_path, hdict, image_data)
-
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(FITS_path, file_str, soln_order)
+        wcs_header = getLocalSolution(fits_filepath, file_str, soln_order)
     except:
-        wcs_header = getSolution(FITS_path, file_str, soln_order)
+        wcs_header = getSolution(fits_filepath, file_str, soln_order)
 
     #calculate coordinate transformation
     transform = wcs.WCS(wcs_header)
@@ -413,13 +410,28 @@ if __name__ == '__main__':
 ## Astrometry
 ###########################
 
-    # Extract information from the reference image
-    verboseprint(f"Reading reference image '{ref_image}'...")
-    ref_hdict, ref_data = readRCD(ref_image)
+    # If the reference image is an rcd file, convert it to a fits file
+    if ref_image.suffix == '.rcd':
+        # Extract information from the reference image
+        verboseprint(f"Reading reference image '{ref_image}'...")
+        ref_hdict, ref_data = readRCD(ref_image)
+
+        # Save the header and data as a fits file
+        FITS_path = BASE_PATH / 'tmp' / ('astr_corr.fits')
+        writeToFITS(FITS_path, ref_hdict, ref_data)
+    
+    # Otherwise, the reference image is already a fits file
+    elif ref_image.suffix == '.fits':
+        FITS_path = ref_image
+
+    # Otherwise, the reference image is not a valid file type
+    else:
+        print("0.0 0.0")
+        raise TypeError(f"Reference image for astrometric correction '{ref_image}' is not a valid file type.")
 
     # Get the WCS solution for the reference image
     verboseprint("Getting WCS solution for reference image...")
-    ref_wcs = getWCSTransform(ref_hdict, ref_data)
+    ref_wcs = getWCSTransform(FITS_path)
 
     # Convert the central pixel of the reference image to RA/Dec
     verboseprint("Converting central pixel of reference image to RA/Dec...")
