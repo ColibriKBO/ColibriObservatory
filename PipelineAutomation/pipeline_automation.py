@@ -123,7 +123,11 @@ def prepareData(eval_img_size=False):
     for obs_dir in DATA_PATH.iterdir():
 
         print(f"Cleaning {obs_dir}...")
-        
+
+        # Ignore obs_dir if it was already cleaned
+        if (obs_dir / 'cleaned.txt').is_file():
+            continue
+
         # For data directories, check minute subdirectories
         for min_dir in obs_dir.iterdir():
 
@@ -157,6 +161,10 @@ def prepareData(eval_img_size=False):
                 err.addError(f"WARNING: {min_dir} contains images of a smaller size than expected!")
                 shutil.rmtree(min_dir)
                 continue
+        
+        # Create cleaned.txt file to indicate that the directory has been
+        # cleaned.
+        (obs_dir / 'cleaned.txt').touch()
 
 
 def cleanThumbsdb():
