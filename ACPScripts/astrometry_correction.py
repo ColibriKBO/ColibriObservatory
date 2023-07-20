@@ -484,6 +484,7 @@ if __name__ == '__main__':
     # If in test mode, plot the reference image with the target marked
     if test:
         fig, ax = plt.subplots()
+        verboseprint(f"Min pixel: {np.min(ref_data)}\nMax pixel: {np.max(ref_data)}")
 
         # Plot the reference image and mark the central pixel
         ax.imshow(ref_data, cmap='gray', origin='upper', norm=LogNorm())
@@ -491,11 +492,11 @@ if __name__ == '__main__':
 
         # Calculate pixel coordinates of the target and mark it
         target_x,target_y = getXY_Single(ref_wcs, ra, dec)
-        ax.plot(target_x, target_y, 'b+', label='Target')
+        ax.plot(target_x, target_y, 'c+', label='Target')
 
         # Add text with the offsets
-        ax.text(0.05, 0.95, f"RA Offset: {ra_offset}\nDec Offset: {dec_offset}", 
-                transform=ax.transAxes, ha='left', va='top')
+        ax.text(0.05, 0.95, f"RA Offset: {ra_offset:.3f}\nDec Offset: {dec_offset:.3f}", 
+                transform=ax.transAxes, ha='left', va='top', color='w')
         
         # Add legend and show the plot
         ax.legend()
