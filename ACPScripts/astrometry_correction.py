@@ -150,6 +150,27 @@ def readRCD(filename):
 
         return {'EXPTIME':exptime, 'DATE-OBS':timestamp,
                 'SITELAT':lat, 'SITELONG':lon}, data
+    
+
+def readFITS(filename):
+    """
+    Read a FITS file and return the data and relevant header information.
+
+    Args:
+        filename (str): The name of the FITS file to be read.
+    
+    Returns:
+        hdict (dict): A dictionary containing the header information.
+        data (np.ndarray): A numpy array containing the image data.
+    """
+
+    # Open the file
+    with fits.open(filename) as hdul:
+        # Get the header and data
+        hdict = hdul[0].header
+        data = hdul[0].data
+
+    return hdict, data
 
 
 def writeToFITS(filename, header, data):
@@ -429,7 +450,12 @@ if __name__ == '__main__':
     
     # Otherwise, the reference image is already a fits file
     elif ref_image.suffix == '.fits':
+        # Set the path to the reference image
         FITS_path = ref_image
+
+        # Extract the data from the image
+        verboseprint(f"Reading reference image '{ref_image}'...")
+        _, ref_data = readFITS(FITS_path)
 
     # Otherwise, the reference image is not a valid file type
     else:
