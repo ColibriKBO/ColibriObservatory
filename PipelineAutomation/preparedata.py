@@ -41,6 +41,7 @@ if __name__ == '__main__':
 	# Walk through the directories and find those with less than n files and remove them.
 	# Check all of the files in the remainining directories to ensure that all files are the right size.
 	for root, dirs, files in os.walk('d:\\ColibriData\\'):
+		print(f"Descending into {root}...")
 		if root != 'd:\\ColibriData\\' and os.path.split(root)[-1] != 'Bias':
 			if is_dir_too_small(root, 30):
 				print('Removing directory %s' % root)
@@ -53,6 +54,12 @@ if __name__ == '__main__':
 						print('Removing %s' % f)
 						#os.remove(f)
 						n += 1
+
+		elif os.path.split(root)[-1] == 'Bias':
+			if is_dir_too_small(root, 9):
+				print('Removing directory %s' % root)
+				m += 1
+
 
 	# Run scripts to interrogate data if desired.
 

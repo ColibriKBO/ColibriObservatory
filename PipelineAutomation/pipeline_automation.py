@@ -75,6 +75,80 @@ err = ErrorTracker()
 
 #--------------------------------functions------------------------------------#
 
+def getDirSize(dir_name):
+    """
+    Get the size of a directory in bytes.
+
+    Args:
+        dir_name (pathlib.Path): Path to the directory.
+
+    Returns:
+        int: Size of the directory in bytes.
+    
+    """
+
+    total_size = 0
+    for item in dir_name.iterdir():
+        if item.is_file():
+            total_size += item.stat().st_size
+        elif item.is_dir():
+            total_size += getDirSize(item)
+    return total_size
+
+
+def prepareData(eval_img_size=False):
+    """
+    Clean invalid data directories and bias directories. Assessment done based
+    on the number of files in the directory and optionally image size.
+    
+    Args:
+        eval_img_size (bool): If True, will check image size of each directory
+            and delete directories that are too small.
+    
+    Returns:
+        None
+
+    """
+
+    # Define minimum sizes
+    min_images = 100
+    min_biases = 9
+    image_size = 12_583_296 # size in bytes of a 2048x2048x12-bit image plus header
+    min_size = min_images * image_size
+
+    # Loop through obsdate directories
+    for datadir_item in DATA_PATH.iterdir():
+        
+        # For data directories, check minute subdirectories
+        if datadir_item.is_dir():
+            for min_dir in datadir_item.iterdir():
+                # Get number of items in the directory
+                num_images = len(list(min_dir.iterdir()))
+
+                # If the directory is a bias directory, check for the minimum
+                # number of biases.
+                if 'Bias' in min_dir.name:
+                    if num_images < min_biases:
+                        err.addError(f"WARNING: {min_dir} contains {num_images} biases and will be deleted!")
+                        #shutil.rmtree(min_dir)
+                        continue
+                    else:
+                        continue
+
+                # If the directory contains fewer than the required number of
+                # images, delete the directory.
+                if num_images < min_images:
+                    err.addError(f"WARNING: {min_dir} contains {num_images} images and will be deleted!")
+                    #shutil.rmtree(min_dir)
+                    continue
+
+                # If eval_img_size is True, check the image size of each
+                elif (eval_img_size) and (getDirSize(min_dir) < min_size):
+                    err.addError(f"WARNING: {min_dir} contains images smaller than 100x100 and will be deleted!")
+                    shutil.rmtree(min_dir)
+                    continue
+
+
 def cleanThumbsdb():
     """
     Deletes all thumbs.db files in the data directory.
@@ -102,6 +176,19 @@ def cleanThumbsdb():
 
 def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     """
+    As a wrapper for all processes which must occur with raw data.
+
+    Args:
+        obsdate (str): The date of the observation in the format YYYYMMDD.
+        repro (bool): If True, will reprocess all data. If False, will only
+            process data that has no stop file for that script.
+        new_stop (bool): If True, will create a new stop file for each script
+            that is run. If False, will not create a new stop file.
+        **kwargs: Script names (minus '.py') to run. If no kwargs are given,
+            no scripts will be run.
+
+    Returns:
+
     
     """
 
@@ -126,6 +213,16 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
 
 def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
     """
+    As a wrapper for all processes which must occur with archival data.
+
+    Args:
+        obsdate (str): The date of the observation in the format YYYYMMDD.
+        repro (bool): If True, will reprocess all data. If False, will only
+            process data that has no stop file for that script.
+        new_stop (bool): If True, will create a new stop file for each script
+            that is run. If False, will not create a new stop file.
+        **kwargs: Script names (minus '.py') to run. If no kwargs are given,
+            no scripts will be run.
     
     """
 
