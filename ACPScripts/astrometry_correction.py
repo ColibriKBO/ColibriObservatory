@@ -392,7 +392,9 @@ def getXY_Single(transform, ra, dec):
     """
 
     # Convert the RA/Dec coordinates to pixel coordinates
-    x,y = transform.world_to_pixel(ra, dec)
+    px = transform.wcs_world2pix(np.array([[ra, dec]]), 0)
+    x,y = px[0,0], px[0,1]
+    
 
     verboseprint(f"(RA,Dec) = ({ra},{dec}) -> (x,y) = ({x},{y})")
     return x,y
