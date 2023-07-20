@@ -348,7 +348,9 @@ def getRADEC_Single(transform, x, y):
     """
 
     # Convert the pixel coordinates to RA/Dec
-    ra,dec = transform.pixel_to_world(x, y)
+    radec = transform.pixel_to_world(x, y)
+    ra = radec.ra.degree
+    dec = radec.dec.degree
 
     verboseprint(f"(x,y) = ({x},{y}) -> (RA,Dec) = ({ra},{dec})")
     return ra,dec
