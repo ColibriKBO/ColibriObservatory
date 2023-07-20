@@ -120,12 +120,12 @@ def prepareData(eval_img_size=False):
     cleanThumbsdb()
 
     # Loop through obsdate directories
-    for datadir_item in DATA_PATH.iterdir():
+    for obsdir in DATA_PATH.iterdir():
 
-        print(f"Cleaning {datadir_item}...")
+        print(f"Cleaning {obsdir}...")
         
         # For data directories, check minute subdirectories
-        for min_dir in datadir_item.iterdir():
+        for min_dir in obsdir.iterdir():
 
             # Ignore stop files
             if min_dir.is_file():
