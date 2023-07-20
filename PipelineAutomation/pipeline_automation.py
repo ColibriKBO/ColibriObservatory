@@ -138,7 +138,7 @@ def prepareData(eval_img_size=False):
                     num_images = len(list(bias_dir.iterdir()))
                     if num_images < min_biases:
                         err.addError(f"WARNING: {bias_dir} contains {num_images} biases and will be deleted!")
-                        shutil.rmtree(min_dir)
+                        shutil.rmtree(bias_dir)
 
                 continue
 
