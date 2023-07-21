@@ -284,20 +284,19 @@ def getLocalSolution(image_file, save_file, order):
     
     """
 
+    # Define tmp directory and image file path using WSL path
+    tmp_dir = '/mnt/d/tmp/'
+    image_file = convertToWSLPath(image_file)
+
     # -D to specify write directory, -o to specify output base name, -N new-fits-filename
     verboseprint(f"Reading from {image_file} for astrometry solution.")
     # print(save_file.split(".")[0])
     verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
 
-    # TODO: check if changing directories is needed
-    cwd = os.getcwd()
-    os.chdir(str(BASE_PATH))
-
     # Run the astrometry.net command from wsl command line
-    subprocess.run('wsl time solve-field --no-plots -D /mnt/d/tmp -O -o ' + save_file.split(".fits")[0] + ' -N ' + save_file + ' -t ' + str(order) + ' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 ' + image_file)
-    
-    os.chdir(cwd)
-
+    subprocess.run(f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
+                   f' -N {tmp_dir + save_file} -t {order}' +\
+                   f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}')
 
     # Read the WCS header from the new output file
     wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
@@ -341,8 +340,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
 
     # TODO: Fix this function
 
-    # Set WCS solution file path
-    wcs_filepath = BASE_PATH / "tmp" / file_str
+
 
     # Try to create a WCS solution for the image
     try:
@@ -351,12 +349,36 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     except Exception as e:
         #if not, try to solve it with astrometry.net
         print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
+
+        # Set WCS solution file path
+        wcs_filepath = BASE_PATH / "tmp" / file_str
         wcs_header = getSolution(fits_filepath, wcs_filepath, soln_order)
 
     #calculate coordinate transformation
     transform = wcs.WCS(wcs_header)
 
     return transform
+
+
+def convertToWSLPath(path):
+    """
+    Replace the drive letter in a Windows path with the WSL equivalent.
+
+    Args:
+        path (str): The Windows path to be converted.
+    
+    Returns:
+        wsl_path (str): The converted WSL path.
+    
+    """
+
+    # Split the path into drive and path
+    drive,path = os.path.splitdrive(path)
+
+    # Replace the drive letter with the WSL equivalent
+    wsl_path = '/mnt/' + drive.lower() + path
+
+    return wsl_path
 
 
 ###########################
