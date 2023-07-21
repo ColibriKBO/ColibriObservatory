@@ -374,7 +374,7 @@ def convertToWSLPath(path):
     drive,path = os.path.splitdrive(path)
 
     # Replace the drive letter with the WSL equivalent
-    wsl_path = '/mnt/' + drive.replace('\\','/').lower() + path
+    wsl_path = '/mnt/' + drive.lower().replace(':','') + path.replace('\\','/')
 
     return wsl_path
 
