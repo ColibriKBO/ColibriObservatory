@@ -632,6 +632,51 @@ function gotoRADec(ra, dec)
     }
 }
 
+//////////////////////////////////////////////////////////////
+// Function to adjust telescope pointing. Calls astrometry_correction.py
+// subprocess to get new pointing.
+//////////////////////////////////////////////////////////////
+
+function adjustPointing(ra, dec)
+{
+    // Call ColibriGrab for 1 sec exposure as reference image
+    // to be used for astrometry correction
+    pid = Util.ShellExec("ColibriGrab.exe", "-n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\")
+    ref_image = "D:\\tmp\\pointing_reference_1sec_0001.fits"
+    
+    Console.PrintLine("Process ID = " + pid.toString())
+    Util.WaitForMilliseconds(1000)
+
+    // Call astrometry_correction.py to get pointing offset
+    const { spawn } = require('child_process');
+    py = spawn('python', ['astrometry_correction.py', ref_image, ra, dec]);
+
+    // Read output from astrometry_correction.py
+    py.stdout.on('data', (data) => {
+        // Print output from astrometry_correction.py
+        Console.PrintLine(`astrometry_correction.py: \n...\n${data}`);
+
+        // Parse output from astrometry_correction.py
+        const py_lines = data.toString().split("\n");
+        radec_offset = py_lines[py_lines.length-1].split(" ");
+        ts.WriteLine(Util.SysUTCDate + " INFO: RA offset: " + radec_offset[0] + " Dec offset: " + radec_offset[1]);
+
+        // Calculate new RA and Dec pointing
+        new_ra = ra + parseFloat(radec_offset[0]);
+        new_dec = dec + parseFloat(radec_offset[1]);
+
+        // Print new pointing
+        Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
+
+        // Call gotoRADec() to slew to new pointing
+        gotoRADec(new_ra, new_dec);
+
+    })
+
+}
+
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
@@ -1231,7 +1276,6 @@ function main()
         Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting bias frames...")
-        darkCollection(today)
         firstRun = false
     }
 
