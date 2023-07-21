@@ -276,7 +276,7 @@ def getLocalSolution(image_file, save_file, order):
 
     Args:
         image_file (str): Path to the image file to submit
-        save_file (str): Path to save the WCS solution header to
+        save_file (str): Basename to save the WCS solution header to
         order (int): Order of the WCS solution
 
     Returns:
@@ -346,7 +346,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(str(fits_filepath), str(wcs_filepath), soln_order)
+        wcs_header = getLocalSolution(str(fits_filepath), file_str, soln_order)
     except Exception as e:
         #if not, try to solve it with astrometry.net
         print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
@@ -374,7 +374,7 @@ def convertToWSLPath(path):
     drive,path = os.path.splitdrive(path)
 
     # Replace the drive letter with the WSL equivalent
-    wsl_path = '/mnt/' + drive.lower() + path
+    wsl_path = '/mnt/' + drive.replace('\\','/').lower() + path
 
     return wsl_path
 
