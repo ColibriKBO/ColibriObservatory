@@ -294,9 +294,11 @@ def getLocalSolution(image_file, save_file, order):
     verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
 
     # Run the astrometry.net command from wsl command line
-    subprocess.run(f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
-                   f' -N {tmp_dir + save_file} -t {order}' +\
-                   f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}')
+    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
+                     f' -N {tmp_dir + save_file} -t {order}' +\
+                     f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}'
+    verboseprint(subprocess_arg)
+    subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL)
 
     # Read the WCS header from the new output file
     wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
@@ -529,4 +531,5 @@ if __name__ == '__main__':
         # Add legend and show the plot
         ax.legend()
         plt.show()
+
 
