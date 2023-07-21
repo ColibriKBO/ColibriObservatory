@@ -339,7 +339,8 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     """
 
     # TODO: Fix this function
-
+    # Set WCS solution file path
+    wcs_filepath = BASE_PATH / "tmp" / file_str
 
 
     # Try to create a WCS solution for the image
@@ -349,9 +350,6 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     except Exception as e:
         #if not, try to solve it with astrometry.net
         print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
-
-        # Set WCS solution file path
-        wcs_filepath = BASE_PATH / "tmp" / file_str
         wcs_header = getSolution(fits_filepath, wcs_filepath, soln_order)
 
     #calculate coordinate transformation
