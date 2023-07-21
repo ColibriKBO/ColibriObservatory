@@ -642,7 +642,7 @@ function adjustPointing(ra, dec)
     // Call ColibriGrab for 1 sec exposure as reference image
     // to be used for astrometry correction
     pid = Util.ShellExec("ColibriGrab.exe", "-n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\")
-    ref_image = "D:\\tmp\\pointing_reference_1sec_0001.fits"
+    ref_image = "D:\\tmp\\pointing_reference_0000001.fits"
     
     Console.PrintLine("Process ID = " + pid.toString())
     Util.WaitForMilliseconds(1000)
@@ -1587,11 +1587,31 @@ function main()
         }
 
         Console.PrintLine("At target.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
-            
         Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
         ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
 
+        // Readjust the telescope pointing using child script
+        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+        while (Telescope.Slewing == true)
+        {
+            Console.PrintLine("Huh. Still Slewing...")
+            Util.WaitForMilliseconds(500)
+        }
+
+        Dome.UnparkHome()
+        if (Dome.slave == false)
+        {
+            Dome.slave == true
+        }
+
+        while (Dome.Slewing == true)
+        {
+            Console.PrintLine("Dome is still slewing. Give me a minute...")
+            Util.WaitForMilliseconds(500)
+        }
+
+        // Check pier side
         if (Telescope.SideOfPier == 0)
         {
             pierside = "E"
@@ -1600,6 +1620,7 @@ function main()
         else
         {
             pierside = "W"
+            Console.PrintLine("Pier side: " + pierside)
         }
 
         // if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
@@ -1625,7 +1646,7 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
 
         // Iterables
-        biasCounter = 15 // Set equal to interval so that bias set is collected on first run
+        biasCounter = biasInterval // Set equal to interval so that bias set is collected on first run
         runCounter = 1
 
         while (Util.SysJulianDate < endJD)
