@@ -273,25 +273,31 @@ def getLocalSolution(image_file, save_file, order):
     tmp directory on the d: drive.
     The function will return wcs_header. Alternatively, you could comment out those lines and read it from
     the pipeline.
+
+    Args:
+        image_file (str): Path to the image file to submit
+        save_file (str): Path to save the WCS solution header to
+        order (int): Order of the WCS solution
+
+    Returns:
+        wcs_header (astropy.io.fits.header.Header): WCS solution header
+    
     """
 
-    try:
-        # -D to specify write directory, -o to specify output base name, -N new-fits-filename
-        verboseprint(f"Reading from {image_file} for astrometry solution.")
-        # print(save_file.split(".")[0])
-        verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
+    # -D to specify write directory, -o to specify output base name, -N new-fits-filename
+    verboseprint(f"Reading from {image_file} for astrometry solution.")
+    # print(save_file.split(".")[0])
+    verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
 
-        # TODO: check if changing directories is needed
-        cwd = os.getcwd()
-        os.chdir(str(BASE_PATH))
+    # TODO: check if changing directories is needed
+    cwd = os.getcwd()
+    os.chdir(str(BASE_PATH))
 
-        # Run the astrometry.net command from wsl command line
-        p = subprocess.run('wsl time solve-field --no-plots -D /mnt/d/tmp -O -o ' + save_file.split(".fits")[0] + ' -N ' + save_file + ' -t ' + str(order) + ' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 ' + image_file)
-        
-        os.chdir(cwd)
+    # Run the astrometry.net command from wsl command line
+    subprocess.run('wsl time solve-field --no-plots -D /mnt/d/tmp -O -o ' + save_file.split(".fits")[0] + ' -N ' + save_file + ' -t ' + str(order) + ' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 ' + image_file)
+    
+    os.chdir(cwd)
 
-    except:
-        pass
 
     # Read the WCS header from the new output file
     wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
@@ -341,8 +347,10 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(fits_filepath, wcs_filepath, soln_order)
-    except:
+        wcs_header = getLocalSolution(fits_filepath, str(wcs_filepath), soln_order)
+    except Exception as e:
+        #if not, try to solve it with astrometry.net
+        print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
         wcs_header = getSolution(fits_filepath, wcs_filepath, soln_order)
 
     #calculate coordinate transformation
