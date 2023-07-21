@@ -347,7 +347,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(fits_filepath, str(wcs_filepath), soln_order)
+        wcs_header = getLocalSolution(str(fits_filepath), str(wcs_filepath), soln_order)
     except Exception as e:
         #if not, try to solve it with astrometry.net
         print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
