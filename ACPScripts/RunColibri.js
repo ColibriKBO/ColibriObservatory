@@ -639,17 +639,10 @@ function gotoRADec(ra, dec)
 
 function adjustPointing(ra, dec)
 {
-    // Call ColibriGrab for 1 sec exposure as reference image
-    // to be used for astrometry correction
-    pid = Util.ShellExec("ColibriGrab.exe", "-n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\")
-    ref_image = "D:\\tmp\\pointing_reference_0000001.fits"
-    
-    Console.PrintLine("Process ID = " + pid.toString())
-    Util.WaitForMilliseconds(1000)
-
     // Call astrometry_correction.py to get pointing offset
+    // Implicitly spawns a reference image using ColibriGrab in tmp
     const { spawn } = require('child_process');
-    py = spawn('python', ['astrometry_correction.py', ref_image, ra, dec]);
+    py = spawn('python', ['astrometry_correction.py', ra, dec]);
 
     // Read output from astrometry_correction.py
     py.stdout.on('data', (data) => {

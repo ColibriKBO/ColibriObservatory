@@ -444,29 +444,53 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Astrometric correction for Colibri.')
 
     # Available argument functionality
-    parser.add_argument('image', type=str, help='The image to be analyzed.')
     parser.add_argument('coords', type=float, nargs=2, 
                         help='The (RA,DEC) coordinates of the target in decimal degrees.')
+    parser.add_argument('-i', '--image', type=str, help='The image to be analyzed.')
     parser.add_argument('-t', '--test', action='store_true',
                         help='Run in test mode.')
     
 
     # Process argparse list as useful variables
     args = parser.parse_args()
-    ref_image = Path(args.image)
     ra,dec = args.coords
     test = args.test
-
-    # Check that the reference image exists
-    # If not, no correction will be applied
-    if not ref_image.exists():
-        print("0.0 0.0")
-        raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
+    if args.image is not None:
+        ref_image = Path(args.image)
+        # Check that the reference image exists
+        if not ref_image.exists():
+            print("0.0 0.0")
+            raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
 
     # If in test mode, verboseprint is now print
     if test:
         verboseprint = print
     
+
+###########################
+## Image Generation
+###########################
+
+    # If no reference image is provided, generate a test image
+    # using ColibriGrab.exe
+    if ref_image is None:
+        # Generate a test image using ColibriGrab.exe
+        subprocess.call(['ColibriGrab.exe', "-n 1", "-p pointing_reference", "-e 1000", "-t 0", "-f normal", "-w D:\\tmp\\"])
+
+        # Set the path to the reference image
+        tmp_dir = BASE_PATH / 'tmp'
+        tmp_dir_dirs = [d for d in tmp_dir.iterdir() if d.is_dir()]
+        
+        # Get the most recent directory
+        tmp_dir_dirs.sort(key=os.path.getmtime)
+        img_dir = tmp_dir_dirs[-1]
+
+        # Get the test image path
+        ref_img = img_dir / 'pointing_reference_0000001.rcd'
+        if not ref_img.exists():
+            print("0.0 0.0")
+            raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_img}'.")
+
 
 ###########################
 ## Astrometry
