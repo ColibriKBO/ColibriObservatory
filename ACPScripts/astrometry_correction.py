@@ -504,6 +504,8 @@ if __name__ == '__main__':
 
         # Save the header and data as a fits file
         FITS_path = BASE_PATH / 'tmp' / ('astr_corr.fits')
+        if FITS_path.exists():
+            FITS_path.unlink()
         writeToFITS(FITS_path, ref_hdict, ref_data)
     
     # Otherwise, the reference image is already a fits file
