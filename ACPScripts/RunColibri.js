@@ -640,33 +640,35 @@ function gotoRADec(ra, dec)
 function adjustPointing(ra, dec)
 {
     // Call astrometry_correction.py to get pointing offset
-    // Implicitly spawns a reference image using ColibriGrab in tmp
-    const { spawn } = require('child_process');
-    py = spawn('python', ['astrometry_correction.py', ra, dec]);
+    Console.PrintLine("== Pointing Correction ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    var SH = new ActiveXObject("WScript.Shell");
+    var BS = SH.Exec("python astrometry_correction.py " + ra + " " + dec);
+    var coord_offset = "";
 
-    // Read output from astrometry_correction.py
-    py.stdout.on('data', (data) => {
-        // Print output from astrometry_correction.py
-        Console.PrintLine(`astrometry_correction.py: \n...\n${data}`);
+    while(BS.Status != 1)
+    {
+        while(!BS.StdOut.AtEndOfStream)
+        {
+            coords += BS.StdOut.Read(1);
+        }
+        Util.WaitForMilliseconds(100);
+    };
 
-        // Parse output from astrometry_correction.py
-        const py_lines = data.toString().split("\n");
-        radec_offset = py_lines[py_lines.length-1].split(" ");
-        ts.WriteLine(Util.SysUTCDate + " INFO: RA offset: " + radec_offset[0] + " Dec offset: " + radec_offset[1]);
+    // Parse output from astrometry_correction.py
+    var py_lines = coords.split("\n");
+    var radec_offset = py_lines[py_lines.length-1].split(" ");
 
-        // Calculate new RA and Dec pointing
-        new_ra = ra + parseFloat(radec_offset[0]);
-        new_dec = dec + parseFloat(radec_offset[1]);
+    // Calculate new RA and Dec pointing
+    new_ra = ra + parseFloat(radec_offset[0]);
+    new_dec = dec + parseFloat(radec_offset[1]);
+    
+    Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
+    ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
+    ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
-        // Print new pointing
-        Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
-        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
-        ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
-
-        // Call gotoRADec() to slew to new pointing
-        gotoRADec(new_ra, new_dec);
-
-    })
+    // Call gotoRADec() to slew to new pointing
+    gotoRADec(new_ra, new_dec);
 
 }
 
