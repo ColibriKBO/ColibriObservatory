@@ -481,10 +481,10 @@ if __name__ == '__main__':
         img_dir = tmp_dir_dirs[-1]
 
         # Get the test image path
-        ref_img = img_dir / 'pointing_reference_0000001.rcd'
-        if not ref_img.exists():
+        ref_image = img_dir / 'pointing_reference_0000001.rcd'
+        if not ref_image.exists():
             print("0.0 0.0")
-            raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_img}'.")
+            raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_image}'.")
 
     # Otherwise, use the provided reference image
     elif args.image is not None:
