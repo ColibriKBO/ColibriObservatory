@@ -138,10 +138,10 @@ def readRCD(filename):
     with open(filename, 'rb') as rcd:
 
         # Read the header
-        exptime = readxbytes(rcd, 85, 4, np.uint8).decode('utf-8')
-        timestamp = readxbytes(rcd, 152, 29, np.uint8).decode('utf-8')
-        lat = readxbytes(rcd, 182, 4, np.uint8).decode('utf-8')
-        lon = readxbytes(rcd, 186, 4, np.uint8).decode('utf-8')
+        exptime = readxbytes(rcd, 85, 4, np.float32)
+        timestamp = readxbytes(rcd, 152, 29, str)
+        lat = readxbytes(rcd, 182, 4, np.float32)
+        lon = readxbytes(rcd, 186, 4, np.float32)
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
         # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
