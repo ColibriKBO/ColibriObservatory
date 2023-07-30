@@ -30,6 +30,7 @@ from astropy.io import fits
 from astropy.io.fits import Header
 from astropy import wcs
 from pathlib import Path
+from astropy.coordinates import Angle,EarthLocation,SkyCoord
 
 # Custom Imports
 
@@ -46,6 +47,14 @@ ARCHIVE_PATH = BASE_PATH / 'ColibriArchive'
 IMG_WIDTH = 2048
 BIT_DEPTH = 12
 IMG_SIZE = IMG_WIDTH**2
+
+# Site longitude/latitude
+SITE_LAT  = 43.1933116667
+SITE_LON = -81.3160233333
+SITE_HGT = 224
+SITE_LOC  = EarthLocation(lat=SITE_LAT,
+                         lon=SITE_LON,
+                         height=SITE_HGT)
 
 # Verbose print statement
 verboseprint = lambda *a, **k: None
@@ -162,11 +171,11 @@ def readRCD(filename):
     # Open the file
     with open(filename, 'rb') as rcd:
 
-        # Read the header
-        exptime = decodexbytes(rcd, 85, 4, np.uint8)
-        timestamp = decodexbytes(rcd, 152, 29, np.uint8)
-        lat = decodexbytes(rcd, 182, 4, np.uint8)
-        lon = decodexbytes(rcd, 186, 4, np.uint8)
+        # Read the header. Currently defunct. Will be used in the future.
+        #exptime = decodexbytes(rcd, 85, 4, np.uint8)
+        #timestamp = decodexbytes(rcd, 152, 29, np.uint8)
+        #lat = decodexbytes(rcd, 182, 4, np.uint8)
+        #lon = decodexbytes(rcd, 186, 4, np.uint8)
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
         # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
@@ -174,9 +183,11 @@ def readRCD(filename):
         data = conv_12to16(data)
         data = (data.reshape(2*IMG_WIDTH, IMG_WIDTH))[1::2]
 
-        return {'EXPTIME':exptime, 'DATE-OBS':timestamp,
-                'SITELAT':lat, 'SITELONG':lon}, data
-    
+        #return {'EXPTIME':exptime, 'DATE-OBS':timestamp,
+        #        'SITELAT':lat, 'SITELONG':lon}, data
+
+        return {'SITELAT':SITE_LAT, 'SITELONG':SITE_LON}, data
+
 
 def readFITS(filename):
     """
