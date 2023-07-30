@@ -470,7 +470,7 @@ if __name__ == '__main__':
     # using ColibriGrab.exe
     if args.image is None:
         # Generate a test image using ColibriGrab.exe
-        subprocess.call(['ColibriGrab.exe', "-n 1", "-p pointing_reference", "-e 1000", "-t 0", "-f normal", "-w D:\\tmp\\"])
+        subprocess.call("ColibriGrab.exe -n 10 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
 
         # Set the path to the reference image
         tmp_dir = BASE_PATH / 'tmp'
