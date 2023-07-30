@@ -229,7 +229,8 @@ def writeToFITS(filename, header, data):
 
     # Create the HDU object, overwrite if the file already exists
     hdu = fits.PrimaryHDU(data)
-    hdu.header = Header(header)
+    hdu.header = Header()
+    hdu.header.update(header)
 
     # Write the data to a FITS file
     hdu.writeto(filename, overwrite=True)
