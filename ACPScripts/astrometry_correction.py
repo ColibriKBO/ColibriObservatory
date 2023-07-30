@@ -454,17 +454,12 @@ if __name__ == '__main__':
     # Process argparse list as useful variables
     args = parser.parse_args()
     ra,dec = args.coords
-    test = args.test
-    if args.image is not None:
-        ref_image = Path(args.image)
-        # Check that the reference image exists
-        if not ref_image.exists():
-            print("0.0 0.0")
-            raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
 
     # If in test mode, verboseprint is now print
+    test = args.test
     if test:
         verboseprint = print
+
     
 
 ###########################
@@ -473,7 +468,7 @@ if __name__ == '__main__':
 
     # If no reference image is provided, generate a test image
     # using ColibriGrab.exe
-    if ref_image is None:
+    if args.image is None:
         # Generate a test image using ColibriGrab.exe
         subprocess.call(['ColibriGrab.exe', "-n 1", "-p pointing_reference", "-e 1000", "-t 0", "-f normal", "-w D:\\tmp\\"])
 
@@ -490,6 +485,15 @@ if __name__ == '__main__':
         if not ref_img.exists():
             print("0.0 0.0")
             raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_img}'.")
+
+    # Otherwise, use the provided reference image
+    elif args.image is not None:
+        ref_image = Path(args.image)
+        # Check that the reference image exists
+        if not ref_image.exists():
+            print("0.0 0.0")
+            raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
+
 
 
 ###########################
