@@ -644,19 +644,19 @@ function adjustPointing(ra, dec)
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
     var BS = SH.Exec("python astrometry_correction.py " + ra + " " + dec);
-    var coord_offset = "";
+    var python_output = "";
 
     while(BS.Status != 1)
     {
         while(!BS.StdOut.AtEndOfStream)
         {
-            coords += BS.StdOut.Read(1);
+            python_output += BS.StdOut.Read(1);
         }
         Util.WaitForMilliseconds(100);
     };
 
     // Parse output from astrometry_correction.py
-    var py_lines = coords.split("\n");
+    var py_lines = python_output.split("\n");
     var radec_offset = py_lines[py_lines.length-1].split(" ");
 
     // Calculate new RA and Dec pointing
