@@ -60,6 +60,7 @@ verboseprint = lambda *a, **k: None
 def readxbytes(fid, start_byte, num_bytes, dtype):
     """
     Read a specified number of bytes from a file and return the data.
+    Returns as a numpy array of the specified data type.
 
     Args:
         fid (file): The file to be read from.
@@ -79,6 +80,30 @@ def readxbytes(fid, start_byte, num_bytes, dtype):
     data = np.fromfile(fid, dtype=dtype, count=num_bytes)
 
     return data
+
+
+def decodexbytes(fid, start_byte, num_bytes):
+    """
+    Read a specified number of bytes from a file and return the data.
+    Returns as a string decoded as utf-8.
+
+    Args:
+        fid (file): The file to be read from.
+        start_byte (int): The byte to start reading from.
+        num_bytes (int): The number of bytes to read.
+
+    Returns:
+        data (np.ndarray): A numpy array containing the data read from the file.
+
+    """
+
+    # Seek to the specified byte
+    fid.seek(start_byte)
+
+    # Read the data
+    data = fid.read(num_bytes)
+
+    return data.decode('utf-8')
 
 
 # Function to read 12-bit data with Numba to speed things up
@@ -138,10 +163,10 @@ def readRCD(filename):
     with open(filename, 'rb') as rcd:
 
         # Read the header
-        exptime = readxbytes(rcd, 85, 4, np.float32)
-        timestamp = readxbytes(rcd, 152, 29, str)
-        lat = readxbytes(rcd, 182, 4, np.float32)
-        lon = readxbytes(rcd, 186, 4, np.float32)
+        exptime = decodexbytes(rcd, 85, 4, np.uint8)
+        timestamp = decodexbytes(rcd, 152, 29, np.uint8)
+        lat = decodexbytes(rcd, 182, 4, np.uint8)
+        lon = decodexbytes(rcd, 186, 4, np.uint8)
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
         # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
