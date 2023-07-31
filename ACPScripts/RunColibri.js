@@ -660,11 +660,11 @@ function adjustPointing(ra, dec)
 
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
-    var radec_offset = py_lines[py_lines.length-1].split(" ");
+    var radec_offset = py_lines[py_lines.length-2].split(" ");
 
     // Calculate new RA and Dec pointing
     // Convert RA to hms
-    new_ra = ra + parseFloat(radec_offset[0])/15;
+    new_ra = (ra + parseFloat(radec_offset[0]))/15;
     new_dec = dec + parseFloat(radec_offset[1]);
     
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
