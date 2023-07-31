@@ -639,6 +639,9 @@ function gotoRADec(ra, dec)
 
 function adjustPointing(ra, dec)
 {
+    // Convert RA to decimal degrees
+    ra = ra*15;
+
     // Call astrometry_correction.py to get pointing offset
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
@@ -660,7 +663,8 @@ function adjustPointing(ra, dec)
     var radec_offset = py_lines[py_lines.length-1].split(" ");
 
     // Calculate new RA and Dec pointing
-    new_ra = ra + parseFloat(radec_offset[0]);
+    // Convert RA to hms
+    new_ra = ra + parseFloat(radec_offset[0])/15;
     new_dec = dec + parseFloat(radec_offset[1]);
     
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
