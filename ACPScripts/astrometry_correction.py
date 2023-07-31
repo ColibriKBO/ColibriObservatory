@@ -66,7 +66,7 @@ verboseprint = lambda *a, **k: None
 ## File Reading
 ###########################
 
-def readxbytes(fid, start_byte, num_bytes, dtype):
+def readxbytes(fid, start_byte, num_bytes):
     """
     Read a specified number of bytes from a file and return the data.
     Returns as a numpy array of the specified data type.
@@ -86,7 +86,7 @@ def readxbytes(fid, start_byte, num_bytes, dtype):
     fid.seek(start_byte)
 
     # Read the data
-    data = np.fromfile(fid, dtype=dtype, count=num_bytes)
+    data = fid.read(num_bytes)
 
     return data
 
@@ -171,22 +171,21 @@ def readRCD(filename):
     # Open the file
     with open(filename, 'rb') as rcd:
 
-        # Read the header. Currently defunct. Will be used in the future.
-        #exptime = decodexbytes(rcd, 85, 4, np.uint8)
-        #timestamp = decodexbytes(rcd, 152, 29, np.uint8)
-        #lat = decodexbytes(rcd, 182, 4, np.uint8)
-        #lon = decodexbytes(rcd, 186, 4, np.uint8)
+        # Read the header information
+        hdict = {}
+        hdict['serialnum'] = readxbytes(rcd, 63, 9) # Serial number of camera
+        hdict['exptime'] = readxbytes(rcd, 85, 4) # Exposure time in 10.32us periods
+        hdict['timestamp'] = readxbytes(rcd, 152, 29)
+        hdict['lat'] = readxbytes(rcd, 182, 4)
+        hdict['lon'] = readxbytes(rcd, 186, 4)
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
         # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
-        data = readxbytes(rcd, 384, int(IMG_SIZE*2*(BIT_DEPTH/8)), np.uint8)
+        data = readxbytes(rcd, 384, int(IMG_SIZE*2*(BIT_DEPTH/8)))
         data = conv_12to16(data)
         data = (data.reshape(2*IMG_WIDTH, IMG_WIDTH))[1::2]
 
-        #return {'EXPTIME':exptime, 'DATE-OBS':timestamp,
-        #        'SITELAT':lat, 'SITELONG':lon}, data
-
-        return {'SITELAT':SITE_LAT, 'SITELONG':SITE_LON}, data
+        return hdict, data
 
 
 def readFITS(filename):
@@ -210,14 +209,14 @@ def readFITS(filename):
     return hdict, data
 
 
-def writeToFITS(filename, header, data):
+def writeToFITS(filename, hdict, data):
     """
     Write data to a FITS file.
     
     Args:
         filename (str): The name of the FITS file to be written.
         data (np.ndarray): A numpy array containing the image data.
-        header (dict): A dictionary containing the header information.
+        hdict (dict): A dictionary containing the header information.
 
     Returns:
         None
@@ -225,12 +224,18 @@ def writeToFITS(filename, header, data):
     """
 
     # Update the site latitude and longitude to be in degrees
-    header['SITELAT'], header['SITELONG'] = computelatlong(header['SITELAT'], header['SITELONG'])
+    latitude, longitude = computelatlong(hdict['lat'],hdict['lon'])
 
-    # Create the HDU object, overwrite if the file already exists
+    # Create the HDU object and empty header
     hdu = fits.PrimaryHDU(data)
-    hdu.header = Header()
-    hdu.header.update(header)
+    hdr = hdu.header
+
+    # Add the header information
+    hdr.set('exptime', int(binascii.hexlify(hdict['exptime']), 16) * 10.32 / 1000000)
+    hdr.set('DATE-OBS', str(hdict['timestamp'], 'utf-8'))
+    hdr.set('SITELAT', latitude)
+    hdr.set('SITELONG', longitude)
+    hdr.set('SERIAL', str(hdict['serialnum'], 'utf-8'))
 
     # Write the data to a FITS file
     hdu.writeto(filename, overwrite=True)
