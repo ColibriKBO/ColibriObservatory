@@ -181,7 +181,8 @@ def readRCD(filename):
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
         # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
-        data = readxbytes(rcd, 384, int(IMG_SIZE*2*(BIT_DEPTH/8)))
+        rcd.seek(384,0)
+        data = np.fromfile(rcd, dtype=np.uint8, count=int(IMG_SIZE*2*(BIT_DEPTH/8)))
         data = conv_12to16(data)
         data = (data.reshape(2*IMG_WIDTH, IMG_WIDTH))[1::2]
 
