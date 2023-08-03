@@ -538,7 +538,6 @@ if __name__ == '__main__':
             raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
 
 
-
 ###########################
 ## Astrometry
 ###########################

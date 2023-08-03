@@ -1658,13 +1658,36 @@ function main()
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
+                // Readjust the telescope pointing using child script
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Huh. Still Slewing...")
+                    Util.WaitForMilliseconds(500)
+                }
+
+                Dome.UnparkHome()
+                if (Dome.slave == false)
+                {
+                    Dome.slave == true
+                }
+
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing. Give me a minute...")
+                    Util.WaitForMilliseconds(500)
+                }
+
+                // Check pier side
                 if (Telescope.SideOfPier == 0)
                 {
                     pierside = "E"
+                    Console.PrintLine("Pier side: " + pierside)
                 }
                 else
                 {
                     pierside = "W"
+                    Console.PrintLine("Pier side: " + pierside)
                 }
             }
             else { Console.PrintLine("Already on the right side of the pier"); }
