@@ -1231,7 +1231,7 @@ function main()
         Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting bias frames...")
-        darkCollection(today)
+        //darkCollection(today)
         firstRun = false
     }
 
@@ -1581,7 +1581,7 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
 
         // Iterables
-        biasCounter = 15 // Set equal to interval so that bias set is collected on first run
+        biasCounter = biasInterval // Set equal to interval so that bias set is collected on first run
         runCounter = 1
 
         while (Util.SysJulianDate < endJD)

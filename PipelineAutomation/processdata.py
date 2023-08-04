@@ -8,6 +8,7 @@ Updated:    Wed Oct 19 10:19:07 2022
 Usage: python processdata.py [-d][-p][-r][-s]
 """
 
+# Module Imports
 import os, sys, shutil
 import time
 import pathlib
@@ -15,10 +16,10 @@ import datetime
 import glob
 import subprocess
 import argparse
-import logging
 import tkinter as tk
-
 from pathlib import Path
+
+# Custom Script Imports
 from preparedata import is_dir_too_small
 
 # STEP 1: Prepare data directories with preparedata.py functions
@@ -62,13 +63,13 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
 
     """
     
-    ## Begin timing module here
+    # Begin timing module here
     starttime = time.time()
     
     
-    ## Walk through the directories and find those with less than n files and
-    ## remove them. Check all of the files in the remainining directories to
-    ## ensure that all files are the right size.
+    # Walk through the directories and find those with less than n files and
+    # remove them. Check all of the files in the remainining directories to
+    # ensure that all files are the right size.
     for d in dir_list:
         dirsplit = os.path.split(d)
 
@@ -103,8 +104,8 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
                 
                 # If this is a Green-exclusive process, wait for Red and Blue to finish
                 if check_others == True:
-                    path_RED  = pathlib.Path('R:/','ColibriArchive',obsYMD.replace('/','-'),'REDBIRD_done.txt')
-                    path_BLUE = pathlib.Path('B:/','ColibriArchive',obsYMD.replace('/','-'),'BLUEBIRD_done.txt')
+                    path_RED  = pathlib.Path('R:/','ColibriArchive',obsYMD.replace('/','-'),'done.txt')
+                    path_BLUE = pathlib.Path('B:/','ColibriArchive',obsYMD.replace('/','-'),'done.txt')
                     
                     # Wait until processing is done, if processing has started
                     while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
@@ -159,16 +160,16 @@ if __name__ == '__main__':
 ## Generate Warning Window
 ##############################
 
-    ## Generate window
+    # Generate window
     window = tk.Tk()
     
-    ## Create label
+    # Create label
     label_var = tk.StringVar()
     label_var.set('Colibri data pipeline is running! Do not run any other programs on this machine!')
     label = tk.Label(window, textvariable=label_var, font=('Arial',25))
     label.pack()
     
-    ## Update and show window once
+    # Update and show window once
     window.update_idletasks()
     window.update()
 
@@ -179,11 +180,11 @@ if __name__ == '__main__':
 
     telescope = os.environ['COMPUTERNAME']
     
-    ## Generate argument parser
+    # Generate argument parser
     arg_parser = argparse.ArgumentParser(description="Automation of the Colibri data processing pipeline",
                                          formatter_class=argparse.RawTextHelpFormatter)
 
-    ## Available argument functionality
+    # Available argument functionality
     arg_parser.add_argument('-d', '--date', help='Observation date (YYYY/MM/DD) of data to be processed.', default='All')
     arg_parser.add_argument('-p', '--procdate', help='Processing date (YYYY/MM/DD).', default=str(datetime.datetime.today().strftime('%Y/%m/%d')))
     arg_parser.add_argument('-r', '--repro', help='Will reprocess data if used.', action="store_true")
@@ -192,7 +193,7 @@ if __name__ == '__main__':
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
 
-    ## Process argparse list as useful variables
+    # Process argparse list as useful variables
     cml_args = arg_parser.parse_args()
 
     obsYYYYMMDD = cml_args.date
@@ -203,13 +204,16 @@ if __name__ == '__main__':
     if cml_args.date == 'All':
         datadir = 'd:\\ColibriData\\'
     elif cml_args.test:
-        datadir = 'd:\\ColibriData2\\'
+        datadir = 'd:\\LongTermStorage\\'
     else:
         obs_date = obsYYYYMMDD.split('/')[0] + obsYYYYMMDD.split('/')[1] + obsYYYYMMDD.split('/')[2]
         datadir = 'd:\\ColibriData\\' + obs_date + '\\'
 
-    ## GitHub Script Repository
+    # GitHub Script Repository
     scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline').expanduser()
+
+    # Timing array
+    t = []
 
 
 ##############################
@@ -217,12 +221,12 @@ if __name__ == '__main__':
 ##############################
     starttime = time.time()
 
-    ## Count of removed files/folders
+    # Count of removed files/folders
     bad_dirs  = 0
     bad_files = 0
 
-    ## Walk through the directories and find those with less than n files and remove them.
-    ## Check all of the files in the remainining directories to ensure that all files are the right size.
+    # Walk through the directories and find those with less than n files and remove them.
+    # Check all of the files in the remainining directories to ensure that all files are the right size.
     for root, dirs, files in os.walk(datadir):
         
         if root != datadir and os.path.split(root)[-1] != 'Bias' and len(os.path.split(root)[-1]) != 8:
@@ -239,13 +243,13 @@ if __name__ == '__main__':
                         os.remove(f)
                         bad_files += 1
 
-    ## Create generator object of the surviving data directories
+    # Create generator object of the surviving data directories
     dirlist = [ f.path for f in os.scandir(datadir) if f.is_dir() ]
 
     print(f"{bad_dirs} directories removed for being too small")
     print(f"{bad_files} removed for being too small")
     
-    t0 = time.time()-starttime
+    t.append(time.time()-starttime)
     print(f"Completed data preparation in {t0} seconds",file=sys.stderr)
 
 
@@ -255,80 +259,88 @@ if __name__ == '__main__':
 
     print("\nStarting 1st stage processing...")
 
-    ## Run primary pipeline
+    # Run primary pipeline
     pipeline1_program = str(scripts / 'colibri_main_py3.py')
     pipeline1_list = ['python', pipeline1_program, 'd:\\', 'obsYMD', f"-s {sigma_threshold}"]
-    t1 = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
-    
-    ## Get star coordinates
+    process_time = subprocessLoop(dirlist,pipeline1_list,'1process.txt',repro=repro,new_stop=False)
+    t.append(process_time)
+
+    # Get star coordinates
     starfinder_program = str(scripts / 'coordsfinder.py')
     starfinder_list = ['python', starfinder_program, '-d obsYMD']
-    tsf = subprocessLoop(dirlist,starfinder_list,'1process.txt',repro=repro)
+    process_time = subprocessLoop(dirlist,starfinder_list,'1process.txt',repro=repro)
+    t.append(process_time)
 
+    print(f"Completed 1st stage data processing in {sum(t)} seconds",file=sys.stderr)
 
-    print(f"Completed 1st stage data processing in {t1+tsf} seconds",file=sys.stderr)
+    # Run wcsmapping for all
         
 
 ##############################
 ## Bias & Sensitivity Calculations
 ##############################
 
-    ## Run image bias stat calculations
+    # Run image bias stat calculations
     print('\nStarting bias stat calculations...')
 
     biasstat_program = str(scripts / 'image_stats_bias.py')
     biasstat_list = ['python', biasstat_program, '-d obsYMD']
-    t4 = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
-    print(f"Completed bias image stats in {t4} seconds",file=sys.stderr)
+    process_time = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
+    t.append(process_time)
+    print(f"Completed bias image stats in {process_time} seconds",file=sys.stderr)
     
-    ## Run sensitivity calculations
+    # Run sensitivity calculations
     print('\nStarting sensitivity calculations...')
 
     sensitivity_program = str(scripts / 'sensitivity.py')
     sensitivity_list = ['python', sensitivity_program,  '-d obsYMD']
-    t5 = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
-    print(f"Completed sensitivity calculation in {t5} seconds",file=sys.stderr)
+    process_time = subprocessLoop(dirlist,sensitivity_list,'sensitivity.txt',repro=repro)
+    t.append(process_time)
+    print(f"Completed sensitivity calculation in {process_time} seconds",file=sys.stderr)
 
 
 ##############################
-## GREENBIRD Exclusive Processes:
+##  GREENBIRD Exclusive Processes:
 ##  Secondary Pipeline (Simultaneous Occultations)
 ##  Tertiary Pipeline
 ##############################
     
     if telescope=="GREENBIRD":
         
-        ## Run secondary pipeline
+        # Run secondary pipeline
         print('\nStarting 2nd stage processing...')
         
         pipeline2_program = str(scripts / 'simultaneous_occults.py')
         pipeline2_list = ['python', pipeline2_program, '-d obsYMD']
-        t2 = subprocessLoop(dirlist,pipeline2_list,'2process.txt',repro=repro,check_others=True)
-        print(f"Completed 2nd stage data processing in {t2} seconds",file=sys.stderr)
+        process_time = subprocessLoop(dirlist,pipeline2_list,'2process.txt',repro=repro,check_others=True)
+        t.append(process_time)
+        print(f"Completed 2nd stage data processing in {process_time} seconds",file=sys.stderr)
         
-        ## Run tertiary pipeline
+        # Run tertiary pipeline
         print('\nStarting 3rd stage processing...')
         
         pipeline3_program = str(scripts / 'colibri_secondary.py')
         pipeline3_list = ['python', pipeline3_program, '-b d:\\', '-d obsYMD']
-        t3 = subprocessLoop(dirlist,pipeline3_list,'3process.txt',repro=repro)
-        print(f"Completed 3nd stage data processing in {t3} seconds",file=sys.stderr)
+        process_time = subprocessLoop(dirlist,pipeline3_list,'3process.txt',repro=repro)
+        t.append(process_time)
+        print(f"Completed 3nd stage data processing in {process_time} seconds",file=sys.stderr)
 
-        ## Run timeline generator
+        # Run timeline generator
         print('\nStarting timeline generation...')
 
         timeline_program = str(scripts / 'timeline.py')
         timeline_list = ['python', timeline_program, '-d obsYMD']
-        t6 = subprocessLoop(dirlist,timeline_list,'timeline.txt',repro=repro)
+        process_time = subprocessLoop(dirlist,timeline_list,'timeline.txt',repro=repro)
+        t.append(process_time)
+        print(f"Completed timeline in {process_time} seconds",file=sys.stderr)
 
 
 ##############################
 ## End Of Script
 ##############################
 
-    if telescope == "GREENBIRD":
-        print(f"Total time to process was {t0+t1+tsf+t2+t3+t4+t5+t6} seconds")
-    else:
-        print(f"Total time to process was {t0+t1+tsf+t4+t5}")
+    # Print total time
+    print(f"Total time to process was {sum(t)} seconds")
     
+    # Close tkinter window
     window.destroy()
