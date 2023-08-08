@@ -516,7 +516,7 @@ if __name__ == '__main__':
 
     # Blue-specific
     if telescope == "BLUEBIRD":
-        print(f"Beginning BLUEBIRD-only processes...")
+        print(f"\nBeginning BLUEBIRD-only processes...\n")
 
         for obsdate in obs_dates:
             print("\n" + "#"*30 + f"\nWCS matching for {obsdate}...\n" + "#"*30 + "\n")
@@ -594,7 +594,7 @@ if __name__ == '__main__':
         (ARCHIVE_PATH / hyphonateDate(obsdate) / 'timeline_ready.txt').touch()
 
     if telescope == "GREENBIRD":
-        print(f"Beginning end-of-pipeline processes...")
+        print(f"\nBeginning end-of-pipeline processes...\n")
 
         for obsdate in obs_dates:
             print("\n" + "#"*30 + f"\nProcessing endgame for {obsdate}...\n" + "#"*30 + "\n")
