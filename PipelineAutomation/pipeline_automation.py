@@ -224,7 +224,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
 
     # Run all processes and get the runtime as a return
     runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
-    print("\n" + "#"*30 + f"\nAll processes on raw data are complete for {obsdate}!\n" + "#"*30 + "\n")
+    print(f"\n## All processes on raw data are complete for {obsdate}!\n")
     return runtime
 
     
@@ -259,7 +259,7 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
     
     # Run all processes and get the runtime as a return
     runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
-    print("\n" + "#"*30 + f"\nAll secondary processes are complete for {obsdate}!\n" + "#"*30 + "\n")
+    print(f"\n## All secondary processes are complete for {obsdate}!\n")
     return runtime
 
 
@@ -432,7 +432,7 @@ if __name__ == '__main__':
 
     # Run subprocess over all dates in the specified list
     for obsdate in obs_dates:
-        print(f"## Processing raw data from {obsdate}...")
+        print("\n" + "#"*30 + f"\nProcessing raw data from {obsdate}...\n" + "#"*30 + "\n")
 
         # This dictionary defines the *PYTHON* scripts which
         # handle the raw data. To add a script, just add to this
@@ -453,7 +453,7 @@ if __name__ == '__main__':
 
     # Run subprocess over all dates in the specified list
     for obsdate in obs_dates:
-        print(f"## Processing archival data from {obsdate}...")
+        print("\n" + "#"*30 + f"\nProcessing archival data from {obsdate}...\n" + "#"*30 + "\n")
 
         # This dictionary defines the *PYTHON* scripts which
         # handle the archival data. To add a script, just add to this
@@ -473,10 +473,10 @@ if __name__ == '__main__':
 
     # Green-specific
     if telescope == "GREENBIRD":
-        print(f"Beginning phase1 of GREENBIRD-only processes...")
+        print(f"\nBeginning phase1 of GREENBIRD-only processes...\n")
 
         for obsdate in obs_dates:
-            print(f"## Processing {obsdate}...")
+            print("\n" + "#"*30 + f"\nProcessing GREENONLY1 for {obsdate}...\n" + "#"*30 + "\n")
 
             # Wait until other telescopes are done
             path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
@@ -485,7 +485,17 @@ if __name__ == '__main__':
             # Wait until processing is done, if processing has started
             while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
                     not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
-                print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+
+                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+                blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
+
+                # Print status
+                if red_stop_exists and blue_stop_exists:
+                    print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+                elif red_stop_exists:
+                    print("Waiting for %s..." % path_RED)
+                elif blue_stop_exists:
+                    print("Waiting for %s..." % path_BLUE)
                 time.sleep(300)
             
             print(f"Red and Blue are ready for GREEN {obsdate} processing.")
@@ -501,12 +511,15 @@ if __name__ == '__main__':
             GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
             tot_runtime += GREEN1_runtime
 
+        
+        print(f"\nPhase1 of GREENBIRD-only processes complete.\n")
+
     # Blue-specific
     if telescope == "BLUEBIRD":
         print(f"Beginning BLUEBIRD-only processes...")
 
         for obsdate in obs_dates:
-            print(f"## Processing {obsdate}...")
+            print("\n" + "#"*30 + f"\nWCS matching for {obsdate}...\n" + "#"*30 + "\n")
 
             # Wait until other telescopes are done
             path_RED   = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
@@ -515,7 +528,17 @@ if __name__ == '__main__':
             # Wait until processing is done, if processing has started
             while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
                     not (path_GREEN.is_file() == path_GREEN.parent.is_dir()):
-                print("Waiting for %s and %s..." % (path_RED, path_GREEN))
+
+                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+                green_stop_exists = (path_GREEN.is_file() == path_GREEN.parent.is_dir())
+
+                # Print status
+                if red_stop_exists and green_stop_exists:
+                    print("Waiting for %s and %s..." % (path_RED, path_GREEN))
+                elif red_stop_exists:
+                    print("Waiting for %s..." % path_RED)
+                elif green_stop_exists:
+                    print("Waiting for %s..." % path_GREEN)
                 time.sleep(300)
             
             print(f"Red and Green are ready for BLUE {obsdate} processing.")
@@ -538,13 +561,16 @@ if __name__ == '__main__':
     # Generate artificial lightcurves
     for obsdate in obs_dates:
     
+        print("\n" + "#"*30 + f"\nArtificial lightcurves for {obsdate}...\n" + "#"*30 + "\n")
+
         # If the list of artificial lightcurves has not been created, wait 5 minutes
         gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
+        print(f"Waiting for the gat_file for {obsdate}...")
         while not gat_file.exists():
             time.sleep(300)
         
-        
         # Read lines from generate_artificial.txt
+        print(f"## Generating artificial lightcurves for {obsdate}...")
         with open(gat_file, 'r') as gat:
             tot_gat_runtime = 0
             for line in gat.readlines():
@@ -571,7 +597,7 @@ if __name__ == '__main__':
         print(f"Beginning end-of-pipeline processes...")
 
         for obsdate in obs_dates:
-            print(f"## Processing {obsdate}...")
+            print("\n" + "#"*30 + f"\nProcessing endgame for {obsdate}...\n" + "#"*30 + "\n")
 
             # Wait until other telescopes are done
             path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
@@ -580,7 +606,17 @@ if __name__ == '__main__':
             # Wait until processing is done, if processing has started
             while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
                     not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
-                print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+                
+                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+                blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
+
+                # Print status
+                if red_stop_exists and blue_stop_exists:
+                    print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+                elif red_stop_exists:
+                    print("Waiting for %s..." % path_RED)
+                elif blue_stop_exists:
+                    print("Waiting for %s..." % path_BLUE)
                 time.sleep(300)
             
             print(f"Red and Blue are ready for GREEN {obsdate} processing.")
