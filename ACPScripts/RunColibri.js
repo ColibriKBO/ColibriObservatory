@@ -632,6 +632,50 @@ function gotoRADec(ra, dec)
     }
 }
 
+//////////////////////////////////////////////////////////////
+// Function to adjust telescope pointing. Calls astrometry_correction.py
+// subprocess to get new pointing.
+//////////////////////////////////////////////////////////////
+
+function adjustPointing(ra, dec)
+{
+    // Convert RA to decimal degrees
+    ra = ra*15;
+
+    // Call astrometry_correction.py to get pointing offset
+    Console.PrintLine("== Pointing Correction ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    var SH = new ActiveXObject("WScript.Shell");
+    var BS = SH.Exec("python astrometry_correction.py " + ra + " " + dec);
+    var python_output = "";
+
+    while(BS.Status != 1)
+    {
+        while(!BS.StdOut.AtEndOfStream)
+        {
+            python_output += BS.StdOut.Read(1);
+        }
+        Util.WaitForMilliseconds(100);
+    };
+
+    // Parse output from astrometry_correction.py
+    var py_lines = python_output.split("\n");
+    var radec_offset = py_lines[py_lines.length-2].split(" ");
+
+    // Calculate new RA and Dec pointing
+    // Convert RA to hms
+    new_ra = (ra + parseFloat(radec_offset[0]))/15;
+    new_dec = dec + parseFloat(radec_offset[1]);
+    
+    Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
+    ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
+    ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
+
+    // Call gotoRADec() to slew to new pointing
+    gotoRADec(new_ra, new_dec);
+
+}
+
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
@@ -1231,7 +1275,6 @@ function main()
         Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting bias frames...")
-        //darkCollection(today)
         firstRun = false
     }
 
@@ -1543,11 +1586,31 @@ function main()
         }
 
         Console.PrintLine("At target.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
-            
         Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
         ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
 
+        // Readjust the telescope pointing using child script
+        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+        while (Telescope.Slewing == true)
+        {
+            Console.PrintLine("Huh. Still Slewing...")
+            Util.WaitForMilliseconds(500)
+        }
+
+        Dome.UnparkHome()
+        if (Dome.slave == false)
+        {
+            Dome.slave == true
+        }
+
+        while (Dome.Slewing == true)
+        {
+            Console.PrintLine("Dome is still slewing. Give me a minute...")
+            Util.WaitForMilliseconds(500)
+        }
+
+        // Check pier side
         if (Telescope.SideOfPier == 0)
         {
             pierside = "E"
@@ -1556,6 +1619,7 @@ function main()
         else
         {
             pierside = "W"
+            Console.PrintLine("Pier side: " + pierside)
         }
 
         // if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
@@ -1594,13 +1658,36 @@ function main()
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
+                // Readjust the telescope pointing using child script
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Huh. Still Slewing...")
+                    Util.WaitForMilliseconds(500)
+                }
+
+                Dome.UnparkHome()
+                if (Dome.slave == false)
+                {
+                    Dome.slave == true
+                }
+
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing. Give me a minute...")
+                    Util.WaitForMilliseconds(500)
+                }
+
+                // Check pier side
                 if (Telescope.SideOfPier == 0)
                 {
                     pierside = "E"
+                    Console.PrintLine("Pier side: " + pierside)
                 }
                 else
                 {
                     pierside = "W"
+                    Console.PrintLine("Pier side: " + pierside)
                 }
             }
             else { Console.PrintLine("Already on the right side of the pier"); }
