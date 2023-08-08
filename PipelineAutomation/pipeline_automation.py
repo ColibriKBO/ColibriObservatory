@@ -490,11 +490,11 @@ if __name__ == '__main__':
                 blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
 
                 # Print status
-                if red_stop_exists and blue_stop_exists:
+                if (not red_stop_exists) and (not blue_stop_exists):
                     print("Waiting for %s and %s..." % (path_RED, path_BLUE))
-                elif red_stop_exists:
+                elif not red_stop_exists:
                     print("Waiting for %s..." % path_RED)
-                elif blue_stop_exists:
+                elif not blue_stop_exists:
                     print("Waiting for %s..." % path_BLUE)
                 time.sleep(300)
             
@@ -533,11 +533,11 @@ if __name__ == '__main__':
                 green_stop_exists = (path_GREEN.is_file() == path_GREEN.parent.is_dir())
 
                 # Print status
-                if red_stop_exists and green_stop_exists:
+                if (not red_stop_exists) and (not green_stop_exists):
                     print("Waiting for %s and %s..." % (path_RED, path_GREEN))
-                elif red_stop_exists:
+                elif not red_stop_exists:
                     print("Waiting for %s..." % path_RED)
-                elif green_stop_exists:
+                elif not green_stop_exists:
                     print("Waiting for %s..." % path_GREEN)
                 time.sleep(300)
             
@@ -611,11 +611,11 @@ if __name__ == '__main__':
                 blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
 
                 # Print status
-                if red_stop_exists and blue_stop_exists:
+                if (not red_stop_exists) and (not blue_stop_exists):
                     print("Waiting for %s and %s..." % (path_RED, path_BLUE))
-                elif red_stop_exists:
+                elif not red_stop_exists:
                     print("Waiting for %s..." % path_RED)
-                elif blue_stop_exists:
+                elif not blue_stop_exists:
                     print("Waiting for %s..." % path_BLUE)
                 time.sleep(300)
             
