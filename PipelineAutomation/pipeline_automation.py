@@ -563,6 +563,12 @@ if __name__ == '__main__':
     
         print("\n" + "#"*30 + f"\nArtificial lightcurves for {obsdate}...\n" + "#"*30 + "\n")
 
+        # Check for a stop file
+        gat_stop = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_specific_lightcurve.txt'
+        if gat_stop.exists():
+            print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
+            continue
+
         # If the list of artificial lightcurves has not been created, wait 5 minutes
         gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
         print(f"Waiting for the gat_file for {obsdate}...")
@@ -577,6 +583,9 @@ if __name__ == '__main__':
                 gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate), new_stop=False,
                                             generate_specific_lightcurve=line.strip('\n').split(' '))
                 tot_gat_runtime += sum(filter(None, gat_runtime))
+
+        # Create stop file
+        gat_stop.touch()
 
         # Delete gat file
         #gat_file.unlink()
