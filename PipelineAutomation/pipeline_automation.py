@@ -580,8 +580,9 @@ if __name__ == '__main__':
         with open(gat_file, 'r') as gat:
             tot_gat_runtime = 0
             for line in gat.readlines():
+                gat_params = line.strip('\n').split(' ') + ['-m']
                 gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate), new_stop=False,
-                                            generate_specific_lightcurve=line.strip('\n').split(' '))
+                                            generate_specific_lightcurve=gat_params)
                 tot_gat_runtime += sum(filter(None, gat_runtime))
 
         # Create stop file
