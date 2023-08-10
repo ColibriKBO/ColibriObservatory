@@ -564,7 +564,7 @@ if __name__ == '__main__':
         print("\n" + "#"*30 + f"\nArtificial lightcurves for {obsdate}...\n" + "#"*30 + "\n")
 
         # Check for a stop file
-        gat_stop = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_specific_lightcurve.txt'
+        gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
         if gat_stop.exists():
             print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
             continue
