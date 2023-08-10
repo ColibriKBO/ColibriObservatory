@@ -223,7 +223,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
         return []
 
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, **kwargs)
     print(f"\n## All processes on raw data are complete for {obsdate}!\n")
     return runtime
 
@@ -258,7 +258,7 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
         archive_dir.mkdir()
     
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=repro, new_stop=True, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, **kwargs)
     print(f"\n## All secondary processes are complete for {obsdate}!\n")
     return runtime
 
@@ -647,7 +647,7 @@ if __name__ == '__main__':
                     'timeline': [f'{obsdate}']
                              }
             
-            end_runtime = processRawData(obsdate, repro=repro, new_stop=True, **end_processes)
+            end_runtime = processArchive(obsdate, repro=repro, new_stop=True, **end_processes)
             tot_runtime += end_runtime
 
 
