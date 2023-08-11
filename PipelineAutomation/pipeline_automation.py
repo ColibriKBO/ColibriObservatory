@@ -51,7 +51,9 @@ TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
 BARE_FORMAT = '%Y-%m-%d_%H%M%S_%f'
 
 # GitHub Script Repository
-scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline').expanduser()
+GITHUB = pathlib.Path('~', 'Documents', 'GitHub').expanduser()
+SCRIPTS = GITHUB / 'ColibriPipeline'
+EMAIL_SCRIPT = GITHUB / 'ColibriEmail' / 'email_timeline.py'
 
 
 #----------------------------------class--------------------------------------#
@@ -75,6 +77,10 @@ err = ErrorTracker()
 
 
 #--------------------------------functions------------------------------------#
+
+##############################
+## Prepare Data Src
+##############################
 
 def getDirSize(dir_name):
     """
@@ -192,6 +198,10 @@ def cleanThumbsdb():
         (DATA_PATH / 'Thumbs.db').unlink()
 
 
+##############################
+## Subscript Processing
+##############################
+
 def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     """
     As a wrapper for all processes which must occur with raw data.
@@ -272,8 +282,8 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
     runtime = []
 
     # Loop through kwargs to get processes and arguments
-    # Kwarg format: {'processname' : [list_of_cml_args]}
-    for process,cml_args in kwargs.items():
+    # Kwarg format: {'processname' : [list_of_script_args]}
+    for process,script_args in kwargs.items():
         stop_file = process + '.txt'
         if (stopfile_dir / stop_file).exists() and (repro is False):
             print(f"WARNING: {process} already preformed. Skipping...")
@@ -283,7 +293,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
         t_start = time.time()
         try:
             print(f"Initializing subprocess {process + '.py'}...")
-            subp = subprocess.run(['python', scripts / (process + '.py'), *cml_args])
+            subp = subprocess.run(['python', SCRIPTS / (process + '.py'), *script_args])
 
             # Wait until the subprocess has completed
             try:
@@ -296,7 +306,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
             if new_stop:
                 print(f"Writing stop file for {process + '.py'}...")
                 with open(stopfile_dir / stop_file, 'w') as sfile:
-                    sfile.write(f'python {process}.py {cml_args}')
+                    sfile.write(f'python {process}.py {script_args}')
 
         # If subprocess fails, skip the pipeline
         except Exception as Argument:
@@ -308,6 +318,52 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
     # Return the runtime of the subprocess once all subprocesses have completed
     return runtime
 
+def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
+                    errors=[], notes=[]):
+
+    # Check if email has already been sent
+    stop_file = 'email.txt'
+    if (stopfile_dir / stop_file).exists() and (repro is False):
+        print(f"WARNING: Daily status email already sent. Skipping...")
+        return
+    
+    # Check if the current date matches the obsdate
+    if obsdate != datetime.now().strftime(OBSDATE_FORMAT):
+        err.addError(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
+        (stopfile_dir / stop_file).touch()
+        return
+
+    # Define the command-line arguments
+    # Process items in errors and notes individually
+    script_args = [obsdate, '--errors', *errors, '--notes', *notes]
+
+    # Run the process with appropriate command-line arguments
+    try:
+        print(f"Sending daily status email...")
+        subp = subprocess.run(['python', EMAIL_SCRIPT, *script_args])
+
+        # Wait until the subprocess has completed
+        try:
+            while subp.poll() is None:
+                time.sleep(10)
+        except AttributeError:
+            pass
+
+        # Write new stop file if requested
+        if new_stop:
+            print(f"Writing stop file for {EMAIL_SCRIPT.name}...")
+            with open(stopfile_dir / stop_file, 'w') as sfile:
+                sfile.write(f'python {EMAIL_SCRIPT.name} {script_args}')
+
+    # If email_timeline.py fails, send a generic email as an alert
+    except Exception as Argument:
+        err.addError(f"ERROR: {EMAIL_SCRIPT.name} failed with error {Argument}! Skipping...")
+        subp = subprocess.run(['python', EMAIL_SCRIPT.parent / 'generic_email.py'])
+    
+
+##############################
+## Formatting Functions
+##############################
 
 def hyphonateDate(obsdate):
 
@@ -649,6 +705,10 @@ if __name__ == '__main__':
             
             end_runtime = processArchive(obsdate, repro=repro, new_stop=True, **end_processes)
             tot_runtime += end_runtime
+
+            # Send status email
+            sendStatusEmail(obsdate, DATA_PATH / obsdate, repro=repro, new_stop=True,
+                            errors=err.errors, notes=[])
 
 
 ##############################
