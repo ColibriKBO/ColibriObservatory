@@ -43,12 +43,14 @@ BASE_PATH = pathlib.Path('D:/')
 DATA_PATH = BASE_PATH / 'ColibriData'
 IMGE_PATH = BASE_PATH / 'ColibriImages'
 ARCHIVE_PATH = BASE_PATH / 'ColibriArchive'
+LOG_PATH = BASE_PATH / 'Logs' / 'Pipeline'
 
 # Timestamp format
 OBSDATE_FORMAT = '%Y%m%d'
 MINDIR_FORMAT  = '%Y%m%d_%H.%M.%S.%f'
 TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
 BARE_FORMAT = '%Y-%m-%d_%H%M%S_%f'
+NICE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 # GitHub Script Repository
 GITHUB = pathlib.Path('~', 'Documents', 'GitHub').expanduser()
@@ -733,6 +735,20 @@ if __name__ == '__main__':
             print(error)
         for warning in err.warnings:
             print(warning)
+
+    # Write errors to log file
+    today = datetime.now().strftime(OBSDATE_FORMAT)
+    log_file = LOG_PATH / f'{today}_pipeline.log'
+    with open(log_file, 'a') as logfile:
+        logfile.write("\n" + "-"*50 +  "\n")
+        logfile.write(datetime.now().strftime(NICE_FORMAT) + "\n\n")
+        logfile.write(f"Total time to process was {sum(filter(None,tot_runtime))} seconds\n")
+        logfile.write("The following errors were encountered:\n")
+        for error in err.errors:
+            logfile.write(f"+ {error} \n")
+        for warning in err.warnings:
+            logfile.write(f"+ {warning} \n")
+
     
     # Close tkinter window
     window.destroy()
