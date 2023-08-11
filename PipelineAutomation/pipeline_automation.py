@@ -66,12 +66,18 @@ class ErrorTracker(object):
     def __init__(self):
 
         self.errors = []
+        self.warnings = []
 
 
     def addError(self, error_msg):
 
         self.errors.append(error_msg)
         print(error_msg)
+
+    def addWarning(self, warning_msg):
+
+        self.warnings.append(warning_msg)
+        print(warning_msg)
 
 err = ErrorTracker()
 
@@ -229,7 +235,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
     # Collect the contents of the data directory and check that some raw data was collected
     minute_dirs = [min_dir for min_dir in raw_dir.iterdir() if min_dir.is_dir()]
     if len(minute_dirs) <= 1:
-        err.addError(f"WARNING: No data found in {obsdate}! Skipping primary processing!")
+        err.addWarning(f"WARNING: No data found in {obsdate}! Skipping primary processing!")
         return []
 
     # Run all processes and get the runtime as a return
@@ -261,10 +267,10 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
     raw_dir = DATA_PATH / obsdate
     archive_dir = ARCHIVE_PATH / hyphonateDate(obsdate)
     if not raw_dir.exists():
-        err.addError(f"WARNING: No raw data found on {obsdate}.")
+        err.addWarning(f"WARNING: No raw data found on {obsdate}.")
         raw_dir.mkdir()
     if not archive_dir.exists():
-        err.addError(f"WARNING: No archive directory found on {obsdate}.")
+        err.addWarning(f"WARNING: No archive directory found on {obsdate}.")
         archive_dir.mkdir()
     
     # Run all processes and get the runtime as a return
@@ -329,7 +335,7 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
     
     # Check if the current date matches the obsdate
     if obsdate != datetime.now().strftime(OBSDATE_FORMAT):
-        err.addError(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
+        err.addWarning(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
         (stopfile_dir / stop_file).touch()
         return
 
@@ -721,10 +727,12 @@ if __name__ == '__main__':
     print(f"Total time to process was {sum(filter(None,tot_runtime))} seconds")
 
     # Print errors
-    if len(err.errors) > 0:
+    if (len(err.errors) > 0) or (len(err.warnings) > 0):
         print("The following errors were encountered:")
         for error in err.errors:
             print(error)
+        for warning in err.warnings:
+            print(warning)
     
     # Close tkinter window
     window.destroy()
