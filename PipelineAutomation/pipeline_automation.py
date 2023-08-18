@@ -13,12 +13,11 @@ import os, sys
 import shutil
 import time
 import pathlib
-import glob
 import subprocess
 import argparse
 import tkinter as tk
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Custom Script Imports
 from preparedata import is_dir_too_small
@@ -335,8 +334,9 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
         print(f"WARNING: Daily status email already sent. Skipping...")
         return
     
-    # Check if the current date matches the obsdate
-    if obsdate != datetime.now().strftime(OBSDATE_FORMAT):
+    # Check if the obsdate matches today or tomorrow
+    if (obsdate != datetime.now().strftime(OBSDATE_FORMAT)) or\
+          (obsdate != (datetime.now() + timedelta(days=1)).strftime(OBSDATE_FORMAT)):
         err.addWarning(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
         (stopfile_dir / stop_file).touch()
         return
