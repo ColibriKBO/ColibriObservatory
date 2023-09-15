@@ -56,6 +56,10 @@ GITHUB = pathlib.Path('~', 'Documents', 'GitHub').expanduser()
 SCRIPTS = GITHUB / 'ColibriPipeline'
 EMAIL_SCRIPT = GITHUB / 'ColibriEmail' / 'email_timeline.py'
 
+# Computer name
+TELESCOPE = os.environ['COMPUTERNAME']
+
+
 
 #----------------------------------class--------------------------------------#
 
@@ -333,13 +337,6 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
     if (stopfile_dir / stop_file).exists() and (repro is False):
         print(f"WARNING: Daily status email already sent. Skipping...")
         return
-    
-    # Check if the obsdate matches today or tomorrow
-    if (obsdate != datetime.now().strftime(OBSDATE_FORMAT)) or\
-          (obsdate != (datetime.now() + timedelta(days=1)).strftime(OBSDATE_FORMAT)):
-        err.addWarning(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
-        (stopfile_dir / stop_file).touch()
-        return
 
     # Define the command-line arguments
     # Process items in errors and notes individually
@@ -394,7 +391,229 @@ def slashDate(obsdate):
     return obsdate
 
 
-#-----------------------------------main--------------------------------------#
+#--------------------------------processes------------------------------------#
+
+def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
+
+    print("\n" + "#"*30 + f"\n{obsdate}\n" + "#"*30 + "\n")
+
+##############################
+## Raw Data Processing
+##############################
+
+    # Run subprocess over all dates in the specified list
+    print(f"\n## Processing raw data from {obsdate}... ##\n")
+
+    # This dictionary defines the *PYTHON* scripts which
+    # handle the raw data. To add a script, just add to this
+    # dictionary. Format is {script_basename : [list_of_cml_args]}.
+    raw_processes = {
+            'colibri_main_py3': ['d:/', slashDate(obsdate), f'-s {sigma_threshold}'],
+            'coordsfinder': [f'-d {slashDate(obsdate)}'],
+            'image_stats_bias': [f'-d {slashDate(obsdate)}'],
+            'sensitivity': [f'-d {slashDate(obsdate)}']
+                    }
+    
+    raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
+    tot_runtime += raw_runtime
+
+##############################
+## Archival Data Processing
+##############################
+
+    # Run subprocess over all dates in the specified list
+    print(f"\n## Processing archival data from {obsdate}... ##\n")
+
+    # This dictionary defines the *PYTHON* scripts which
+    # handle the archival data. To add a script, just add to this
+    # dictionary. Format is {script_basename : [list_of_cml_args]}.
+    archive_processes = {
+            'wcsmatching': [f'{obsdate}']
+                        }
+    
+    archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
+    tot_runtime += archive_runtime
+
+##############################
+## Split-Responsibility Processing
+##############################
+
+    ## Here we must split the responsibilities between telescopes
+
+    # Green-specific
+    if TELESCOPE == "GREENBIRD":
+        print(f"\n## Processing GREENONLY1 for {obsdate}... ##\n")
+
+        # Wait until other telescopes are done
+        path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
+        path_BLUE = pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
+        
+        # Wait until processing is done, if processing has started
+        while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
+                not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
+
+            red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+            blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
+
+            # Print status
+            if (not red_stop_exists) and (not blue_stop_exists):
+                print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+            elif not red_stop_exists:
+                print("Waiting for %s..." % path_RED)
+            elif not blue_stop_exists:
+                print("Waiting for %s..." % path_BLUE)
+            time.sleep(300)
+        
+        print(f"Red and Blue are ready for GREEN {obsdate} processing.")
+
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the GREEN processes. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        GREEN1_processes =  {
+                'simultaneous_occults': [f'{obsdate}'],
+                'colibri_secondary': [f'-d {slashDate(obsdate)}']
+                            }
+        
+        GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
+        tot_runtime += GREEN1_runtime
+
+        
+    # Blue-specific
+    elif TELESCOPE == "BLUEBIRD":
+        print(f"\n## WCS matching for {obsdate}... ##\n")
+
+        # Wait until other telescopes are done
+        path_RED   = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
+        path_GREEN = pathlib.Path('G:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
+        
+        # Wait until processing is done, if processing has started
+        while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
+                not (path_GREEN.is_file() == path_GREEN.parent.is_dir()):
+
+            red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+            green_stop_exists = (path_GREEN.is_file() == path_GREEN.parent.is_dir())
+
+            # Print status
+            if (not red_stop_exists) and (not green_stop_exists):
+                print("Waiting for %s and %s..." % (path_RED, path_GREEN))
+            elif not red_stop_exists:
+                print("Waiting for %s..." % path_RED)
+            elif not green_stop_exists:
+                print("Waiting for %s..." % path_GREEN)
+            time.sleep(300)
+        
+        print(f"Red and Green are ready for BLUE {obsdate} processing.")
+
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the BLUE processes. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        BLUE_processes =  {
+                'wcsmatching': [f'{obsdate}','-m']
+                            }
+        
+        BLUE_runtime = processArchive(obsdate, repro=True, new_stop=True, **BLUE_processes)
+        tot_runtime += BLUE_runtime
+
+
+##############################
+## Artificial Lightcurves
+##############################
+
+    # Generate artificial lightcurves
+
+    print(f"\n## Artificial lightcurves for {obsdate}... ##\n")
+
+    # Check for a stop file
+    gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
+    if gat_stop.exists():
+        print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
+
+    else:
+        # If the list of artificial lightcurves has not been created, wait 5 minutes
+        gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
+        print(f"Waiting for the gat_file for {obsdate}...")
+        while not gat_file.exists():
+            time.sleep(300)
+
+        # Read lines from generate_artificial.txt
+        print(f"## Generating artificial lightcurves for {obsdate}...")
+        with open(gat_file, 'r') as gat:
+            tot_gat_runtime = 0
+            for line in gat.readlines():
+                gat_params = line.strip('\n').split(' ') + ['-m']
+                gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate),
+                                            repro=True, new_stop=False,
+                                            generate_specific_lightcurve=gat_params)
+                tot_gat_runtime += sum(filter(None, gat_runtime))
+
+        # Create stop file
+        gat_stop.touch()
+
+        # Delete gat file
+        #gat_file.unlink()
+
+        # Record runtime
+        tot_runtime.append(tot_gat_runtime)
+                
+
+##############################
+## Cumulative Stats & Timeline
+##############################       
+    
+    # Write when all other processes are done
+    for obsdate in obs_dates:
+        (ARCHIVE_PATH / hyphonateDate(obsdate) / 'timeline_ready.txt').touch()
+
+    if TELESCOPE == "GREENBIRD":
+
+        print("\n## Processing endgame for {obsdate}... ##\n")
+
+        # Wait until other telescopes are done
+        path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
+        path_BLUE = pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
+        
+        # Wait until processing is done, if processing has started
+        while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
+                not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
+            
+            red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
+            blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
+
+            # Print status
+            if (not red_stop_exists) and (not blue_stop_exists):
+                print("Waiting for %s and %s..." % (path_RED, path_BLUE))
+            elif not red_stop_exists:
+                print("Waiting for %s..." % path_RED)
+            elif not blue_stop_exists:
+                print("Waiting for %s..." % path_BLUE)
+            time.sleep(300)
+        
+        print(f"Red and Blue are ready for GREEN {obsdate} processing.")
+
+        # Read in star-hours
+        starhour_path = list(pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate)).glob('starhours_*.txt'))
+        if len(starhour_path) == 0:
+            starhours = 0
+        else:
+            starhours = float(starhour_path[0].name.strip('.txt').strip('starhours_'))
+
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the GREEN processes. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        end_processes =  {
+                'cumulative_stats': [f'{obsdate}',f'{starhours}'],
+                'timeline': [f'{obsdate}']
+                            }
+        
+        end_runtime = processArchive(obsdate, repro=repro, new_stop=True, **end_processes)
+        tot_runtime += end_runtime
+
+        # Send status email
+        sendStatusEmail(obsdate, DATA_PATH / obsdate, repro=repro, new_stop=True,
+                        errors=err.errors, notes=[])
+
+
+#----------------------------------main---------------------------------------#
 
 if __name__ == '__main__':
     
@@ -457,17 +676,15 @@ if __name__ == '__main__':
 ## Computer Synchronization
 ##############################
 
-    # Define computer name for computer specific processes
-    telescope = os.environ['COMPUTERNAME']
     
     # Define other computers' parent data directories
     if cml_args.test:
         pass
-    elif telescope == "REDBIRD":
+    elif TELESCOPE == "REDBIRD":
         other_telescopes = [Path("G:","ColibriData"), Path("B:", "ColibriData")]
-    elif telescope == "GREENBIRD":
+    elif TELESCOPE == "GREENBIRD":
         other_telescopes = [Path("R:","ColibriData"), Path("B:", "ColibriData")]
-    elif telescope == "BLUEBIRD":
+    elif TELESCOPE == "BLUEBIRD":
         other_telescopes = [Path("R:","ColibriData"), Path("G:", "ColibriData")]
 
     # Generate night directories for other telescopes if they don't exist
@@ -491,232 +708,12 @@ if __name__ == '__main__':
 
 
 ##############################
-## Raw Data Processing
+## Computer Synchronization
 ##############################
 
-    # Run subprocess over all dates in the specified list
+    # Process each date specified
     for obsdate in obs_dates:
-        print("\n" + "#"*30 + f"\nProcessing raw data from {obsdate}...\n" + "#"*30 + "\n")
-
-        # This dictionary defines the *PYTHON* scripts which
-        # handle the raw data. To add a script, just add to this
-        # dictionary. Format is {script_basename : [list_of_cml_args]}.
-        raw_processes = {
-                'colibri_main_py3': ['d:/', slashDate(obsdate), f'-s {sigma_threshold}'],
-                'coordsfinder': [f'-d {slashDate(obsdate)}'],
-                'image_stats_bias': [f'-d {slashDate(obsdate)}'],
-                'sensitivity': [f'-d {slashDate(obsdate)}']
-                        }
-        
-        raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
-        tot_runtime += raw_runtime
-
-##############################
-## Archival Data Processing
-##############################
-
-    # Run subprocess over all dates in the specified list
-    for obsdate in obs_dates:
-        print("\n" + "#"*30 + f"\nProcessing archival data from {obsdate}...\n" + "#"*30 + "\n")
-
-        # This dictionary defines the *PYTHON* scripts which
-        # handle the archival data. To add a script, just add to this
-        # dictionary. Format is {script_basename : [list_of_cml_args]}.
-        archive_processes = {
-                'wcsmatching': [f'{obsdate}']
-                            }
-        
-        archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
-        tot_runtime += archive_runtime
-
-##############################
-## Split-Responsibility Processing
-##############################
-
-    ## Here we must split the responsibilities between telescopes
-
-    # Green-specific
-    if telescope == "GREENBIRD":
-        print(f"\nBeginning phase1 of GREENBIRD-only processes...\n")
-
-        for obsdate in obs_dates:
-            print("\n" + "#"*30 + f"\nProcessing GREENONLY1 for {obsdate}...\n" + "#"*30 + "\n")
-
-            # Wait until other telescopes are done
-            path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
-            path_BLUE = pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
-            
-            # Wait until processing is done, if processing has started
-            while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
-                    not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
-
-                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
-                blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
-
-                # Print status
-                if (not red_stop_exists) and (not blue_stop_exists):
-                    print("Waiting for %s and %s..." % (path_RED, path_BLUE))
-                elif not red_stop_exists:
-                    print("Waiting for %s..." % path_RED)
-                elif not blue_stop_exists:
-                    print("Waiting for %s..." % path_BLUE)
-                time.sleep(300)
-            
-            print(f"Red and Blue are ready for GREEN {obsdate} processing.")
-
-            # This dictionary defines the *PYTHON* scripts which
-            # handle the GREEN processes. To add a script, just add to this
-            # dictionary. Format is {script_basename : [list_of_cml_args]}.
-            GREEN1_processes =  {
-                    'simultaneous_occults': [f'{obsdate}'],
-                    'colibri_secondary': [f'-d {slashDate(obsdate)}']
-                                }
-            
-            GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
-            tot_runtime += GREEN1_runtime
-
-        
-        print(f"\nPhase1 of GREENBIRD-only processes complete.\n")
-
-    # Blue-specific
-    if telescope == "BLUEBIRD":
-        print(f"\nBeginning BLUEBIRD-only processes...\n")
-
-        for obsdate in obs_dates:
-            print("\n" + "#"*30 + f"\nWCS matching for {obsdate}...\n" + "#"*30 + "\n")
-
-            # Wait until other telescopes are done
-            path_RED   = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
-            path_GREEN = pathlib.Path('G:/','ColibriArchive',hyphonateDate(obsdate),'done.txt')
-            
-            # Wait until processing is done, if processing has started
-            while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
-                    not (path_GREEN.is_file() == path_GREEN.parent.is_dir()):
-
-                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
-                green_stop_exists = (path_GREEN.is_file() == path_GREEN.parent.is_dir())
-
-                # Print status
-                if (not red_stop_exists) and (not green_stop_exists):
-                    print("Waiting for %s and %s..." % (path_RED, path_GREEN))
-                elif not red_stop_exists:
-                    print("Waiting for %s..." % path_RED)
-                elif not green_stop_exists:
-                    print("Waiting for %s..." % path_GREEN)
-                time.sleep(300)
-            
-            print(f"Red and Green are ready for BLUE {obsdate} processing.")
-
-            # This dictionary defines the *PYTHON* scripts which
-            # handle the BLUE processes. To add a script, just add to this
-            # dictionary. Format is {script_basename : [list_of_cml_args]}.
-            BLUE_processes =  {
-                    'wcsmatching': [f'{obsdate}','-m']
-                              }
-            
-            BLUE_runtime = processArchive(obsdate, repro=True, new_stop=True, **BLUE_processes)
-            tot_runtime += BLUE_runtime
-
-
-##############################
-## Artificial Lightcurves
-##############################
-
-    # Generate artificial lightcurves
-    for obsdate in obs_dates:
-    
-        print("\n" + "#"*30 + f"\nArtificial lightcurves for {obsdate}...\n" + "#"*30 + "\n")
-
-        # Check for a stop file
-        gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
-        if gat_stop.exists():
-            print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
-            continue
-
-        # If the list of artificial lightcurves has not been created, wait 5 minutes
-        gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
-        print(f"Waiting for the gat_file for {obsdate}...")
-        while not gat_file.exists():
-            time.sleep(300)
-        
-        # Read lines from generate_artificial.txt
-        print(f"## Generating artificial lightcurves for {obsdate}...")
-        with open(gat_file, 'r') as gat:
-            tot_gat_runtime = 0
-            for line in gat.readlines():
-                gat_params = line.strip('\n').split(' ') + ['-m']
-                gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate),
-                                           repro=True, new_stop=False,
-                                           generate_specific_lightcurve=gat_params)
-                tot_gat_runtime += sum(filter(None, gat_runtime))
-
-        # Create stop file
-        gat_stop.touch()
-
-        # Delete gat file
-        #gat_file.unlink()
-
-        # Record runtime
-        tot_runtime.append(tot_gat_runtime)
-                
-
-##############################
-## Cumulative Stats & Timeline
-##############################       
-    
-    # Write when all other processes are done
-    for obsdate in obs_dates:
-        (ARCHIVE_PATH / hyphonateDate(obsdate) / 'timeline_ready.txt').touch()
-
-    if telescope == "GREENBIRD":
-        print(f"\nBeginning end-of-pipeline processes...\n")
-
-        for obsdate in obs_dates:
-            print("\n" + "#"*30 + f"\nProcessing endgame for {obsdate}...\n" + "#"*30 + "\n")
-
-            # Wait until other telescopes are done
-            path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
-            path_BLUE = pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
-            
-            # Wait until processing is done, if processing has started
-            while not (path_RED.is_file() == path_RED.parent.is_dir()) or \
-                    not (path_BLUE.is_file() == path_BLUE.parent.is_dir()):
-                
-                red_stop_exists = (path_RED.is_file() == path_RED.parent.is_dir())
-                blue_stop_exists = (path_BLUE.is_file() == path_BLUE.parent.is_dir())
-
-                # Print status
-                if (not red_stop_exists) and (not blue_stop_exists):
-                    print("Waiting for %s and %s..." % (path_RED, path_BLUE))
-                elif not red_stop_exists:
-                    print("Waiting for %s..." % path_RED)
-                elif not blue_stop_exists:
-                    print("Waiting for %s..." % path_BLUE)
-                time.sleep(300)
-            
-            print(f"Red and Blue are ready for GREEN {obsdate} processing.")
-
-            # Read in star-hours
-            starhour_path = list(pathlib.Path('B:/','ColibriArchive',hyphonateDate(obsdate)).glob('starhours_*.txt'))
-            if len(starhour_path) == 0:
-                starhours = 0
-            else:
-                starhours = float(starhour_path[0].name.strip('.txt').strip('starhours_'))
-
-            # This dictionary defines the *PYTHON* scripts which
-            # handle the GREEN processes. To add a script, just add to this
-            # dictionary. Format is {script_basename : [list_of_cml_args]}.
-            end_processes =  {
-                    'cumulative_stats': [f'{obsdate}',f'{starhours}'],
-                    'timeline': [f'{obsdate}']
-                             }
-            
-            end_runtime = processArchive(obsdate, repro=repro, new_stop=True, **end_processes)
-            tot_runtime += end_runtime
-
-            # Send status email
-            sendStatusEmail(obsdate, DATA_PATH / obsdate, repro=repro, new_stop=True,
-                            errors=err.errors, notes=[])
+        ColibriProcesses(obsdate, repro=repro, sigma_threshold=sigma_threshold)
 
 
 ##############################
