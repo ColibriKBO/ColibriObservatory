@@ -103,8 +103,8 @@ def main():
 
 	data.clear_download_cache()
 
-	wx_address= (b'172.16.61.10', 17770)
-	polaris_address = (b'172.16.61.10', 17771)
+	wx_address= (b'10.24.8.10', 17770)
+	polaris_address = (b'10.24.8.10', 17771)
 	cld_address = (b'10.0.20.10', 8888)
 
 	cld_socket = socket(AF_INET, SOCK_DGRAM)
