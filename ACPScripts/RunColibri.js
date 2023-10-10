@@ -671,8 +671,20 @@ function adjustPointing(ra, dec)
     ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
+    // Check that new pointing is safe
+    targetCt = Util.NewCThereAndNow()
+    targetCt.RightAscension = ra
+    targetCt.Declination = dec
+    if (targetCt.Elevation < elevationLimit)
+    {
+        Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
+        Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
+    }
+
     // Call gotoRADec() to slew to new pointing
-    gotoRADec(new_ra, new_dec);
+    else
+    {gotoRADec(new_ra, new_dec)};
 
 }
 
