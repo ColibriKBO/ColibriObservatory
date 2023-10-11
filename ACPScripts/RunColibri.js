@@ -646,7 +646,7 @@ function adjustPointing(ra, dec)
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
 
     while(BS.Status != 1)
@@ -667,9 +667,25 @@ function adjustPointing(ra, dec)
     new_ra = (ra + parseFloat(radec_offset[0]))/15;
     new_dec = dec + parseFloat(radec_offset[1]);
     
+    // Print new pointing
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
+
+    // Check that new pointing is reasonable
+    if (isNaN(new_ra) || isNaN(new_dec))
+    {
+        Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+        return;
+    }
+
+    else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90))
+    {
+        Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
+        return;
+    }
 
     // Check that new pointing is safe
     targetCt = Util.NewCThereAndNow()
