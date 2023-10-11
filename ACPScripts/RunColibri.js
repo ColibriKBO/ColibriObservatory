@@ -274,9 +274,9 @@ function domeClose()
         }
         break;
 
-        /////////////////////////////////////////////////////
-        // Dome is closing. Let it close and then open it. //
-        /////////////////////////////////////////////////////
+        ////////////////////////////////////
+        // Dome is closing. Let it close. //
+        ////////////////////////////////////
         case 3:
         while (Dome.ShutterStatus == 3)
         {
@@ -291,7 +291,16 @@ function domeClose()
         /////////////////////////////////
         case 4:
         Console.PrintLine("There was a problem with the shutter control...")
+        return;
         break;
+    }
+
+    // Check to see if the dome is closed or in error
+    if (Dome.Status != 1)
+    {
+        Console.PrintLine("Dome is not closed. Trying again...")
+        Util.WaitForMilliseconds(1000)
+        domeClose()
     }
 }
 
