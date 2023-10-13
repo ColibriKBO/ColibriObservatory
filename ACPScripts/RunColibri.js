@@ -698,8 +698,8 @@ function adjustPointing(ra, dec)
 
     // Check that new pointing is safe
     targetCt = Util.NewCThereAndNow()
-    targetCt.RightAscension = ra
-    targetCt.Declination = dec
+    targetCt.RightAscension = new_ra
+    targetCt.Declination = new_dec
     if (targetCt.Elevation < elevationLimit)
     {
         Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
