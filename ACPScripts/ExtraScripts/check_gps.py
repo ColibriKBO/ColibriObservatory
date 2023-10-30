@@ -276,11 +276,11 @@ def check_gps(target_dir=TMP_PATH.joinpath('gps')):
 
     """
 
-    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')}: Checking GPS status...")
+    print(f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: Checking GPS status...")
 
     # Generate a test image using ColibriGrab
     # Currently set to take a 0.1s exposure of a dark image
-    subprocess.call(f"ColibriGrab.exe -n 1 -p gps_check -e 100 -t 0 -f dark -w {target_dir} > NUL 2>&1")
+    subprocess.call(f"ColibriGrab -n 1 -p gps_check -e 100 -t 0 -f dark -w {target_dir}", stdout=open(os.devnull, 'wb'))
 
     # Set the path to the reference image
     gps_dirs = [d for d in target_dir.iterdir() if d.is_dir()]
@@ -340,4 +340,4 @@ if __name__ == "__main__":
     gps_thread.join()
 
     # Print the results
-    print(f"GPS was locked {gps_thread.gps_locked} times out of {n_runs} runs.")
+    print(f"\nGPS was locked {gps_thread.gps_locked} times out of {n_runs} runs.")
