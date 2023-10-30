@@ -22,6 +22,7 @@ import os, sys
 import argparse
 import time
 import subprocess
+import shutil
 import threading
 import numpy as np
 import numba as nb
@@ -297,7 +298,7 @@ def check_gps(target_dir=TMP_PATH.joinpath('gps')):
     print("  --> GPS Lock: {}".format(gpsLock))
 
     # Delete the image and directory
-    os.system('rm -rf {}'.format(gps_dir))
+    shutil.rmtree(gps_dir)
 
     return gpsLock
 
@@ -327,7 +328,7 @@ if __name__ == "__main__":
     # Create/recreate a directory to store the images
     gps_dir = TMP_PATH / 'gps'
     if gps_dir.exists():
-        os.system('rm -rf {}'.format(gps_dir))
+        shutil.rmtree(gps_dir)
     gps_dir.mkdir(parents=True, exist_ok=True)
 
     # Run the program in continuous mode executing every 1s
