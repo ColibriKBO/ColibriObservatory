@@ -280,7 +280,7 @@ def check_gps(target_dir=TMP_PATH.joinpath('gps')):
 
     # Generate a test image using ColibriGrab
     # Currently set to take a 0.1s exposure of a dark image
-    subprocess.call(f"ColibriGrab.exe -n 1 -p gps_check -e 100 -t 0 -f dark -w {target_dir}")
+    subprocess.call(f"ColibriGrab.exe -n 1 -p gps_check -e 100 -t 0 -f dark -w {target_dir} > NUL 2>&1")
 
     # Set the path to the reference image
     gps_dirs = [d for d in target_dir.iterdir() if d.is_dir()]
