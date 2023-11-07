@@ -280,14 +280,11 @@ function shutDown()
 {
     trkOff()
     Console.PrintLine("Tracking turned off. Parking telescope now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
     Telescope.Park()
     trkOff();
     Console.PrintLine("Telescope parked. Closing dome now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
     domeClose()
     Console.PrintLine("Dome closed. Good night/morning.")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
 }
 
 
@@ -297,7 +294,6 @@ function gotoRADec(ra, dec)
     // Print input coordinates to screen
     Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
     Console.Printline("Dec in gotoRADec function " + dec);
-    Console.Printline("Elevation of field " + ct.Elevation.toFixed(4));
 
     // Create a new coordinate object with the input coordinates
     targetCt = Util.NewCThereAndNow()
@@ -338,7 +334,7 @@ function gotoRADec(ra, dec)
     // Try to slew to the target coordinates
     slewToStatus = false;
     slewToAttempt = 0;
-    while (!slewToStatus);
+    while (!slewToStatus)
     {
         try
         {
@@ -372,31 +368,75 @@ function gotoRADec(ra, dec)
 
 function gotoAltAz(alt, az)
 {
+    // Set up coordinate transform
+    ct = Util.NewCThereAndNow()
+    ct.Elevation = alt
+    ct.Azimuth = az
 
+    // Print input coordinates to screen
+    Console.Printline("Alt in gotoAltAz function " + alt.toFixed(1));
+    Console.Printline("Az  in gotoAltAz function " + az.toFixed(1));
+    
+
+    // Check that the elevation of the field is above the elevation limit
     breakme: if (ct.Elevation < elevationLimit)
     {
         Console.PrintLine("Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Closing up shop!");
-        shutDown();
-        Console.PrintLine("Finished closing up shop.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Finished closing up shop!");
+        Util.AbortScript();
         break breakme;
     }
 
-    if (Telescope.tracking)
+    // Check that the dome is tracking
+    Console.PrintLine("At Unpark...")
+    Dome.UnparkHome()
+    if (Dome.slave == false)
     {
-        Telescope.SlewToAltAz(alt, az);
-        Util.WaitForMilliseconds(100);
+        Console.PrintLine("Unparking dome and slaving to telescope...")
+        Dome.slave == true
+    }
 
-        while (Telescope.Slewing)
+    // Try to slew to the target coordinates
+    slewToStatus = false;
+    slewToAttempt = 0;
+    Console.PrintLine("slewToStatus: " + slewToStatus);
+    Console.PrintLine("..." + !slewToStatus)
+    while (!slewToStatus)
+    {
+        try
         {
-            Console.PrintLine("Going to...");
-            Util.WaitForMilliseconds(2000);
+            Console.PrintLine("Slewing...");
+            trkOff();
+            Telescope.SlewToAltAz(az.toFixed(3),alt.toFixed(3));
+            trkOn();
+            Console.PrintLine("Done slewing.");
+            slewToStatus = true;
         }
-        Console.PrintLine("Done.");
+        catch(e)
+        {
+            if (slewToAttempt < 10)
+            {
+                Console.PrintLine("Error on attempt " + slewToAttempt + " to slew. Waiting 2 seconds and trying again.");
+                Console.PrintLine(e)
+                Util.WaitForMilliseconds(2000);
+                slewToAttempt += 1;
+            }
+            else
+            {
+                Console.PrintLine("Reached maximum number of tries to slew");
+                Util.AbortScript();
+            }
+        }
+    }
+
+    // Wait for the dome to finish slewing
+    Console.PrintLine("Skipped it...")
+    while (Dome.Slewing == true)
+    {
+        Console.PrintLine("Dome is still slewing. Give me a minute...")
+        Util.WaitForMilliseconds(500)
     }
 }
+
 
 
 function adjustPointing(ra, dec)
@@ -433,14 +473,12 @@ function adjustPointing(ra, dec)
     if (isNaN(new_ra) || isNaN(new_dec))
     {
         Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
         return;
     }
 
     else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90))
     {
         Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
         return;
     }
 
@@ -454,7 +492,6 @@ function adjustPointing(ra, dec)
     {
         Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
         Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
     }
 
     // Call gotoRADec() to slew to new pointing
@@ -574,6 +611,12 @@ function main()
         }
 	}
 
+    // Monitor the weather status, if the weather script is active
+    Console.PrintLine("Connecting to dome & telescope...")
+    connectScope()
+    domeOpen()
+    trkOff()
+
 
     /*------------------------Begin Script Operations------------------------*/
 
@@ -595,6 +638,7 @@ function main()
         gotoAltAz(elevation, azimuthTarget);
 
         // Iterate over all exposures in the exposure list
+        var runCounter = 1;
         for (j=0; j<exposureList.length-1; j++)
         {
 
@@ -602,7 +646,7 @@ function main()
             var numExposures = Math.floor(observationTime/exposureList[j]);
 
             // Take image
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toString() + "_" + exposureList[j].toString() + "ms-" + " -e " + exposureList[j].toString() + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
+            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j].toString(1) + "ms-" + " -e " + exposureList[j].toString() + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
             
             Console.PrintLine("Process ID = " + pid.toString())
             Util.WaitForMilliseconds(10000)
@@ -616,8 +660,6 @@ function main()
             }
             catch(err)
             {
-                ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
-                ts.WriteLine("ERROR: " + err)
                 Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
                 Console.PrintLine(err)
             }
