@@ -395,7 +395,7 @@ function domeOpen()
         Console.PrintLine("There was a problem with the shutter control...")
         break;
     }
-
+monitor
     // Home the dome if not already done.
     if (!Dome.AtHome)
     {
@@ -409,6 +409,35 @@ function domeOpen()
     }
     
 }
+
+///////////////////////////
+// Function to monitor subprocesses and kill it if it hangs
+// MJM
+///////////////////////////
+
+function monitorSubprocesses(PID, waittime)
+{
+    // Check to see if subprocess is still running
+    var runtime = 0
+    while (Util.IsTaskActive(PID))
+    {
+        // Check to see if subprocess is still running after waittime seconds
+        // If so, kill it.
+        if (runtime > waittime)
+        {
+            Console.PrintLine("Subprocess is still running after " + waittime + " seconds. Killing it...")
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Subprocess is still running after " + waittime + " seconds. Killing it...")
+            Util.ShellExec("taskkill.exe", "/pid " + PID + " /t /f")
+        }
+
+        // Wait for 100 milliseconds
+        //Console.PrintLine("Subprocess is still running...")
+        Util.WaitForMilliseconds(100)
+        runtime += 100
+    }
+}
+
+
 
 /////////////////////////////////////////////////////
 // Returns available disk space
@@ -657,14 +686,24 @@ function adjustPointing(ra, dec)
     var SH = new ActiveXObject("WScript.Shell");
     var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
+    var shell_runtime = 0;
 
-    while(BS.Status != 1)
+    while (BS.Status != 1)
     {
+        if (shell_runtime > astrometryTimeout)
+        {
+            Console.PrintLine("Astrometry correction timed out after " + astrometryTimeout + " seconds. Continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out after " + astrometryTimeout + " seconds. Continuing with current pointing.");
+            BS.Terminate();
+            return;
+        }
+
         while(!BS.StdOut.AtEndOfStream)
         {
             python_output += BS.StdOut.Read(1);
         }
         Util.WaitForMilliseconds(100);
+        shell_runtime += 100;
     };
 
     // Parse output from astrometry_correction.py
@@ -1011,6 +1050,7 @@ var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
 var biasInterval = 15 // Number of minutes between bias series collection
+var astrometryTimeout = 20000 // Number of milliseconds to wait for astrometry to solve
 
 
 // Iterables
@@ -1742,22 +1782,7 @@ function main()
             pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
             
             Console.PrintLine("Process ID = " + pid.toString())
-            Util.WaitForMilliseconds(1000)
-
-            try
-            {
-                while (Util.IsTaskActive(pid)){
-                    Util.WaitForMilliseconds(500)
-                }
-                Console.PrintLine("Done exposing run # " + runCounter.toString())
-            }
-            catch(err)
-            {
-                ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
-                ts.WriteLine("ERROR: " + err)
-                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
-                Console.PrintLine(err)
-            }
+            monitorSubprocesses(pid, 115000)
           
             runCounter++
         }
