@@ -333,13 +333,6 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
     if (stopfile_dir / stop_file).exists() and (repro is False):
         print(f"WARNING: Daily status email already sent. Skipping...")
         return
-    
-    # Check if the obsdate matches today or tomorrow
-    if (obsdate != datetime.now().strftime(OBSDATE_FORMAT)) or\
-          (obsdate != (datetime.now() + timedelta(days=1)).strftime(OBSDATE_FORMAT)):
-        err.addWarning(f"WARNING: Trying to email the Colibri status for the wrong date! Skipping {obsdate}...")
-        (stopfile_dir / stop_file).touch()
-        return
 
     # Define the command-line arguments
     # Process items in errors and notes individually
