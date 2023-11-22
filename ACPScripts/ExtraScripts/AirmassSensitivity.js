@@ -395,6 +395,14 @@ function gotoAltAz(alt, az)
         Dome.slave == true
     }
 
+    // Wait for the dome to finish slewing
+    Console.PrintLine("Skipped it...")
+    while (Dome.Slewing == true)
+    {
+        Console.PrintLine("Dome is still slewing. Give me a minute...")
+        Util.WaitForMilliseconds(500)
+    }
+
     // Try to slew to the target coordinates
     slewToStatus = false;
     slewToAttempt = 0;
@@ -428,13 +436,7 @@ function gotoAltAz(alt, az)
         }
     }
 
-    // Wait for the dome to finish slewing
-    Console.PrintLine("Skipped it...")
-    while (Dome.Slewing == true)
-    {
-        Console.PrintLine("Dome is still slewing. Give me a minute...")
-        Util.WaitForMilliseconds(500)
-    }
+
 }
 
 
