@@ -331,7 +331,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
         t_start = time.time()
         try:
             print(f"Initializing subprocess {process + '.py'}...")
-            subp = subprocess.run(['python', SCRIPTS / (process + '.py'), *script_args])
+            subp = subprocess.run(['python', SCRIPTS / (process + '.py'), *script_args], shell=True)
 
             # Wait until the subprocess has completed
             try:
@@ -593,7 +593,7 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
 
     if TELESCOPE == "GREENBIRD":
 
-        print("\n## Processing endgame for {obsdate}... ##\n")
+        print(f"\n## Processing endgame for {obsdate}... ##\n")
 
         # Wait until other telescopes are done
         path_RED  = pathlib.Path('R:/','ColibriArchive',hyphonateDate(obsdate),'timeline_ready.txt')
@@ -713,6 +713,9 @@ if __name__ == '__main__':
         other_telescopes = [Path("R:","ColibriData"), Path("B:", "ColibriData")]
     elif TELESCOPE == "BLUEBIRD":
         other_telescopes = [Path("R:","ColibriData"), Path("G:", "ColibriData")]
+
+    # Change COMSPEC to point to Powershell
+    os.environ['COMSPEC'] = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
     # Generate night directories for other telescopes if they don't exist
     for obs_date in data_dirs:
