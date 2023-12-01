@@ -244,7 +244,7 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
         return []
 
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, pipe_std=obsdate, **kwargs)
     print(f"\n## All processes on raw data are complete for {obsdate}!\n")
     return runtime
 
@@ -279,18 +279,37 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
         archive_dir.mkdir()
     
     # Run all processes and get the runtime as a return
-    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, **kwargs)
+    runtime = runProcesses(raw_dir, repro=repro, new_stop=new_stop, pipe_std=obsdate, **kwargs)
     print(f"\n## All secondary processes are complete for {obsdate}!\n")
     return runtime
 
 
-def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
+def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwargs):
     """
-    
+    Run multiple subprocesses with specified command-line arguments.
+
+    Args:
+        stopfile_dir (str): The directory where stop files are stored.
+        repro (bool, optional): Flag indicating whether to re-run processes that have already been performed. Defaults to False.
+        new_stop (bool, optional): Flag indicating whether to write new stop files after each process completes. Defaults to True.
+        pipe_std (str, optional): Flag indicating whether to record stdout and stderr to a log file. Defaults to None (no logging).
+        **kwargs: Keyword arguments specifying the processes and their corresponding command-line arguments. The format is {'processname': [list_of_script_args]}.
+
+    Returns:
+        list: A list of runtimes for each subprocess.
+
     """
 
     # Track the runtime of the subprocesses
     runtime = []
+
+    # Check if pipeing stdout and stderr to a log file
+    if pipe_std is not None:
+        # Define the log directory and check that the directory exists
+        log_dir = LOG_PATH / pipe_std
+        if not log_dir.exists():
+            log_dir.mkdir()
+
 
     # Loop through kwargs to get processes and arguments
     # Kwarg format: {'processname' : [list_of_script_args]}
@@ -299,6 +318,14 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, **kwargs):
         if (stopfile_dir / stop_file).exists() and (repro is False):
             print(f"WARNING: {process} already preformed. Skipping...")
             continue
+
+        # Check if pipeing stdout and stderr to a log file
+        if pipe_std is not None:
+            # Define the log file and check that the file exists
+            log_file = log_dir / (process + '.log')
+            
+            # Use 'tee -a' to append to the log file and print to screen
+            script_args = script_args + ['|', 'tee', '-a', log_file]
 
         # Run the process with appropriate command-line arguments
         t_start = time.time()
@@ -543,6 +570,7 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
                 gat_params = line.strip('\n').split(' ') + ['-m']
                 gat_runtime = runProcesses(ARCHIVE_PATH / hyphonateDate(obsdate),
                                             repro=True, new_stop=False,
+                                            pipe_std=obsdate,
                                             generate_specific_lightcurve=gat_params)
                 tot_gat_runtime += sum(filter(None, gat_runtime))
 
@@ -561,8 +589,7 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
 ##############################       
     
     # Write when all other processes are done
-    for obsdate in obs_dates:
-        (ARCHIVE_PATH / hyphonateDate(obsdate) / 'timeline_ready.txt').touch()
+    (ARCHIVE_PATH / hyphonateDate(obsdate) / 'timeline_ready.txt').touch()
 
     if TELESCOPE == "GREENBIRD":
 
