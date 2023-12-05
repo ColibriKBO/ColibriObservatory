@@ -70,22 +70,33 @@ TMP_SUFFIX = ['_wcs.fits', '_wcs.axy', '_wcs.corr', '_wcs.match', '_wcs.rdls',
 
 class ErrorTracker(object):
     """
-    Indicates if any errors or warnings occured during the running of the program.
+    Indicates if any errors or warnings occurred during the running of the program.
     """
 
     def __init__(self):
-
+        """
+        Initializes an instance of the ErrorTracker class.
+        """
         self.errors = []
         self.warnings = []
 
-
     def addError(self, error_msg):
+        """
+        Adds an error message to the list of errors.
 
+        Args:
+            error_msg (str): The error message to be added.
+        """
         self.errors.append(error_msg)
         print(error_msg)
 
     def addWarning(self, warning_msg):
+        """
+        Adds a warning message to the list of warnings.
 
+        Args:
+            warning_msg (str): The warning message to be added.
+        """
         self.warnings.append(warning_msg)
         print(warning_msg)
 
@@ -193,8 +204,20 @@ def cleanThumbsdb():
     """
     Deletes all thumbs.db files in the data directory.
     
+    This function checks if the 'Thumbs.db' file or directory exists in the data directory.
+    If a 'Thumbs.db' directory is found, it attempts to remove it using the 'rmdir' function.
+    If the 'Thumbs.db' directory is not empty, it recursively removes all its contents using the 'rmtree' function.
+    If a 'Thumbs.db' file is found, it simply deletes the file using the 'unlink' function.
+
+    Args:
+        None
+
+    Returns:
+        None
+        
     """
 
+    # Check if Thumbs.db exists in data directory
     if (DATA_PATH / 'Thumbs.db').is_dir():
         err.addError("WARNING: Thumbs.db dir found in data directory!")
 
@@ -256,8 +279,8 @@ def processRawData(obsdate, repro=False, new_stop=True, **kwargs):
             no scripts will be run.
 
     Returns:
-
-    
+        runtime (float): The total runtime of all processes in seconds.
+        
     """
 
     # Define the raw data directory and check that the directory exists
@@ -292,6 +315,9 @@ def processArchive(obsdate, repro=False, new_stop=True, **kwargs):
         **kwargs: Script names (minus '.py') to run. If no kwargs are given,
             no scripts will be run.
     
+    Returns:
+        list: A list of runtimes for each subprocess.
+
     """
 
     # Track the runtime of the subprocesses
@@ -387,6 +413,21 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
 
 def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
                     errors=[], notes=[]):
+    """
+    Sends a daily status email with the given parameters.
+
+    Args:
+        obsdate (str): The observation date.
+        stopfile_dir (str): The directory where the stop file will be written.
+        repro (bool, optional): Whether to reproduce the email. Defaults to False.
+        new_stop (bool, optional): Whether to write a new stop file. Defaults to True.
+        errors (list, optional): List of errors to include in the email. Defaults to an empty list.
+        notes (list, optional): List of notes to include in the email. Defaults to an empty list.
+
+    Returns:
+        None
+    
+    """
 
     # Check if email has already been sent
     stop_file = 'email.txt'
@@ -427,21 +468,40 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
 ##############################
 
 def hyphonateDate(obsdate):
+    """
+    Converts the given date string to a hyphenated format.
 
+    Args:
+        obsdate (str): The YYYYMMDD date string to be converted.
+
+    Returns:
+        str: The hyphenated date string.
+
+    """
     # Convert the date to a datetime object
     obsdate = datetime.strptime(obsdate, OBSDATE_FORMAT)
 
-    # Convert the date to a hyphonated string
+    # Convert the date to a hyphenated string
     obsdate = obsdate.strftime('%Y-%m-%d')
 
     return obsdate
 
 def slashDate(obsdate):
+    """
+    Converts the given date string to a hyphenated format.
+
+    Args:
+        obsdate (str): The YYYYMMDD date string to be converted.
+
+    Returns:
+        str: The converted date string in the format 'YYYY/MM/DD'.
+
+    """
 
     # Convert the date to a datetime object
     obsdate = datetime.strptime(obsdate, OBSDATE_FORMAT)
 
-    # Convert the date to a hyphonated string
+    # Convert the date to a hyphenated string
     obsdate = obsdate.strftime('%Y/%m/%d')
 
     return obsdate
@@ -767,7 +827,7 @@ if __name__ == '__main__':
 
 
 ##############################
-## Computer Synchronization
+## Day-By-Day Processing
 ##############################
 
     # Process each date specified
