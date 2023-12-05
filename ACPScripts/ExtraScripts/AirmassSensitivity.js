@@ -648,7 +648,8 @@ function main()
             var numExposures = Math.floor(observationTime/exposureList[j]);
 
             // Take image
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j].toString(1) + "ms-" + " -e " + exposureList[j].toString() + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
+            Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
+            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
             
             Console.PrintLine("Process ID = " + pid.toString())
             Util.WaitForMilliseconds(10000)
