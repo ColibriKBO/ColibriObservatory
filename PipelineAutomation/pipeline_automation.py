@@ -43,6 +43,7 @@ DATA_PATH = BASE_PATH / 'ColibriData'
 IMGE_PATH = BASE_PATH / 'ColibriImages'
 ARCHIVE_PATH = BASE_PATH / 'ColibriArchive'
 LOG_PATH = BASE_PATH / 'Logs' / 'Pipeline'
+TMP_PATH = BASE_PATH / 'tmp'
 
 # Timestamp format
 OBSDATE_FORMAT = '%Y%m%d'
@@ -59,6 +60,10 @@ EMAIL_SCRIPT = GITHUB / 'ColibriEmail' / 'email_timeline.py'
 # Computer name
 TELESCOPE = os.environ['COMPUTERNAME']
 
+# Misc variables
+TMP_SUFFIX = ['_wcs.fits', '_wcs.axy', '_wcs.corr', '_wcs.match', '_wcs.rdls',
+              '_wcs.solved', '_wcs.wcs', '_wcs-indx.xyls', '_corr.axy',
+              '_corr.fits', '-ACP.log', '_wcs.axy']
 
 
 #----------------------------------class--------------------------------------#
@@ -207,6 +212,30 @@ def cleanThumbsdb():
     if (DATA_PATH / 'Thumbs.db').is_file():
         err.addError("WARNING: Thumbs.db file found in data directory!")
         (DATA_PATH / 'Thumbs.db').unlink()
+
+
+def cleanD():
+    """
+    Clean D:/ and tmp of resulting files from the pipeline.
+    
+    Args:
+        None
+    
+    Returns:
+        None
+    
+    """
+
+    print(f"Cleaning D:/ and tmp of pipeline files...")
+
+    # Remove all files in D:/ following *_wcs.fits
+    for file in BASE_PATH.glob('*_wcs.fits'):
+        file.unlink()
+    
+    # Remove all files in tmp fitting the TMP_SUFFIX list
+    for ext in TMP_SUFFIX:
+        for file in TMP_PATH.glob(f'*{ext}'):
+            file.unlink()
 
 
 ##############################
@@ -776,6 +805,8 @@ if __name__ == '__main__':
         for warning in err.warnings:
             logfile.write(f"+ {warning} \n")
 
+    # Clean up D:/ and tmp
+    cleanD()
     
     # Close tkinter window
     window.destroy()
