@@ -671,5 +671,5 @@ function main()
     }
 
     // Close up shop
-    shutDown();
+    //shutDown();
 }
