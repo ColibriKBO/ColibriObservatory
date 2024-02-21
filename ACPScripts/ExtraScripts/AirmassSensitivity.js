@@ -21,12 +21,12 @@ var elevationLimit = 10; // minimum elevation of field in degrees
 var runUnsafe = false; // if true, will disable weather checks
 
 // Scheduler Lists
-var airmassList = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]; // list of airmasses to observe
+var airmassList = [1.0001, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]; // list of airmasses to observe
 var exposureList = [25, 33, 50, 100, 200]; // list of exposure times to use (in ms)
 
 // Misc Variables
-var azimuthTarget = 180; // azimuth of target in degrees
-var observationTime = 10000; // time to observe in milliseconds
+var azimuthTarget = 270; // azimuth of target in degrees
+var observationTime = 60000; // time to observe in milliseconds
 
 /*-------------------------------functions-----------------------------------*/
 
@@ -636,13 +636,12 @@ function main()
             continue;
         }
 
-        // Slew to target
-        gotoAltAz(elevation, azimuthTarget);
-
         // Iterate over all exposures in the exposure list
-        var runCounter = 1;
         for (j=0; j<exposureList.length-1; j++)
         {
+
+            // Slew to target
+            gotoAltAz(elevation, azimuthTarget);
 
             // Calculate number of images to take
             var numExposures = Math.floor(observationTime/exposureList[j]);
@@ -659,11 +658,11 @@ function main()
                 while (Util.IsTaskActive(pid)){
                     Util.WaitForMilliseconds(500)
                 }
-                Console.PrintLine("Done exposing run # " + runCounter.toString())
+                Console.PrintLine("Done exposing run # " + j.toString())
             }
             catch(err)
             {
-                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
+                Console.PrintLine("Didn't expose properly on run # " + j.toString() + " Process ID doesn't exist!")
                 Console.PrintLine(err)
             }
         
