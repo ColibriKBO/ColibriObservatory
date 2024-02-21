@@ -22,6 +22,7 @@
 
 var elevationLimit = 10; // minimum elevation of field in degrees
 var runUnsafe = false; // if true, will disable weather checks
+var numCorrections = 1;
 
 /*-------------------------------functions-----------------------------------*/
 
@@ -294,8 +295,6 @@ function gotoRADec(ra, dec)
         break breakme;
     }
 
-    Console.Printline("Checkpoint")
-
     // Check that the telescope is tracking
     trkOnAttempt = 0;
     while (!Telescope.Tracking)
@@ -311,8 +310,6 @@ function gotoRADec(ra, dec)
             Util.AbortScript();
         }
     }
-    Console.Printline("Checkpoint")
-
 
     // Check that the dome is tracking
     Dome.UnparkHome()
@@ -320,8 +317,6 @@ function gotoRADec(ra, dec)
     {
         Dome.slave == true
     }
-    Console.Printline("Checkpoint")
-
 
     // Try to slew to the target coordinates
     slewToStatus = false;
@@ -330,8 +325,6 @@ function gotoRADec(ra, dec)
     {
         try
         {
-            Console.Printline("Checkpoint")
-
             Telescope.SlewToCoordinates(ra.toFixed(4), dec.toFixed(4));
             Console.PrintLine("Done slewing.");
             slewToStatus = true;
@@ -528,7 +521,10 @@ function main()
     gotoRADec(RA, DEC);
 
     // Adjust pointing
-    adjustPointing(RA, DEC);
+    for (i=0; i<numCorrections; i++)
+    {
+        adjustPointing(RA, DEC);
+    }
 
     // End of script
     Console.PrintLine("Dome is done slewing and telescope is at target. End of script.")
