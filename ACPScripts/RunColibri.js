@@ -589,11 +589,13 @@ function gotoRADec(ra, dec)
 {
     Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
     Console.Printline("Dec in gotoRADec function " + dec);
-    Console.Printline("Elevation of field " + ct.Elevation.toFixed(4));
 
     targetCt = Util.NewCThereAndNow()
     targetCt.RightAscension = ra
     targetCt.Declination = dec
+
+    // Print target elevation to screen
+    Console.Printline("Elevation of field " + targetCt.Elevation.toFixed(4));
 
     breakme: if (targetCt.Elevation < elevationLimit)
     {
