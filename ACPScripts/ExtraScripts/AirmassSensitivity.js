@@ -624,7 +624,7 @@ function main()
 
     // Iterate over all airmasses in the airmass list and all exposures in the
     // exposure list.
-    for (i=0; i<airmassList.length-1; i++)
+    for (i=0; i<airmassList.length; i++)
     {
         // Calculate elevation of target
         var elevation = airmassToElevation(airmassList[i]);
@@ -637,7 +637,7 @@ function main()
         }
 
         // Iterate over all exposures in the exposure list
-        for (j=0; j<exposureList.length-1; j++)
+        for (j=0; j<exposureList.length; j++)
         {
 
             // Slew to target
