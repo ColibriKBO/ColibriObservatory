@@ -23,6 +23,8 @@
 var elevationLimit = 10; // minimum elevation of field in degrees
 var runUnsafe = false; // if true, will disable weather checks
 var numCorrections = 1;
+var tolerance = 0.005; // required accuracy in degrees
+var tolsqr = Math.pow(tolerance, 2); // tolerance squared; don't change this
 
 /*-------------------------------functions-----------------------------------*/
 
@@ -380,7 +382,7 @@ function adjustPointing(ra, dec)
 
     // Calculate new RA and Dec pointing
     // Convert RA to hms
-    new_ra = (ra + parseFloat(radec_offset[0]))/15;
+    new_ra = (ra + Math.cos(dec)*parseFloat(radec_offset[0]))/15;
     new_dec = dec + parseFloat(radec_offset[1]);
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
 
@@ -417,8 +419,17 @@ function adjustPointing(ra, dec)
     {gotoRADec(new_ra, new_dec)};
     */
 
-    // Call gotoRADec() to slew to new pointing
-    gotoRADec(new_ra, new_dec);
+    // Check that new pointing is within tolerance
+    var pointingError = Math.pow(Math.cos(dec)*radec_offset[0], 2) + Math.pow(radec_offset[1], 2);
+
+    if (pointingError > tolsqr)
+    {
+        Console.PrintLine("New pointing is not within tolerance. Iterating again.");
+
+        // Call gotoRADec() to slew to new pointing
+        gotoRADec(new_ra, new_dec);
+        adjustPointing(ra, dec)
+    }
 
 }
 
@@ -520,11 +531,8 @@ function main()
     // Slew to coordinates
     gotoRADec(RA, DEC);
 
-    // Adjust pointing
-    for (i=0; i<numCorrections; i++)
-    {
-        adjustPointing(RA, DEC);
-    }
+    // Adjust pointing iteratively until within tolerance
+    adjustPointing(RA, DEC);
 
     // End of script
     Console.PrintLine("Dome is done slewing and telescope is at target. End of script.")
