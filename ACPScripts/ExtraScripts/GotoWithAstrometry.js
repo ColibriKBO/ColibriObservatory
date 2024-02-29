@@ -22,6 +22,7 @@
 
 var elevationLimit = 10; // minimum elevation of field in degrees
 var runUnsafe = false; // if true, will disable weather checks
+var numCorrections = 1;
 
 /*-------------------------------functions-----------------------------------*/
 
@@ -277,12 +278,14 @@ function gotoRADec(ra, dec)
     // Print input coordinates to screen
     Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
     Console.Printline("Dec in gotoRADec function " + dec);
-    Console.Printline("Elevation of field " + ct.Elevation.toFixed(4));
 
     // Create a new coordinate object with the input coordinates
     targetCt = Util.NewCThereAndNow()
     targetCt.RightAscension = ra
     targetCt.Declination = dec
+
+    // Print target elevation to screen
+    Console.Printline("Elevation of field " + targetCt.Elevation.toFixed(4));
 
     // Check that the elevation of the field is above the elevation limit
     breakme: if (targetCt.Elevation < elevationLimit)
@@ -318,7 +321,7 @@ function gotoRADec(ra, dec)
     // Try to slew to the target coordinates
     slewToStatus = false;
     slewToAttempt = 0;
-    while (!slewToStatus);
+    while (!slewToStatus)
     {
         try
         {
@@ -429,7 +432,7 @@ function adjustPointing(ra, dec)
 function userInputRADEC()
 {
     // Take user input for coordinates
-    var RA  = parseFloat(Util.Prompt("RA coordinate (in decimal degrees):  ", "NaN"));
+    var RA  = parseFloat(Util.Prompt("RA coordinate (in decimal hours):  ", "NaN"));
     var DEC = parseFloat(Util.Prompt("Dec coordinate (in decimal degrees): ", "NaN"));
     Console.PrintLine("RA: " + RA + " DEC: " + DEC);
 
@@ -439,7 +442,7 @@ function userInputRADEC()
         throw new Error("Coordinates could not be parsed. Exiting.");
         Util.AbortScript();
     }
-    else if (RA < 0 || RA > 360 || DEC < -90 || DEC > 90)
+    else if (RA < 0 || RA > 24 || DEC < -90 || DEC > 90)
     {
         throw new Error("Coordinates exceed expected bounds. Exiting.");
         Util.AbortScript();
@@ -507,6 +510,7 @@ function main()
     // Connect to telescope and open the dome
     connectScope();
     domeOpen();
+    trkOff()
 
     // Ask user for coordinates
     var coordinates = userInputRADEC();
@@ -517,7 +521,10 @@ function main()
     gotoRADec(RA, DEC);
 
     // Adjust pointing
-    adjustPointing(RA, DEC);
+    for (i=0; i<numCorrections; i++)
+    {
+        adjustPointing(RA, DEC);
+    }
 
     // End of script
     Console.PrintLine("Dome is done slewing and telescope is at target. End of script.")
