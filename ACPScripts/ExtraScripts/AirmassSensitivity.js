@@ -619,6 +619,28 @@ function main()
     domeOpen()
     trkOff()
 
+    // Take image
+    Console.PrintLine("Collecting darks...")
+    pid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p DARK -e 25 -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
+    
+    Console.PrintLine("Process ID = " + pid.toString())
+    Util.WaitForMilliseconds(10000)
+
+    try
+    {
+        while (Util.IsTaskActive(pid)){
+            Util.WaitForMilliseconds(500)
+        }
+        Console.PrintLine("Done exposing run # " + j.toString())
+    }
+    catch(err)
+    {
+        Console.PrintLine("Didn't expose properly on run # " + j.toString() + " Process ID doesn't exist!")
+        Console.PrintLine(err)
+    }
+
+
+
 
     /*------------------------Begin Script Operations------------------------*/
 
