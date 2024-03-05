@@ -1091,7 +1091,7 @@ fieldInfo = [
 
 if (logconsole == true)
 {
-    Console.LogFile = "d:\\Logs\\ACP\\" + currentDate + "-ACPconsole.log";
+    Console.LogFile = "d:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-ACPconsole.log";
     Console.Logging = true;
 }
 
