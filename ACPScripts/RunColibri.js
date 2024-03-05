@@ -395,7 +395,7 @@ function domeOpen()
         Console.PrintLine("There was a problem with the shutter control...")
         break;
     }
-monitor
+
     // Home the dome if not already done.
     if (!Dome.AtHome)
     {
@@ -690,19 +690,16 @@ function adjustPointing(ra, dec)
     var python_output = "";
     var shell_runtime = 0;
 
-    while (BS.Status != 1)
+    while ((BS.Status != 1) && (!BS.StdOut.AtEndOfStream))
     {
+        python_output += BS.StdOut.Read(1);
+
         if (shell_runtime > astrometryTimeout)
         {
             Console.PrintLine("Astrometry correction timed out after " + astrometryTimeout + " seconds. Continuing with current pointing.");
             ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out after " + astrometryTimeout + " seconds. Continuing with current pointing.");
             BS.Terminate();
             return;
-        }
-
-        while(!BS.StdOut.AtEndOfStream)
-        {
-            python_output += BS.StdOut.Read(1);
         }
         Util.WaitForMilliseconds(100);
         shell_runtime += 100;
