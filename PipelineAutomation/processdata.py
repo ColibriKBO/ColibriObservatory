@@ -280,14 +280,14 @@ if __name__ == '__main__':
 ## Dark & Sensitivity Calculations
 ##############################
 
-    # Run image bias stat calculations
-    print('\nStarting bias stat calculations...')
+    # Run image dark stat calculations
+    print('\nStarting dark stat calculations...')
 
-    biasstat_program = str(scripts / 'image_stats_bias.py')
-    biasstat_list = ['python', biasstat_program, '-d obsYMD']
-    process_time = subprocessLoop(dirlist,biasstat_list,'biasprocess.txt',repro=repro)
+    darkstat_program = str(scripts / 'image_stats_dark.py')
+    darkstat_list = ['python', darkstat_program, '-d obsYMD']
+    process_time = subprocessLoop(dirlist,darkstat_list,'darkprocess.txt',repro=repro)
     t.append(process_time)
-    print(f"Completed bias image stats in {process_time} seconds",file=sys.stderr)
+    print(f"Completed dark image stats in {process_time} seconds",file=sys.stderr)
     
     # Run sensitivity calculations
     print('\nStarting sensitivity calculations...')
