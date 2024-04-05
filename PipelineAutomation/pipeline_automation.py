@@ -54,7 +54,7 @@ NICE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 # GitHub Script Repository
 GITHUB = pathlib.Path('~', 'Documents', 'GitHub').expanduser()
-SCRIPTS = GITHUB / 'ColibriPipeline'
+SCRIPTS = GITHUB / 'ColibriPipeline' / 'ColibriPipeline'
 EMAIL_SCRIPT = GITHUB / 'ColibriEmail' / 'email_timeline.py'
 
 # Computer name

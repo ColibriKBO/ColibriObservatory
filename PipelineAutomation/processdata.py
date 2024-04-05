@@ -210,7 +210,7 @@ if __name__ == '__main__':
         datadir = 'd:\\ColibriData\\' + obs_date + '\\'
 
     # GitHub Script Repository
-    scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline').expanduser()
+    scripts = pathlib.Path('~', 'Documents', 'GitHub', 'ColibriPipeline', 'ColibriPipeline').expanduser()
 
     # Timing array
     t = []
