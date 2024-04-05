@@ -161,19 +161,19 @@ function darkCollection(today) {
     // var today = getDate();
     // Console.Printline(today.toString());
 
-    Console.PrintLine("Starting bias frame collection...");
-    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
+    Console.PrintLine("Starting dark frame collection...");
+    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Dark");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Bias_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Bias");
+    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
     while (Util.IsTaskActive(tid))
     {
         Util.WaitForMilliseconds(500)
-        // Console.PrintLine("Collecting bias frames...")
+        // Console.PrintLine("Collecting dark frames...")
     }
 
     // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
     Util.WaitForMilliseconds(100)
-    Console.PrintLine("Finished collecting bias frames...");
+    Console.PrintLine("Finished collecting dark frames...");
 }
 
 ///////////////////////////
@@ -1012,7 +1012,7 @@ var timestep = 1.0; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
-var biasInterval = 15 // Number of minutes between bias series collection
+var darkInterval = 15 // Number of minutes between dark series collection
 
 
 // Iterables
@@ -1303,17 +1303,17 @@ function main()
 /*-----------------------------Observing Plan--------------------------------*/
 
 
-	// Create directory for tonight's data and collect bias frames
+	// Create directory for tonight's data and collect dark frames
 	if (firstRun = true)
     {
         var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
         // Console.Logging = false
         // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
         // Console.Logging = true
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Bias")
+        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark")
         Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
         ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
-        //Console.PrintLine("Collecting bias frames...")
+        //Console.PrintLine("Collecting dark frames...")
         firstRun = false
     }
 
@@ -1684,7 +1684,7 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
 
         // Iterables
-        biasCounter = biasInterval // Set equal to interval so that bias set is collected on first run
+        darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
         runCounter = 1
 
         while (Util.SysJulianDate < endJD)
@@ -1731,14 +1731,14 @@ function main()
             }
             else { Console.PrintLine("Already on the right side of the pier"); }
 
-            // Collect biases when biasInterval is reached
-            if (biasCounter == biasInterval)
+            // Collect darkes when darkInterval is reached
+            if (darkCounter == darkInterval)
             {
                darkCollection(today) 
-               biasCounter = 0
+               darkCounter = 0
             }
-            biasCounter++
-            Console.PrintLine("Bias counter = " + biasCounter.toString())
+            darkCounter++
+            Console.PrintLine("Dark counter = " + darkCounter.toString())
 
             // Start grabbing images
             pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())

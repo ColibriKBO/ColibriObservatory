@@ -132,7 +132,7 @@ def getDirSize(dir_name):
 
 def prepareData(eval_img_size=False):
     """
-    Clean invalid data directories and bias directories. Assessment done based
+    Clean invalid data directories and dark directories. Assessment done based
     on the number of files in the directory and optionally image size.
     
     Args:
@@ -146,7 +146,7 @@ def prepareData(eval_img_size=False):
 
     # Define minimum sizes
     min_images = 100
-    min_biases = 9
+    min_darkes = 9
     image_size = 12_583_296 # size in bytes of a 2048x2048x12-bit image plus header
 
     # Clean thumbs.db files
@@ -168,14 +168,14 @@ def prepareData(eval_img_size=False):
             if min_dir.is_file():
                 continue
 
-            # If the directory is a bias directory, check for the minimum
-            # number of biases.
-            elif 'Bias' in min_dir.name:
-                for bias_dir in min_dir.iterdir():
-                    num_images = len(list(bias_dir.iterdir()))
-                    if num_images < min_biases:
-                        err.addError(f"WARNING: {bias_dir} contains {num_images} biases and will be deleted!")
-                        shutil.rmtree(bias_dir)
+            # If the directory is a dark directory, check for the minimum
+            # number of darkes.
+            elif 'Dark' in min_dir.name:
+                for dark_dir in min_dir.iterdir():
+                    num_images = len(list(dark_dir.iterdir()))
+                    if num_images < min_darkes:
+                        err.addError(f"WARNING: {dark_dir} contains {num_images} darkes and will be deleted!")
+                        shutil.rmtree(dark_dir)
 
                 continue
 
@@ -526,7 +526,7 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
     raw_processes = {
             'colibri_main_py3': ['d:/', slashDate(obsdate), f'-s {sigma_threshold}'],
             'coordsfinder': [f'-d {slashDate(obsdate)}'],
-            'image_stats_bias': [f'-d {slashDate(obsdate)}'],
+            'image_stats_dark': [f'-d {slashDate(obsdate)}'],
             'sensitivity': [f'-d {slashDate(obsdate)}']
                     }
     

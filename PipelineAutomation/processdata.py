@@ -78,10 +78,10 @@ def subprocessLoop(dir_list,subprocess_list,stop_file,
             print('Root directory excluded')
         elif dirsplit[-1] == 'ColibriData':
             print('ColibriData directory excluded')
-        elif dirsplit[-1] == 'Bias':
-            print('Bias directory excluded')
-        elif dirsplit[0].split('\\')[-1] == 'Bias':
-            print('Bias subdirectory excluded.')
+        elif dirsplit[-1] == 'Dark':
+            print('Dark directory excluded')
+        elif dirsplit[0].split('\\')[-1] == 'Dark':
+            print('Dark subdirectory excluded.')
             
         # Found valid data directory
         else:
@@ -229,7 +229,7 @@ if __name__ == '__main__':
     # Check all of the files in the remainining directories to ensure that all files are the right size.
     for root, dirs, files in os.walk(datadir):
         
-        if root != datadir and os.path.split(root)[-1] != 'Bias' and len(os.path.split(root)[-1]) != 8:
+        if root != datadir and os.path.split(root)[-1] != 'Dark' and len(os.path.split(root)[-1]) != 8:
             if is_dir_too_small(root, 9):
                 #print('Dir is too small')
                 print('Removing directory %s' % root)
@@ -277,7 +277,7 @@ if __name__ == '__main__':
         
 
 ##############################
-## Bias & Sensitivity Calculations
+## Dark & Sensitivity Calculations
 ##############################
 
     # Run image bias stat calculations

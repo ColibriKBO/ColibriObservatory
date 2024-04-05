@@ -22,10 +22,10 @@ for d in dirlist:
 
 	if len(dirlist[1]) == 0:
 		print('Root directory excluded')
-	elif dirlist[-1] == 'Bias':
-		print('Bias directory excluded')
-	elif dirlist[0].split('\\')[-1] == 'Bias':
-		print('Bias subdirectory excluded.')
+	elif dirlist[-1] == 'Dark':
+		print('Dark directory excluded')
+	elif dirlist[0].split('\\')[-1] == 'Dark':
+		print('Dark subdirectory excluded.')
 	else:
 		if os.path.isfile(os.path.join(d, '1process.txt')) and repro == False:
 			# print(os.path.join(root, '1process.txt'))
