@@ -88,6 +88,6 @@ function main()
 	ts.WriteLine(Util.SysUTCDate + " ALERT: ###########################");
 	// ts.WriteBlankLines(2);
 
-	Util.ChainScript("RunColibri.js");
+	Util.ChainScript("toni_test.js");
 	Util.WaitForMilliseconds(3000);
 }
