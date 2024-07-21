@@ -703,15 +703,23 @@ function adjustPointing(ra, dec)
     var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
 
-    while(BS.Status != 1)
-    {
-        while(!BS.StdOut.AtEndOfStream)
-        {
+    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+    var start = new Date().getTime();
+    var timeout = 300000; // Timeout in milliseconds (5 minutes)
+
+    // Added an escape here in case the Python script hangs.
+    while (BS.Status != 1) { 
+        while (!BS.StdOut.AtEndOfStream) {
             python_output += BS.StdOut.Read(1);
         }
         Util.WaitForMilliseconds(100);
-    };
 
+        if (new Date().getTime() - start > timeout) {
+            Console.PrintLine("Python script timed out.");
+            ts.WriteLine(Util.SysUTCDate + " ERROR: Python script timed out.");
+            return;
+        }
+    }
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
     var radec_offset = py_lines[py_lines.length-2].split(" ");
