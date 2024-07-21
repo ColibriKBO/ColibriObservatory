@@ -31,6 +31,7 @@ from astropy.io.fits import Header
 from astropy import wcs
 from pathlib import Path
 from astropy.coordinates import Angle,EarthLocation,SkyCoord
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Custom Imports
 
@@ -348,6 +349,16 @@ def getLocalSolution(image_file, save_file, order):
     wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
     return wcs_header
 
+def solve_image_parallel(image_file, save_file, order):
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(getLocalSolution, image_file, save_file, order)
+        try:
+            wcs_header = future.result(timeout=300)
+            return wcs_header
+        except Exception as e:
+            verboseprint(f"Astrometry solution failed: {e}")
+            raise
+
 
 def getSolution(image_file, save_file, order):
     '''send request to solve image from astrometry.net
@@ -367,6 +378,7 @@ def getSolution(image_file, save_file, order):
             
     return wcs_header
 
+def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attempt_backup=True):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
     Required to have a list of median-combined images (median_combos)
@@ -577,7 +589,7 @@ if __name__ == '__main__':
     # Get the WCS solution for the reference image
     verboseprint("Getting WCS solution for reference image...")
     try:
-        ref_wcs = getWCSTransform(FITS_path, attempt_backup=False)
+        ref_wcs = solve_image_parallel(FITS_path, 'astr_corr.fits', 4)
     except Exception as e:
         verboseprint(f"WARNING: 'Error: {e}' caused wcs transform to fail. \nBackup solution is currently disabled.")
         print("0.0 0.0")

@@ -16,7 +16,7 @@ for ra, dec in fields:
     start_time = time.time()
     print(f"Testing field: RA={ra}, DEC={dec}, -test")
     result = subprocess.run(
-        ['python', 'astrometry_correction.py', str(ra), str(dec)],
+        ['python', 'astrometry_correction.py', '-t', str(ra), str(dec)],
         capture_output=True,
         text=True
     )
