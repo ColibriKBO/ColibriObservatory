@@ -18,12 +18,12 @@
 // Date      Who    Description
 // --------- ---    --------------------------------------------------
 // 15/04/20  mjm    Creation of script. Basic functions (trkOff, trkOn, domeOpen,
-//					domeClose, domeHome, getRADEC)
-// ???-???   rg 	Nautical twilight, field determination, moon offset
-//					Functions: gotoRADec, gotoAltAz, biasCollection
-// ??/??/??  mjm 	Running aa.exe and extracting output, add String.prototype.trim
+//                  domeClose, domeHome, getRADEC)
+// ???-???   rg     Nautical twilight, field determination, moon offset
+//                  Functions: gotoRADec, gotoAltAz, biasCollection
+// ??/??/??  mjm    Running aa.exe and extracting output, add String.prototype.trim
 // 02/04/21  mjm    Auto directory creation and file naming
-// 24/06/21  mjm 	Added abort() function
+// 24/06/21  mjm    Added abort() function
 // 14/07/21  mjm    Added new moon check
 // 09/11/21  mjm    Added code to grab biases every n minutes
 // 11/11/21  mjm    Cleaned up print statements and checked for proper field selection
@@ -34,7 +34,8 @@
 // 31/10/22 mjm     Added free space check
 
 var SUP;
-
+var ForReading = 1;
+var ForAppending = 8;
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -126,29 +127,66 @@ function alert(){
     abort()
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//This function appends the ColibriGrab log file to the ACP log file and then deletes it afterwards
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile) {
+    try {
+        if (fso.FileExists(colibriLogFile)) {
+            var colibriLog = fso.OpenTextFile(colibriLogFile, ForReading, false);
+            
+            while (!colibriLog.AtEndOfStream) {
+                var logLine = colibriLog.ReadLine();
+                ts.WriteLine(Util.SysUTCDate + " " + logLine);
+            }
+
+            colibriLog.Close();
+
+            // Delete the ColibriGrab log file after appending its contents
+            fso.DeleteFile(colibriLogFile);
+            Console.PrintLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+        } else {
+            Console.PrintLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
+            ts.WriteLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
+        }
+    } catch (e) {
+        Console.PrintLine(Util.SysUTCDate + " ERROR: " + e.message);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
+    }
+}
+
 ////////////////////////////////////////////////////
 // Does the dirty work of collecting bias data.
 // RG
 // MJM - Added naming of directory to today's date
 ////////////////////////////////////////////////////
-function biasCollection(today) {
-    var tid;
+function biasCollection(today, LogFile) {
+    // Get the user's home directory and construct the path to ColibriGrab.exe in Github!
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
     // var today = getDate();
     // Console.Printline(today.toString());
 
     Console.PrintLine("Starting bias frame collection...");
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
-    while (Util.IsTaskActive(tid))
-    {
-        Util.WaitForMilliseconds(500)
-        // Console.PrintLine("Collecting bias frames...")
-    }
+    
+
+    var wsh = new ActiveXObject("WScript.Shell");
+    var command = "\"" + colibriGrabPath + "\" -n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias";
+    Console.PrintLine('Executing command: ' + command);       
+    // Run ColibriGrab.exe
+    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
+    //var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+    // tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
 
     // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
     Util.WaitForMilliseconds(100)
     Console.PrintLine("Finished collecting bias frames...");
+    // Append and delete ColibriGrab log to ACP log after collecting bias frames
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
 ////////////////////////////////////////////////////
@@ -156,24 +194,29 @@ function biasCollection(today) {
 // RG
 // MJM - Added naming of directory to today's date
 ////////////////////////////////////////////////////
-function darkCollection(today) {
-    var tid;
+function darkCollection(today, Logfile) {
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
     // var today = getDate();
     // Console.Printline(today.toString());
 
     Console.PrintLine("Starting dark frame collection...");
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Dark");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
-    while (Util.IsTaskActive(tid))
-    {
-        Util.WaitForMilliseconds(500)
-        // Console.PrintLine("Collecting dark frames...")
-    }
 
-    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
+    var wsh = new ActiveXObject("WScript.Shell");
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+    //tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
+
+    wsh.Run(command, 1, true);
+
+
+    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");AAAAAAaaaaaAAAAAAAAAAAAaaaa
     Util.WaitForMilliseconds(100)
     Console.PrintLine("Finished collecting dark frames...");
+    // Append and delete ColibriGrab log to ACP log after collecting bias frames
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
 ///////////////////////////
@@ -436,64 +479,64 @@ function freeDiskSpace()
 //////////////////////////////
 function getDate()
 {
-	var d, s, month, day;
-	
-	d = new Date();
-	s = d.getUTCFullYear();
-	
-	month = (d.getUTCMonth()+1).toString()
-	day   = (d.getUTCDate()).toString()
+    var d, s, month, day;
+    
+    d = new Date();
+    s = d.getUTCFullYear();
+    
+    month = (d.getUTCMonth()+1).toString()
+    day   = (d.getUTCDate()).toString()
 
-	if (month.length == 1)
-	{
-		s += "0" + month;
-	}
-	else
-	{
-		s += month;
-	}
+    if (month.length == 1)
+    {
+        s += "0" + month;
+    }
+    else
+    {
+        s += month;
+    }
 
-	if (day.toString().length == 1)
-	{
-		s += "0" + day;
-	}
-	else
-	{
-		s += day;
-	}
-	return(s)
+    if (day.toString().length == 1)
+    {
+        s += "0" + day;
+    }
+    else
+    {
+        s += day;
+    }
+    return(s)
 }
 
 function JDtoUTC(JulianDate)
 {
-	var s, month, day;
+    var s, month, day;
 
-	var millis = (JulianDate - 2440587.5) * 86400000
-	var toUTC = new Date(millis)
-	
-	s = toUTC.getUTCFullYear();
-	
-	month = (toUTC.getUTCMonth()+1).toString()
-	day   = (toUTC.getUTCDate()).toString()
+    var millis = (JulianDate - 2440587.5) * 86400000
+    var toUTC = new Date(millis)
+    
+    s = toUTC.getUTCFullYear();
+    
+    month = (toUTC.getUTCMonth()+1).toString()
+    day   = (toUTC.getUTCDate()).toString()
 
-	if (month.length == 1)
-	{
-		s += "0" + month;
-	}
-	else
-	{
-		s += month;
-	}
+    if (month.length == 1)
+    {
+        s += "0" + month;
+    }
+    else
+    {
+        s += month;
+    }
 
-	if (day.toString().length == 1)
-	{
-		s += "0" + day;
-	}
-	else
-	{
-		s += day;
-	}
-	return(s)
+    if (day.toString().length == 1)
+    {
+        s += "0" + day;
+    }
+    else
+    {
+        s += day;
+    }
+    return(s)
 }
 
 
@@ -503,7 +546,7 @@ function JDtoUTC(JulianDate)
 /////////////////////////////////////////////////////
 function getMoon()
 {
-	// finding moon elevation and azimuth
+    // finding moon elevation and azimuth
     Util.Console.PrintLine("== Moon Coordinates ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
     var SH = new ActiveXObject("WScript.Shell");
@@ -777,20 +820,20 @@ function trkOn()
 /////////////////////////////////////////////////////
 function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and start (sunset) times as JD
 {
-	lat = Telescope.SiteLatitude
-	lon = Telescope.SiteLongitude
-	n = Math.floor(jDate - 2451545.0 + 0.0008)
-	Jstar = n - (lon/360.0)
-	M = (357.5291 + 0.98560028 * Jstar) % 360
-	C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M))
-	lam = (M + C + 180 + 102.9372) % 360
-	Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam))
-	sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44))
-	cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)))
-	Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360
-	Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360
+    lat = Telescope.SiteLatitude
+    lon = Telescope.SiteLongitude
+    n = Math.floor(jDate - 2451545.0 + 0.0008)
+    Jstar = n - (lon/360.0)
+    M = (357.5291 + 0.98560028 * Jstar) % 360
+    C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M))
+    lam = (M + C + 180 + 102.9372) % 360
+    Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam))
+    sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44))
+    cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)))
+    Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360
+    Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360
 
-	return [Jrise, Jset]
+    return [Jrise, Jset]
 }
 
 ////////////////////////////////////////
@@ -799,20 +842,20 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 ////////////////////////////////////////
 function waitUntilSunset(updatetime)
 {
-	var currentJD = Util.SysJulianDate
-	while (currentJD < sunset)
-	{
-		Console.Clear()
-		if (currentJD > sunrise && currentJD < sunset)
-		{
-			Console.PrintLine("Sun is up")
-			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
-			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
-			Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.")
-			Util.WaitForMilliseconds(updatetime)
-			currentJD = Util.SysJulianDate
-		}
-	}
+    var currentJD = Util.SysJulianDate
+    while (currentJD < sunset)
+    {
+        Console.Clear()
+        if (currentJD > sunrise && currentJD < sunset)
+        {
+            Console.PrintLine("Sun is up")
+            Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
+            Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
+            Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.")
+            Util.WaitForMilliseconds(updatetime)
+            currentJD = Util.SysJulianDate
+        }
+    }
 }
 
 function sortFields(fieldtosort)
@@ -981,9 +1024,12 @@ function whichField(timeJD)
     
 }
 
+
+
+
 ///////////////////////////////////////////////////////////////////////////////////
 //
-// EEEE N   N DDD	   OO  FFFF   FFFF U   U N   N  CC  TTTTT I  OO  N   N  SSS
+// EEEE N   N DDD      OO  FFFF   FFFF U   U N   N  CC  TTTTT I  OO  N   N  SSS
 // E    NN  N D  D    O  O F      F    U   U NN  N C  C   T   I O  O NN  N S
 // EEE  N N N D   D   O  O FFF    FFF  U   U N N N C      T   I O  O N N N  SS
 // E    N  NN D  D    O  O F      F    U   U N  NN C  C   T   I O  O N  NN    S
@@ -1198,36 +1244,36 @@ function main()
 
     }
 
-	// Check to see if the weather server is connected. If it isn't ask for
-	// permission to continue.
-	if (Weather.Available)
-	{
-		Console.PrintLine("Weather server is connected. Continuing with operations.");
+    // Check to see if the weather server is connected. If it isn't ask for
+    // permission to continue.
+    if (Weather.Available)
+    {
+        Console.PrintLine("Weather server is connected. Continuing with operations.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather server is connected. Continuing with operations.");
-		Util.WaitForMilliseconds(3000);
-	}
-	else
-	{
-		if (Util.Confirm("No weather server! Do you want to continue? Choose wisely..."))
-		{
-			Console.PrintLine("Ok, you've chosen to proceed with no weather server. 8-O")
+        Util.WaitForMilliseconds(3000);
+    }
+    else
+    {
+        if (Util.Confirm("No weather server! Do you want to continue? Choose wisely..."))
+        {
+            Console.PrintLine("Ok, you've chosen to proceed with no weather server. 8-O")
             ts.WriteLine(Util.SysUTCDate + " WARNING: No weather server. You've chosen to proceed without. 8-O")
             ignoreWeather = true
-			Util.WaitForMilliseconds(3000)
-		}
-		else
-			abort()
-	}
+            Util.WaitForMilliseconds(3000)
+        }
+        else
+            abort()
+    }
 
-	// If the weather server is connected and the weather is not safe, wait
-	// until it becomes safe.
+    // If the weather server is connected and the weather is not safe, wait
+    // until it becomes safe.
     if (Weather.Available && !Weather.safe)
     {
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.")
     }
 
-	while (Weather.Available && !Weather.safe)
-	{
+    while (Weather.Available && !Weather.safe)
+    {
         if (getDate() != currentDate)
         {
             currentDate = getDate()
@@ -1253,10 +1299,10 @@ function main()
             // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
             // Console.Logging = true
         }
-		Console.PrintLine("Unsafe weather conditions. Waiting for 5 minutes.")
-		// abort()
+        Console.PrintLine("Unsafe weather conditions. Waiting for 5 minutes.")
+        // abort()
         Util.WaitForMilliseconds(300000)
-	}
+    }
 
     // Update currentDate variable to be correct
     if (getDate() != currentDate)
@@ -1303,8 +1349,8 @@ function main()
 /*-----------------------------Observing Plan--------------------------------*/
 
 
-	// Create directory for tonight's data and collect dark frames
-	if (firstRun = true)
+    // Create directory for tonight's data and collect dark frames
+    if (firstRun = true)
     {
         var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
         // Console.Logging = false
@@ -1734,38 +1780,63 @@ function main()
             // Collect darkes when darkInterval is reached
             if (darkCounter == darkInterval)
             {
-               darkCollection(today) 
+               darkCollection(today, LogFile) 
                darkCounter = 0
             }
             darkCounter++
             Console.PrintLine("Dark counter = " + darkCounter.toString())
 
-            // Start grabbing images
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
+            // Dynamically fetches the correct path to ColibriGrab.exe
+            var wshShell = new ActiveXObject("WScript.Shell");
+            var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+            var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+
+            // var today = getDate();
+            // Console.Printline(today.toString());
+
+            // Commands to run ColibriGrab.exe
+            var wsh = new ActiveXObject("WScript.Shell");
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString()
             
-            Console.PrintLine("Process ID = " + pid.toString())
+            Console.PrintLine('Executing command: ' + command);
+            ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
+    
+            // Run ColibriGrab.exe
+            wsh.Run(command, 1, true); 
+
             Util.WaitForMilliseconds(1000)
 
-            try
-            {
-                while (Util.IsTaskActive(pid)){
-                    Util.WaitForMilliseconds(500)
-                }
-                Console.PrintLine("Done exposing run # " + runCounter.toString())
-            }
-            catch(err)
-            {
-                ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
-                ts.WriteLine("ERROR: " + err)
-                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
-                Console.PrintLine(err)
-            }
-          
+            // Append and delete ColibriGrab log to ACP log after each run
+            appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            Console.PrintLine("Done exposing run # " + runCounter.toString())
+            ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
             runCounter++
         }
-
     }
 
-    shutDown();
-
+    shutDown();       
 }
+            // Run ColibriGrab.exe
+            //wsh.Run(command, 1, true); 
+
+
+            // Start grabbing images
+            //pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
+            
+            //Console.PrintLine("Process ID = " + pid.toString())
+            //Util.WaitForMilliseconds(1000)
+
+            // Append and delete ColibriGrab log to ACP log after each run
+            //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            C//onsole.PrintLine("Done exposing run # " + runCounter.toString())
+          
+            //runCounter++
+//        }
+
+//    }
+
+//    shutDown();
+
+//}
