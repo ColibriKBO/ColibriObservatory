@@ -339,7 +339,7 @@ def getLocalSolution(image_file, save_file, order):
     # Run the astrometry.net command from wsl command line
     subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
                      f' -N {tmp_dir + save_file} -t {order}' +\
-                     f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}'
+                     f' --scale-units arcsecperpix --scale-low 2.0 --scale-high 4.0 {image_file}'
     verboseprint(subprocess_arg)
     subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     verboseprint("Astrometry.net solution completed successfully.")
@@ -367,8 +367,6 @@ def getSolution(image_file, save_file, order):
             
     return wcs_header
 
-
-def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attempt_backup=True):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
     Required to have a list of median-combined images (median_combos)
@@ -451,7 +449,7 @@ def getRADEC_Single(transform, x, y):
     radec = transform.pixel_to_world(x, y)
     ra = radec.ra.degree
     dec = radec.dec.degree
-
+    verboseprint(f"Target coordinates: RA={ra}, DEC={dec}")
     verboseprint(f"(x,y) = ({x},{y}) -> (RA,Dec) = ({ra},{dec})")
     return ra,dec
 
@@ -517,8 +515,12 @@ if __name__ == '__main__':
     # using ColibriGrab.exe
     if args.image is None:
         # Generate a test image using ColibriGrab.exe
-        subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
-
+        colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab"
+        colibrigrab_path_home = colibrigrab_base_path_home / "ColibriGrab.exe"
+        colibrigrab_path = colibrigrab_path_home
+        # subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
+        command = f'"{colibrigrab_path}" -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\'
+        os.system(command)
         # Set the path to the reference image
         tmp_dir = BASE_PATH / 'tmp'
         tmp_dir_dirs = [d for d in tmp_dir.iterdir() if d.is_dir()]
@@ -584,9 +586,9 @@ if __name__ == '__main__':
     # Convert the central pixel of the reference image to RA/Dec
     verboseprint("Converting central pixel of reference image to RA/Dec...")
     ref_ra,ref_dec = getRADEC_Single(ref_wcs, IMG_WIDTH/2, IMG_WIDTH/2)
-
+    verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
     # Calculate the offset between the reference image and the target
-    verboseprint("Calculating offset between reference image and target...")
+    print(f"Calculating offset between reference image and target...")
     ra_offset = ra - ref_ra
     dec_offset = dec - ref_dec
     
