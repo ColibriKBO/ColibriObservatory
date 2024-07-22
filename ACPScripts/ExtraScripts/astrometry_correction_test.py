@@ -13,10 +13,13 @@ fields = [
 ]
 
 for ra, dec in fields:
+    # Convert RA from degrees to hours
+    ra_hours = ra / 15.0
+    
     start_time = time.time()
-    print(f"Testing field: RA={ra}, DEC={dec}, -test")
+    print(f"Testing field: RA={ra_hours}, DEC={dec}, -test")
     result = subprocess.run(
-        ['python', 'astrometry_correction.py', '-t', str(ra), str(dec)],
+        ['python', 'astrometry_correction.py', '-t', str(ra_hours), str(dec)],
         capture_output=True,
         text=True
     )

@@ -633,7 +633,7 @@ function gotoRADec(ra, dec)
     Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
     Console.Printline("Dec in gotoRADec function " + dec);
 
-    targetCt = Util.NewCThereAndNow()
+    targetCt = Util.NewCThereAndNow();
     targetCt.RightAscension = ra
     targetCt.Declination = dec
 
@@ -694,7 +694,7 @@ function gotoRADec(ra, dec)
 function adjustPointing(ra, dec)
 {
     // Convert RA to decimal degrees
-    ra = ra*15;
+    ra = ra * 15;
 
     // Call astrometry_correction.py to get pointing offset
     Console.PrintLine("== Pointing Correction ==");
@@ -703,7 +703,6 @@ function adjustPointing(ra, dec)
     var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
 
-    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var start = new Date().getTime();
     var timeout = 300000; // Timeout in milliseconds (5 minutes)
 
@@ -722,11 +721,10 @@ function adjustPointing(ra, dec)
     }
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
-    var radec_offset = py_lines[py_lines.length-2].split(" ");
+    var radec_offset = py_lines[py_lines.length - 2].split(" ");
 
     // Calculate new RA and Dec pointing
-    // Convert RA to hms
-    new_ra = (ra + parseFloat(radec_offset[0]))/15;
+    new_ra = (ra + parseFloat(radec_offset[0])) / 15;
     new_dec = dec + parseFloat(radec_offset[1]);
     
     // Print new pointing
@@ -750,21 +748,24 @@ function adjustPointing(ra, dec)
     }
 
     // Check that new pointing is safe
-    targetCt = Util.NewCThereAndNow()
-    targetCt.RightAscension = new_ra
-    targetCt.Declination = new_dec
+    targetCt = Util.NewCThereAndNow();
+    targetCt.RightAscension = new_ra;
+    targetCt.Declination = new_dec;
     if (targetCt.Elevation < elevationLimit)
     {
-        Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
+        Console.PrintLine("Tried to move to an unsafe elevation of " + targetCt.Elevation.toFixed(4));
         Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
     }
 
     // Call gotoRADec() to slew to new pointing
     else
-    {gotoRADec(new_ra, new_dec)};
-
+    {
+        gotoRADec(new_ra, new_dec);
+    }
 }
+
+
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
