@@ -356,7 +356,7 @@ def solve_image_parallel(image_file, save_file, order):
             wcs_header = future.result(timeout=300)
             return wcs_header
         except Exception as e:
-            verboseprint(f"Astrometry solution failed: {e}")
+            print(f"Astrometry solution failed: {e}")
             raise
 
 

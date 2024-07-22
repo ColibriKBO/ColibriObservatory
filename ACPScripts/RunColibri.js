@@ -1803,7 +1803,7 @@ function main()
             // var today = getDate();
             // Console.Printline(today.toString());
 
-            // Commands to run ColibriGrab.exe
+            // Commands to run ColibriGrab.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
             var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString()
             
@@ -1838,7 +1838,7 @@ function main()
 
             // Append and delete ColibriGrab log to ACP log after each run
             //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-            C//onsole.PrintLine("Done exposing run # " + runCounter.toString())
+            //Console.PrintLine("Done exposing run # " + runCounter.toString())
           
             //runCounter++
 //        }
