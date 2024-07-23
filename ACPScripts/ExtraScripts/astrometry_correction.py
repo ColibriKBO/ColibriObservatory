@@ -332,21 +332,35 @@ def getLocalSolution(image_file, save_file, order):
     tmp_dir = '/mnt/d/tmp/'
     image_file = convertToWSLPath(image_file)
 
-    # -D to specify write directory, -o to specify output base name, -N new-fits-filename
     verboseprint(f"Reading from {image_file} for astrometry solution.")
-    # print(save_file.split(".")[0])
-    verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
+    save_base = save_file.split('.fits')[0]
+    save_wcs_path = save_base + '.wcs'
+    save_axy_path = save_base + '.axy'
+    save_new_fits = save_base + '_solved.fits'
+    verboseprint(f"Writing WCS header to {save_wcs_path}")
 
-    # Run the astrometry.net command from wsl command line
-    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
-                     f' -N {tmp_dir + save_file} -t {order}' +\
+    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_base}' + \
+                     f' -N {tmp_dir + save_new_fits} -t {order}' + \
                      f' --scale-units arcsecperpix --scale-low 2.0 --scale-high 4.0 {image_file}'
     verboseprint(subprocess_arg)
-    subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    verboseprint("Astrometry.net solution completed successfully.")
+    result = subprocess.run(subprocess_arg, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Read the WCS header from the new output file
-    wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
+    verboseprint("Astrometry.net solution completed.")
+    verboseprint(f"stdout: {result.stdout.decode()}")
+    verboseprint(f"stderr: {result.stderr.decode()}")
+
+    wcs_file_path = f'd:\\tmp\\{save_wcs_path}'
+    if not os.path.exists(wcs_file_path):
+        # Check if .axy file exists as a troubleshooting step
+        axy_file_path = f'd:\\tmp\\{save_axy_path}'
+        if os.path.exists(axy_file_path):
+            raise FileNotFoundError(f"WCS file not found, but .axy file is present: {axy_file_path}")
+        else:
+            raise FileNotFoundError(f"WCS file not found and .axy file is not present: {wcs_file_path}")
+    else:
+        verboseprint(f"WCS file successfully written to {wcs_file_path}")
+
+    wcs_header = Header.fromfile(wcs_file_path)
     return wcs_header
 
 def solve_image_parallel(image_file, save_file, order):
@@ -386,7 +400,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
 
     Args:
         fits_filepath (str): Path to the fits file
-        file_str (str): Filename of saved WCS solution file
+        file_str (str): Filaename of saved WCS solution file
         soln_order (int): Order of the WCS solution
 
     Returns:
@@ -402,7 +416,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(str(fits_filepath), file_str, soln_order)
+        wcs_header = solve_image_parallel(str(fits_filepath), file_str, soln_order)
     except Exception as e:
         # if attempt_backup is False, raise the error
         if not attempt_backup:

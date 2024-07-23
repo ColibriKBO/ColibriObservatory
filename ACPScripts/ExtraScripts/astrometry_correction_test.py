@@ -19,12 +19,22 @@ for ra, dec in fields:
     start_time = time.time()
     print(f"Testing field: RA={ra_hours}, DEC={dec}, -test")
     result = subprocess.run(
-        ['python', 'astrometry_correction.py', '-t', str(ra_hours), str(dec)],
+        ['python', 'astrometry_correction.py', '-t',str(ra_hours), str(dec)],
         capture_output=True,
         text=True
     )
     end_time = time.time()
     
+    # Parse the output
+    output = result.stdout.strip().split()
+    if len(output) == 2:
+        ra_offset = float(output[0])
+        dec_offset = float(output[1])
+    else:
+        ra_offset = dec_offset = 0.0
+
+    print("RA Offset:", ra_offset)
+    print("Dec Offset:", dec_offset)
     print("Standard Output:", result.stdout)
     print("Error:", result.stderr)
     print("Duration: {:.2f} seconds".format(end_time - start_time))
