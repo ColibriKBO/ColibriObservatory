@@ -703,7 +703,7 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(ra, dec)
+function adjustPointing(ra, dec) 
 {
     // Convert RA to decimal degrees
     ra = ra * 15;
@@ -714,23 +714,47 @@ function adjustPointing(ra, dec)
     var SH = new ActiveXObject("WScript.Shell");
     var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
+    var python_error = "";
 
     var start = new Date().getTime();
     var timeout = 300000; // Timeout in milliseconds (5 minutes)
+    
+    Console.PrintLine("Script started at: " + start);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script started at: " + start);
 
     // Added an escape here in case the Python script hangs.
-    while (BS.Status != 1) { 
+    while (BS.Status == 0) { 
         while (!BS.StdOut.AtEndOfStream) {
             python_output += BS.StdOut.Read(1);
         }
+        while (!BS.StdErr.AtEndOfStream) {
+            python_error += BS.StdErr.Read(1);
+        }
         Util.WaitForMilliseconds(100);
 
-        if (new Date().getTime() - start > timeout) {
+        var currentTime = new Date().getTime();
+        Console.PrintLine("Current Time: " + currentTime);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Current Time: " + currentTime);
+
+        if (currentTime - start > timeout) {
             Console.PrintLine("Python script timed out.");
             ts.WriteLine(Util.SysUTCDate + " ERROR: Python script timed out.");
+            BS.Terminate();
             return;
         }
     }
+
+    var end = new Date().getTime();
+    Console.PrintLine("Script ended at: " + end);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script ended at: " + end);
+    Console.PrintLine("Script duration: " + (end - start) + " ms");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script duration: " + (end - start) + " ms");
+
+    if (python_error) {
+        Console.PrintLine("Python script error output: " + python_error);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: Python script error output: " + python_error);
+    }
+
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
     var radec_offset = py_lines[py_lines.length - 2].split(" ");
@@ -738,22 +762,18 @@ function adjustPointing(ra, dec)
     // Calculate new RA and Dec pointing
     var new_ra = (ra + parseFloat(radec_offset[0])) / 15;
     var new_dec = dec + parseFloat(radec_offset[1]);
-    
+
     // Print new pointing
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
     // Check that new pointing is reasonable
-    if (isNaN(new_ra) || isNaN(new_dec))
-    {
+    if (isNaN(new_ra) || isNaN(new_dec)) {
         Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
         return;
-    }
-
-    else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90))
-    {
+    } else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90)) {
         Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
         return;
@@ -763,16 +783,12 @@ function adjustPointing(ra, dec)
     targetCt = Util.NewCThereAndNow();
     targetCt.RightAscension = new_ra;
     targetCt.Declination = new_dec;
-    if (targetCt.Elevation < elevationLimit)
-    {
+    if (targetCt.Elevation < elevationLimit) {
         Console.PrintLine("Tried to move to an unsafe elevation of " + targetCt.Elevation.toFixed(4));
         Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
-    }
-
-    // Call gotoRADec() to slew to new pointing
-    else
-    {
+    } else {
+        // Call gotoRADec() to slew to new pointing
         gotoRADec(new_ra, new_dec);
     }
 }
@@ -989,11 +1005,11 @@ function whichField(timeJD)
     // Scan the finalFields list to identify the current field
     for (i = 0; i < finalFields.length - 1; i++)
     {
-        if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i+1][12]))
+        if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i + 1][12]))
         {
             targetJD  = finalFields[i + 1][12];
             targetDur = finalFields[i + 1][12] - timeJD;
-            targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures);
+            targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
             currField = i;
             nextField = i + 1;
             targetRA = finalFields[i][2][0];
@@ -1004,7 +1020,7 @@ function whichField(timeJD)
         }
     }
     // Check final entry in finalFields list
-    if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunrise))
+    if ((timeJD > finalFields[finalFields.length - 1][12]) && (timeJD < sunrise))
     {
         Console.PrintLine("At last field");
         ts.WriteLine(Util.SysUTCDate + " INFO: At last field");

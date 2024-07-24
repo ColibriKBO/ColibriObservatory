@@ -370,7 +370,7 @@ def solve_image_parallel(image_file, save_file, order):
     with ThreadPoolExecutor() as executor:
         future = executor.submit(getLocalSolution, image_file, save_file, order)
         try:
-            wcs_header = future.result(timeout=300)
+            wcs_header = future.result(timeout=120)
             return wcs_header
         except Exception as e:
             print(f"Astrometry solution failed: {e}")
