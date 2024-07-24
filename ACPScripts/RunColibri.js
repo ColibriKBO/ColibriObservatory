@@ -36,6 +36,7 @@
 var SUP;
 var ForReading = 1;
 var ForAppending = 8;
+var finalFields = [];
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -1523,7 +1524,7 @@ function main()
     // Push first field, then check if the following field is the same. If it
     // is, move onto the next field. Repeat until the end of the list and
     // then push the final field
-    var finalFields = [];
+    
     finalFields.push(fieldsToObserve[0]);
     for (i = 0; i<fieldsToObserve.length - 1; i++)
     {
