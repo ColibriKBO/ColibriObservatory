@@ -364,6 +364,9 @@ def getLocalSolution(image_file, save_file, order):
     return wcs_header
 
 def solve_image_parallel(image_file, save_file, order):
+    """
+    Attempt to solve using parallel processing
+    """
     with ThreadPoolExecutor() as executor:
         future = executor.submit(getLocalSolution, image_file, save_file, order)
         try:
