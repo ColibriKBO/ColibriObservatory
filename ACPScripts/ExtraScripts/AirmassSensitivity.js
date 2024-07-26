@@ -666,13 +666,11 @@ function main()
             var wsh = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
             pid = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + "-e" + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
-    
-            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
-
             Console.PrintLine("Process ID = " + pid.toString())
-            Util.WaitForMilliseconds(10000)
-
+            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             Console.PrintLine("Done exposing run # " + j.toString())
+            Util.WaitForMilliseconds(50)
+
             
         }
     }
