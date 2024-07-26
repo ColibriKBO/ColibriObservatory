@@ -48,7 +48,7 @@ function main() {
         var wsh = new ActiveXObject("WScript.Shell");
         wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
-        Util.WaitForMilliseconds(2000); // Wait for 2 seconds before next iteration
+        Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
     }
 
     Console.PrintLine('All testing done');

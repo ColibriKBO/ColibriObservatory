@@ -646,26 +646,34 @@ function main()
             // Calculate number of images to take
             var numExposures = Math.floor(observationTime/exposureList[j]);
 
+            var wshShell = new ActiveXObject("WScript.Shell");
+            var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+            var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
             // Take image
+            var wsh = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
-            
+            var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\";
+    
+            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
+
             Console.PrintLine("Process ID = " + pid.toString())
             Util.WaitForMilliseconds(10000)
 
-            try
-            {
-                while (Util.IsTaskActive(pid)){
-                    Util.WaitForMilliseconds(500)
-                }
-                Console.PrintLine("Done exposing run # " + j.toString())
-            }
-            catch(err)
-            {
-                Console.PrintLine("Didn't expose properly on run # " + j.toString() + " Process ID doesn't exist!")
-                Console.PrintLine(err)
-            }
-        
+            Console.PrintLine("Done exposing run # " + j.toString())
+
+            
+            var wsh = new ActiveXObject("WScript.Shell");
+            Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
+            pid = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + "-e" + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
+    
+            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
+
+            Console.PrintLine("Process ID = " + pid.toString())
+            Util.WaitForMilliseconds(10000)
+
+            Console.PrintLine("Done exposing run # " + j.toString())
+            
         }
     }
 

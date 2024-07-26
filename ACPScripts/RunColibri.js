@@ -609,7 +609,7 @@ function gotoAltAz(alt, az)
 
     breakme: if (ct.Elevation < elevationLimit)
     {
-        Console.PrintLine("Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
+        Console.PrintLine("Tried to move to an unsafe elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Closing up shop!");
         shutDown();
