@@ -13,8 +13,25 @@ function padZero(num) {
     return num < 10 ? '0' + num : num;
 }
 
+function executePythonScript(scriptPath) 
+{
+        try {
+            var exec = wsh.Exec(scriptPath);
+            while (!exec.StdOut.AtEndOfStream) {
+                WScript.Echo(exec.StdOut.ReadLine());
+            }
+            while (!exec.StdErr.AtEndOfStream) {
+                WScript.Echo(exec.StdErr.ReadLine());
+            }
+            exec.WaitForExit();
+            WScript.Echo("Script executed with exit code: " + exec.ExitCode);
+        } catch (e) {
+            WScript.Echo("Error: " + e.message);
+        }
+}
+
 function main() {
- /*   var initialExposure = 25; // Initial exposure time in ms
+    var initialExposure = 25; // Initial exposure time in ms
     var exposureIncrement = 5; // Exposure increment in ms
     var totalExposures = 20; // Total number of different exposures to test
     var totalCaptureTime = 60000; // Total capture time in milliseconds (1 minute)
@@ -53,18 +70,20 @@ function main() {
 
             Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
         }
-    }*/
+    }
+
+    var wsh = new ActiveXObject("WScript.Shell");
 
     // Organize directories by exposure setting
-    var organizeScript = "python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
-    var wsh = new ActiveXObject("WScript.Shell");
-    wsh.Run(organizeScript, 1, true); // 1: normal window, true: wait for completion
+    var organizeScript = "cmd /c python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
+    executePythonScript(organizeScript);
 
     // Run the GPS check script after organizing directories
-    var gpsCheckScript = "python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Checkcheck_gps.py";
-    wsh.Run(gpsCheckScript, 1, true); // 1: normal window, true: wait for completion
+    var gpsCheckScript = "cmd /c python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
+    executePythonScript(gpsCheckScript);
 
     Console.PrintLine('All testing done');
 }
 
 main();
+WScript.Quit();
