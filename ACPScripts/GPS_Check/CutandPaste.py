@@ -30,25 +30,25 @@ def organize_by_exposure(organized_dir, subdirs):
             new_subdir_path = os.path.join(exposure_dict[exposure_dir], os.path.basename(subdir))
             shutil.move(subdir, new_subdir_path)
             
-            # Move the contents of time directories up one level and delete empty parent directories
-            move_contents_up_and_delete(new_subdir_path)
-
     return exposure_dict
 
-# Function to move the contents of time directories up one level and delete the old directory
-def move_contents_up_and_delete(parent_subdir):
-    time_dirs = [os.path.join(parent_subdir, d) for d in os.listdir(parent_subdir) if os.path.isdir(os.path.join(parent_subdir, d))]
-    for time_dir in time_dirs:
-        for item in os.listdir(time_dir):
-            shutil.move(os.path.join(time_dir, item), parent_subdir)
-        # Delete the now-empty time directory
-        os.rmdir(time_dir)
-    # Delete the now-empty parent directory
-    if not os.listdir(parent_subdir):
-        os.rmdir(parent_subdir)
+# Function to move the time directories to the root exposure directory and delete old folders
+def move_time_dirs_to_root_and_cleanup(exposure_dict):
+    for exposure_dir in exposure_dict.values():
+        time_dirs = [os.path.join(exposure_dir, d) for d in os.listdir(exposure_dir) if os.path.isdir(os.path.join(exposure_dir, d))]
+        for time_dir in time_dirs:
+            new_time_dir_name = os.path.basename(time_dir).replace('msms', 'ms')
+            new_time_dir_path = os.path.join(os.path.dirname(exposure_dir), new_time_dir_name)
+            shutil.move(time_dir, new_time_dir_path)
+        # Delete the old exposure directories after moving the time directories
+        if not os.listdir(exposure_dir):
+            os.rmdir(exposure_dir)
 
 # Organize directories by exposure settings
 exposure_dict = organize_by_exposure(organized_dir, parent_subdirs)
+
+# Move the time directories to the root exposure directory and delete old folders
+move_time_dirs_to_root_and_cleanup(exposure_dict)
 
 # Verify the changes
 result = os.listdir(organized_dir)
