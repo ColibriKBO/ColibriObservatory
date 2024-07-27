@@ -16,7 +16,7 @@ function padZero(num) {
 function main() {
     var initialExposure = 25; // Initial exposure time in ms
     var exposureIncrement = 5; // Exposure increment in ms
-    var maxIterations = 100; // Maximum iterations
+    var totalExposures = 20; // Total number of different exposures to test
     var totalCaptureTime = 60000; // Total capture time in milliseconds (1 minute)
     var frameType = "dark"; // Frame type to test
     
@@ -26,8 +26,8 @@ function main() {
     var date = new Date();
     var dateString = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 
-    for (var iteration = 0; iteration < maxIterations; iteration += 25) {
-        var exposure = initialExposure + (iteration / 25) * exposureIncrement;
+    for (var exposureIndex = 0; exposureIndex < totalExposures; exposureIndex++) {
+        var exposure = initialExposure + (exposureIndex * exposureIncrement);
         var framesPerIteration = Math.floor(totalCaptureTime / exposure);
 
         for (var i = 0; i < 25; i++) {
@@ -55,7 +55,12 @@ function main() {
         }
     }
 
-    // Run the GPS check script after all iterations
+    // Organize directories by exposure setting
+    var organizeScript = "python C:\\Users\\Public\\Desktop\\CutandPaste.py";
+    var wsh = new ActiveXObject("WScript.Shell");
+    wsh.Run(organizeScript, 1, true); // 1: normal window, true: wait for completion
+
+    // Run the GPS check script after organizing directories
     var gpsCheckScript = "python C:\\Users\\Public\\Desktop\\check_gps.py";
     wsh.Run(gpsCheckScript, 1, true); // 1: normal window, true: wait for completion
 
