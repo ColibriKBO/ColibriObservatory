@@ -793,8 +793,6 @@ function adjustPointing(ra, dec)
     }
 }
 
-
-
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
@@ -1848,7 +1846,7 @@ function main()
             // Run ColibriGrab.exe
             wsh.Run(command, 1, true); 
 
-            Util.WaitForMilliseconds(1000);
+            Util.WaitForMilliseconds(50);
 
             // Append and delete ColibriGrab log to ACP log after each run
             appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
