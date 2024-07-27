@@ -14,7 +14,7 @@ function padZero(num) {
 }
 
 function main() {
-    var initialExposure = 25; // Initial exposure time in ms
+ /*   var initialExposure = 25; // Initial exposure time in ms
     var exposureIncrement = 5; // Exposure increment in ms
     var totalExposures = 20; // Total number of different exposures to test
     var totalCaptureTime = 60000; // Total capture time in milliseconds (1 minute)
@@ -53,15 +53,15 @@ function main() {
 
             Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
         }
-    }
+    }*/
 
     // Organize directories by exposure setting
-    var organizeScript = "python C:\\Users\\Public\\Desktop\\CutandPaste.py";
+    var organizeScript = "python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
     var wsh = new ActiveXObject("WScript.Shell");
     wsh.Run(organizeScript, 1, true); // 1: normal window, true: wait for completion
 
     // Run the GPS check script after organizing directories
-    var gpsCheckScript = "python C:\\Users\\Public\\Desktop\\check_gps.py";
+    var gpsCheckScript = "python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Checkcheck_gps.py";
     wsh.Run(gpsCheckScript, 1, true); // 1: normal window, true: wait for completion
 
     Console.PrintLine('All testing done');

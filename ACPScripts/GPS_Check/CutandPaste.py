@@ -16,36 +16,39 @@ def organize_by_exposure(organized_dir, subdirs):
     exposure_dict = {}
     for subdir in subdirs:
         # Extract the exposure time from the directory name
-        exposure = subdir.split('_')[1]
-        exposure_dir = os.path.join(organized_dir, exposure + "ms")
-        
-        # Create a directory for the exposure if it doesn't exist
-        if exposure_dir not in exposure_dict:
-            os.makedirs(exposure_dir, exist_ok=True)
-            exposure_dict[exposure_dir] = exposure_dir
-        
-        # Move the subdirectory into the exposure directory
-        shutil.move(subdir, exposure_dict[exposure_dir])
+        parts = os.path.basename(subdir).split('_')
+        if len(parts) > 1:
+            exposure = parts[1]
+            exposure_dir = os.path.join(organized_dir, exposure + "ms")
+            
+            # Create a directory for the exposure if it doesn't exist
+            if exposure_dir not in exposure_dict:
+                os.makedirs(exposure_dir, exist_ok=True)
+                exposure_dict[exposure_dir] = exposure_dir
+            
+            # Move the subdirectory into the exposure directory
+            new_subdir_path = os.path.join(exposure_dict[exposure_dir], os.path.basename(subdir))
+            shutil.move(subdir, new_subdir_path)
+            
+            # Move the contents of time directories up one level and delete empty parent directories
+            move_contents_up_and_delete(new_subdir_path)
 
     return exposure_dict
 
-# Function to recursively move subdirectories up one level
-def move_subdirs_up_one_level(parent_subdir):
-    sub_subdirs = [os.path.join(parent_subdir, d) for d in os.listdir(parent_subdir) if os.path.isdir(os.path.join(parent_subdir, d))]
-    for sub_subdir in sub_subdirs:
-        # Move each subdirectory to the parent directory
-        shutil.move(sub_subdir, parent_subdir)
-        
-    # Delete the now empty parent subdirectory
+# Function to move the contents of time directories up one level and delete the old directory
+def move_contents_up_and_delete(parent_subdir):
+    time_dirs = [os.path.join(parent_subdir, d) for d in os.listdir(parent_subdir) if os.path.isdir(os.path.join(parent_subdir, d))]
+    for time_dir in time_dirs:
+        for item in os.listdir(time_dir):
+            shutil.move(os.path.join(time_dir, item), parent_subdir)
+        # Delete the now-empty time directory
+        os.rmdir(time_dir)
+    # Delete the now-empty parent directory
     if not os.listdir(parent_subdir):
         os.rmdir(parent_subdir)
 
 # Organize directories by exposure settings
 exposure_dict = organize_by_exposure(organized_dir, parent_subdirs)
-
-# Iterate through each exposure directory and move its subdirectories up one level
-for exposure_dir in exposure_dict.values():
-    move_subdirs_up_one_level(exposure_dir)
 
 # Verify the changes
 result = os.listdir(organized_dir)
