@@ -26,14 +26,16 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
             # Open the detailed log file for the current exposure folder
             with open(exposure_folder / "gps_check_log.txt", "w") as log_file:
                 # Recursively search for .rcd files in the current exposure folder
-                for filepath in exposure_folder.rglob("*.rcd"):
-                    gps_lock = testGPSLock(filepath)
-                    if not gps_lock:
-                        gps_loss += 1
-                    total_images += 1
+                for subdir in exposure_folder.iterdir():
+                    if subdir.is_dir():
+                        for filepath in subdir.rglob("*.rcd"):
+                            gps_lock = testGPSLock(filepath)
+                            if not gps_lock:
+                                gps_loss += 1
+                            total_images += 1
 
-                    # Log the result for the current file
-                    log_file.write(f"File: {filepath} - GPS Lock: {gps_lock}\n")
+                            # Log the result for the current file
+                            log_file.write(f"File: {filepath} - GPS Lock: {gps_lock}\n")
 
                 # Log the summary for the current exposure folder
                 log_file.write(f"\nExposure Folder: {exposure_folder.name}\n")

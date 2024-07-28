@@ -75,11 +75,11 @@ function main() {
     var wsh = new ActiveXObject("WScript.Shell");
 
     // Organize directories by exposure setting
-    var organizeScript = "cmd /c python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
+    var organizeScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
     executePythonScript(organizeScript);
 
     // Run the GPS check script after organizing directories
-    var gpsCheckScript = "cmd /c python C:\\Users\\GreenBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
+    var gpsCheckScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
     executePythonScript(gpsCheckScript);
 
     Console.PrintLine('All testing done');
