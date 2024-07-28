@@ -71,13 +71,21 @@ function main() {
             Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
         }
     }
-
+    Console.PrintLine("Organizing directories...");
     var wsh = new ActiveXObject("WScript.Shell");
 
     // Organize directories by exposure setting
-    var organizeScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
-    executePythonScript(organizeScript);
+    var CutandPaste = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste.py";
+    wsh.Run(CutandPaste, 1, true);
 
+    var OrganizeByExposure = "python" + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\OrganizeByExposure.py";
+    var wsh = new ActiveXObject("WScript.Shell");
+    wsh.Run(OrganizeByExposure, 1, true);
+
+    var CutandPaste2 = "python" + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\CutandPaste2.py";
+    var wsh = new ActiveXObject("WScript.Shell");
+    wsh.Run(CutandPaste2, 1, true);
+    Console.PrintLine("Start GPS Checks...");
     // Run the GPS check script after organizing directories
     var gpsCheckScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
     executePythonScript(gpsCheckScript);
