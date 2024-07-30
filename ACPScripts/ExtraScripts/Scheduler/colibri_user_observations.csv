@@ -1,0 +1,4 @@
+Directory Name,RA,Dec,Num Exposures,Exposure Time,Filter,Binning
+cassiopeia,14.8583,62.1694,2400,0.025,normal,1
+orion,83.3975,5.7561,60,60,dark,2
+cygnus,305.1917,39.8850,10,5,biased,1
