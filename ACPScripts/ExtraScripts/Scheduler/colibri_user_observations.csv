@@ -1,4 +1,4 @@
-Directory Name,RA,Dec,Num Exposures,Exposure Time,Filter,Binning
-cassiopeia,14.8583,62.1694,2400,0.025,normal,1
-orion,83.3975,5.7561,60,60,dark,2
-cygnus,305.1917,39.8850,10,5,biased,1
+Directory Name,Priority,RA,Dec,Start Time,End Time,Num Exposures,Exposure Time,Filter,Binning,Completion
+cassiopeia,8,14.8583,62.1694,2024:07:30:23:00,2024:07:31:05:00,2400,0.025,normal,1,0
+orion,2,83.3975,5.7561,2024:07:31:05:00,2024:07:31:06:15,60,60,dark,2,0
+cygnus,5,305.1917,39.8850,2024:07:30:22:00,2024:07:31:04:00,10,5,biased,1,0
