@@ -10,12 +10,12 @@ def testGPSLock(filepath):
     return gpslock
 
 # Define the root directory
-GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized\\")
+GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized1\\")
 
 # Open the summary log file in append mode
 with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
     best_exposure = None
-    lowest_gps_loss = float('inf')
+    lowest_gps_loss_ratio = float('inf')
     
     # Iterate through each exposure folder in the root directory
     for exposure_folder in GPS_CHECK_ROOT_DIR.iterdir():
@@ -48,11 +48,17 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
             summary_log_file.write(f"GPS Loss: {gps_loss} / {total_images}\n\n")
             print(f"Exposure Folder: {exposure_folder.name} - GPS Loss: {gps_loss} / {total_images}")
 
-            # Update best exposure based on GPS loss
-            if gps_loss < lowest_gps_loss:
-                lowest_gps_loss = gps_loss
+            # Calculate the GPS loss ratio
+            if total_images > 0:
+                gps_loss_ratio = gps_loss / total_images
+            else:
+                gps_loss_ratio = float('inf')  # Handle division by zero
+
+            # Update best exposure based on GPS loss ratio
+            if gps_loss_ratio < lowest_gps_loss_ratio:
+                lowest_gps_loss_ratio = gps_loss_ratio
                 best_exposure = exposure
 
     # Log the best exposure setting
-    summary_log_file.write(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss: {lowest_gps_loss}\n")
-    print(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss: {lowest_gps_loss}")
+    summary_log_file.write(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss Ratio: {lowest_gps_loss_ratio}\n")
+    print(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss Ratio: {lowest_gps_loss_ratio}")
