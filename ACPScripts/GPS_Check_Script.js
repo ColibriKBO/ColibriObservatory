@@ -31,10 +31,12 @@ function executePythonScript(scriptPath)
 }
 
 function main() {
-    var initialExposure = 25; // Initial exposure time in ms
-    var exposureIncrement = 5; // Exposure increment in ms
-    var totalExposures = 20; // Total number of different exposures to test
-    var totalCaptureTime = 60000; // Total capture time in milliseconds (1 minute)
+    //var initialExposure = 25; // Initial exposure time in ms
+    //var exposureIncrement = 1; // Exposure increment in ms
+    //var totalExposures = 1; // Total number of different exposures to test
+    var exposures = [1, 10, 25, 33, 50];
+    var totalExposures = exposures.length;
+    var totalCaptureTime = (60000 * 60); // Total capture time in milliseconds (60 minutes)
     var frameType = "dark"; // Frame type to test
     
     Console.PrintLine('ColibriGrab testing with various exposure settings');
@@ -44,10 +46,11 @@ function main() {
     var dateString = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 
     for (var exposureIndex = 0; exposureIndex < totalExposures; exposureIndex++) {
-        var exposure = initialExposure + (exposureIndex * exposureIncrement);
+        //var exposure = initialExposure + (exposureIndex * exposureIncrement);
+        var exposure = exposures[exposureIndex];
         var framesPerIteration = Math.floor(totalCaptureTime / exposure);
 
-        for (var i = 0; i < 25; i++) {
+        for (var i = 0; i < 1; i++) {
             var iterationDir = "D:\\colibrigrab_test_new\\" + dateString + "_" + exposure + "ms_" + (i + 1);
             
             var fso = new ActiveXObject("Scripting.FileSystemObject");
