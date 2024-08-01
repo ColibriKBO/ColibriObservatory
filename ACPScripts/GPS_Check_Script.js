@@ -48,7 +48,16 @@ function main() {
     for (var exposureIndex = 0; exposureIndex < totalExposures; exposureIndex++) {
         //var exposure = initialExposure + (exposureIndex * exposureIncrement);
         var exposure = exposures[exposureIndex];
-        var framesPerIteration = Math.floor(totalCaptureTime / exposure);
+
+        if (exposure == 1)
+        {
+            framesPerIteration  = 200000;
+        }
+        else
+        {
+            framesPerIteration = Math.floor(totalCaptureTime / exposure);
+        }
+       
 
         for (var i = 0; i < 1; i++) {
             var iterationDir = "D:\\colibrigrab_test_new\\" + dateString + "_" + exposure + "ms_" + (i + 1);
