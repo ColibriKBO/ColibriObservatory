@@ -34,7 +34,7 @@ function main() {
     //var initialExposure = 25; // Initial exposure time in ms
     //var exposureIncrement = 1; // Exposure increment in ms
     //var totalExposures = 1; // Total number of different exposures to test
-    var exposures = [1, 10, 25, 33, 50];
+    var exposures = [25];
     var totalExposures = exposures.length;
     var totalCaptureTime = (60000 * 60); // Total capture time in milliseconds (60 minutes)
     var frameType = "dark"; // Frame type to test
@@ -49,7 +49,7 @@ function main() {
         //var exposure = initialExposure + (exposureIndex * exposureIncrement);
         var exposure = exposures[exposureIndex];
 
-        if (exposure == 1)
+        if (exposure == 1 || exposure == 10)
         {
             framesPerIteration  = 200000;
         }
@@ -83,7 +83,7 @@ function main() {
             Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
         }
     }
-    Console.PrintLine("Organizing directories...");
+    /*Console.PrintLine("Organizing directories...");
     var wsh = new ActiveXObject("WScript.Shell");
 
     // Organize directories by exposure setting
@@ -100,7 +100,7 @@ function main() {
     Console.PrintLine("Start GPS Checks...");
     // Run the GPS check script after organizing directories
     var gpsCheckScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
-    executePythonScript(gpsCheckScript);
+    executePythonScript(gpsCheckScript);*/
 
     Console.PrintLine('All testing done');
 }

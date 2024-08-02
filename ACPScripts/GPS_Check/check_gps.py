@@ -10,7 +10,7 @@ def testGPSLock(filepath):
     return gpslock
 
 # Define the root directory
-GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized1\\")
+GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized\\")
 
 # Open the summary log file in append mode
 with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
