@@ -259,29 +259,39 @@ function openLogFile(sunset) {
 }
 
 //RunColibri Functions
-// Aborts script
-function abort(ts) {
-    Console.PrintLine("Aborting script!");
-    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!");
+// Handles script --> Combines the functionality of abort, abortAndRestart, and andRestart scripts from RunColibri
+function abort(ts, action) {
+    if (action == "abort" || action == "abortAndRestart") {
+        Console.PrintLine("Aborting script!");
+        ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!");
+        if (action == "abortAndRestart") {
+            ts.WriteLine("Restarting Script!" );
+        } 
+    } else if (action == "andRestart") {
+            Console.PrintLine("Shutting down and restarting!");
+    }
+
     shutDown();
-
-    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
+    while(Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
+        Util.WaitForMilliseconds(5000);
         Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
-        Util.WaitforMilliseconds(5000);
     }
 
-    if (Util.ScriptActive) {
-        Console.PrintLine("Aborting script...");
-        Util.AbortScript();
+    if (action == "abort" || action == "abortAndRestart") {
+        if (Util.ScriptActive) {
+            Console.PrintLine("Aborting...");
+            Util.AbortScript();
+        }
+
+        while (Util.ScriptActive) {
+            Console.PrintLine("Waiting for script to finish...");
+            Util.WaitForMilliseconds(1000);
+        }
     }
 
-    while (Util.ScriptActive) {
-        Console.PrintLine("Waiting for script to finish...");
+    if (action == "abortAndRestart" || action == "andRestart") {
+        main();
     }
-}
-
-function abortAndRestart(ts) {
-    
 }
 
 
