@@ -65,40 +65,42 @@ function getRequests() {
 
     try {
         var fso = new ActiveXObject("Scripting.FileSystemObject");
-        var file = fso.OpenTextFile("./colibri_user_observations.csv", readMode); // 1 = For Reading
+        var file = fso.OpenTextFile("./colibri_user_observations.csv", 1); // 1 = For Reading
 
         var rowCounter = 0;
-        var line;
-        var lines = []
+        var lines = [];
+        var rowData = [];
 
         while(!file.AtEndOfStream) {
             //if (rowCounter != 0) {
-                if (rowData[parseInt(indices.completion)] == 0) {
-                    var request = new Request;
-                    line = file.ReadLine();
-                    lines.push(line);
-                    var rowData = line.split(",");
+            var line = file.ReadLine();
+            lines.push(line);
+            rowData = line.split(",");
+            Console.PrintLine(rowData);
+            
+            if (rowData[parseInt(indices.completion)] == 0) {
+                var request = new Request;
+                
+                request.directoryName = rowData[parseInt(indices.directoryName)];
+                request.priority = parseInt(rowData[parseInt(indices.priority)]);
 
-                    request.directoryName = rowData[parseInt(indices.directoryName)];
-                    request.priority = parseInt(rowData[parseInt(indices.priority)]);
+                request.ra = parseFloat(rowData[parseInt(indices.ra)]);
+                request.dec = parseFloat(rowData[parseInt(indices.dec)]);
 
-                    request.ra = parseFloat(rowData[parseInt(indices.ra)]);
-                    request.dec = parseFloat(rowData[parseInt(indices.dec)]);
+                request.startUTC = rowData[parseInt(indices.startTime)];
+                request.endUTC = rowData[parseInt(indices.endTime)];
+                request.startJD = UTCtoJD(request.startUTC);
+                request.endJD = UTCtoJD(request.endUTC);
 
-                    request.startUTC = rowData[parseInt(indices.startTime)];
-                    request.endUTC = rowData[parseInt(indices.endTime)];
-                    request.startJD = UTCtoJD(request.startUTC);
-                    request.endJD = UTCtoJD(request.endUTC);
+                request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
+                request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
+                request.filter = rowData[parseInt(indices.filter)];
+                request.binning = rowData[parseInt(indices.binning)];
 
-                    request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
-                    request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
-                    request.filter = rowData[parseInt(indices.filter)];
-                    request.binning = rowData[parseInt(indices.binning)];
+                request.csvIndex = rowCounter;
 
-                    request.csvIndex = rowCounter;
-
-                    requests.push(request);
-                }
+                requests.push(request);
+            }
             //}
             rowCounter++;
         }
@@ -474,14 +476,10 @@ function darkCollection(today) {
 function connectScope()
 {
     // Check to see if telescope is connected. If not, try to connect to it.
-    if (Telescope.Connected)
-    {
+    if (Telescope.Connected) {
         Console.PrintLine("Telescope is connected!")
         trkOn()
-    }
-        
-    else
-    {
+    } else {
         Console.PrintLine("Telescope is not connected. Attempting to connect...")
         Telescope.Connected = "True"
         trkOn()
@@ -797,7 +795,9 @@ function getMoon()
     Util.Console.PrintLine("== Moon Coordinates ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
     var SH = new ActiveXObject("WScript.Shell");
+    Console.PrintLine(ACPApp.Path);
     var BS = SH.Exec(ACPApp.Path + "\\aa.exe -moon");
+    // var BS = SH.Exec()
     var coords = "";
 
     while(BS.Status != 1)
@@ -1313,19 +1313,26 @@ function main() {
     }
 
     var csvData = getRequests();
+    Console.PrintLine(csvData);
     var requests = csvData[0];
     var lines = csvData[1];
+
+    for (var i = 0; i < requests.length; i++) {
+        var request = requests[i];
+        Console.PrintLine(request.directoryName);
+    }
 
     // Begin Operations
     do {
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
 
         // Safeguard against opening before the start of the observing plan
-        while (Util.SysJulianDate < sunset) {
-            Console.PrintLine("")
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
-            Util.WaitForMilliseconds(5000)
-        }
+        // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
+        // while (Util.SysJulianDate < sunset) {
+        //     Console.PrintLine("")
+        //     Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
+        //     Util.WaitForMilliseconds(5000)
+        // }
 
         // Safeguard against opening after the end of the observing plan/sunrise
         if (Util.SysJulianDate > sunrise) {
@@ -1580,6 +1587,8 @@ function main() {
             } catch (e) {
                 Console.PrintLine("Error: " + e.message);
             }
+
+            requests.shift();
         // }
     } while (requests.length > 0);
 

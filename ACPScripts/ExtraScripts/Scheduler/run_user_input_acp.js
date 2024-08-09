@@ -18,6 +18,8 @@ function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, en
     this.binning = binning;
 
     this.csvIndex = csvIndex;
+
+    this.compareScore = function(otherRequest) {return this.score > otherRequest.score; };
 }
 
 function RequestIndices() {
@@ -50,11 +52,15 @@ function UTCtoJD(UTC) {
     var ut = H + (m / 60);
     var JD = (367 * K) - Math.trunc((7 * (K + Math.trunc((M + 9) / 12))) / 4) + Math.trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * Math.sign(100 * K + M - 190002.5)) + 0.5;
 
+    Console.PrintLine(JD);
+    Console.PrintLine(typeof(JD));
+
     return JD;
 }
 
 function getRequests() {
     var requests = [];
+    var lines = [];
     var indices = new RequestIndices();
 
     try {
@@ -62,45 +68,42 @@ function getRequests() {
         var file = fso.OpenTextFile("./colibri_user_observations.csv", 1); // 1 = For Reading
 
         var rowCounter = 0;
-        var line;
 
         while(!file.AtEndOfStream) {
-            if (rowCounter != 0) {
-                if (rowData[parseInt(indices.completion)] == 0) {
-                    var request = new Request;
-                    line = file.ReadLine();
-                    var rowData = line.split(",");
+                var line = file.ReadLine();
+                lines.push(line);
+                var rowData = line.split(",");
+                
+                if (parseInt(rowData[indices.completion]) == 0) {
+                    var request = new Request(
+                        rowData[indices.directoryName],
+                        parseInt(rowData[indices.priority]),
+                        parseFloat(rowData[indices.ra]),
+                        parseFloat(rowData[indices.dec]),
+                        rowData[indices.startTime],
+                        UTCtoJD(rowData[indices.startTime]),
+                        rowData[indices.endTime],
+                        UTCtoJD(rowData[indices.endTime]),
+                        rowData[indices.numExposures],
+                        rowData[indices.exposureTime],
+                        rowData[indices.filter],
+                        rowData[indices.binning],
+                        rowCounter
+                    );
 
-                    request.directoryName = rowData[parseInt(indices.directoryName)];
-                    request.priority = parseInt(rowData[parseInt(indices.priority)]);
-
-                    request.ra = parseFloat(rowData[parseInt(indices.ra)]);
-                    request.dec = parseFloat(rowData[parseInt(indices.dec)]);
-
-                    request.startUTC = rowData[parseInt(indices.startTime)];
-                    request.endUTC = rowData[parseInt(indices.endTime)];
-                    request.startJD = UTCtoJD(request.startUTC);
-                    request.endJD = UTCtoJD(request.endUTC);
-
-                    request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
-                    request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
-                    request.filter = rowData[parseInt(indices.filter)];
-                    request.binning = rowData[parseInt(indices.binning)];
-
-                    request.csvIndex = rowCounter;
+                    Console.PrintLine(request);
 
                     requests.push(request);
                 }
-            }
             rowCounter++;
         }
         file.Close();
-        fso = null;
+        // fso = null;
     } catch (e) {
         Console.PrintLine("An error occurred: " + e.message);
     }
 
-    return requests;
+    return [requests, lines];
 }
 
 function main() {
@@ -143,14 +146,18 @@ function main() {
     //     console.log("An error occurred: " + e.message);
     // }
 
+    var requests = getRequests()[0];
+    print(requests);
+
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
 
-        Console.PrintLine("Directory name: " + request.name);
+        Console.PrintLine("Directory name: " + request.diretoryName);
+        Console.PrintLine("Priority: " + request.priority);
         Console.PrintLine("RA: " + request.ra);
         Console.PrintLine("Dec: " + request.dec);
-        Console.PrintLine("Number of Exposures: " + request.num_exposures);
-        Console.PrintLine("Exposure Time: " + request.exposure_time);
+        Console.PrintLine("Number of Exposures: " + request.numExposures);
+        Console.PrintLine("Exposure Time: " + request.exposureTime);
         Console.PrintLine("Filter:" + request.filter);
         Console.PrintLine("Binning: " + request.binning);
 
