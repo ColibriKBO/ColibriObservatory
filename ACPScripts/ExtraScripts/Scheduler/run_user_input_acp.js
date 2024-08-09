@@ -66,11 +66,10 @@ function getRequests() {
 
         while(!file.AtEndOfStream) {
             if (rowCounter != 0) {
-                var rowData = line.split(",");
-
                 if (rowData[parseInt(indices.completion)] == 0) {
                     var request = new Request;
                     line = file.ReadLine();
+                    var rowData = line.split(",");
 
                     request.directoryName = rowData[parseInt(indices.directoryName)];
                     request.priority = parseInt(rowData[parseInt(indices.priority)]);

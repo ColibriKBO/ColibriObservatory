@@ -115,7 +115,7 @@ ttk.Label(mainframe, text="Start Time (YYYY:MM:DD:HH:mm):").grid(column=1, row=3
 ttk.Label(mainframe, text="End Time (YYYY:MM:DD:HH:mm):").grid(column=4, row=3)
 
 ttk.Label(mainframe, text="Number of Exposures:").grid(column=1, row=4)
-ttk.Label(mainframe, text="Exposure Time (seconds):").grid(column=4, row=4)
+ttk.Label(mainframe, text="Exposure Time (millseconds):").grid(column=4, row=4)
 
 ttk.Label(mainframe, text="Filter (normal, dark, or biased):").grid(column=1, row=5)
 ttk.Label(mainframe, text="Binning (1, 2, or 3):").grid(column=4, row=5)
