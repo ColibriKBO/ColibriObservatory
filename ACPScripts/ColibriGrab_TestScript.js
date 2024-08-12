@@ -17,7 +17,7 @@ function main() {
     
 
     // Number of iterations to simulate Colibri simulations
-    var iterations = 250;
+    var iterations = 25;
     var framesPerIteration = 2400;
     var frameType = "dark"; // Frame type to test
     
@@ -28,7 +28,7 @@ function main() {
     var dateString = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 
     for (var i = 0; i < iterations; i++) {
-        var iterationDir = "D:\\colibrigrab_test_new\\" + dateString + "_" + (i + 1) + "_" + frameType;
+        var iterationDir = "D:\\colibrigrab_tests\\" + dateString + "_" + (i + 1) + "_" + frameType;
         
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         if (!fso.FolderExists(iterationDir)) {
@@ -44,9 +44,8 @@ function main() {
         var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
         
         // Dynamically start ColibriGrab
-        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
-        var wsh = new ActiveXObject("WScript.Shell");
-        wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
+        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigr ab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+        wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
 
         Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
     }
