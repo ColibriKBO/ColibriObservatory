@@ -54,13 +54,24 @@ function UTCtoJD(UTC) {
     var m = parseInt(dividedUTC[4]);
 
     var ut = H + (m / 60);
-    var JD = (367 * K) - Math.trunc((7 * (K + Math.trunc((M + 9) / 12))) / 4) + Math.trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * Math.sign(100 * K + M - 190002.5)) + 0.5;
+    var JD = (367 * K) - trunc((7 * (K + trunc((M + 9) / 12))) / 4) + trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * sign(100 * K + M - 190002.5)) + 0.5;
 
     return JD;
 }
 
+function trunc(number) {
+    return parseInt(number);
+}
+
+function sign(number) {
+    if (number > 0) { return 1; }
+    else if (number < 0) { return -1; }
+    return 0;
+}
+
 function getRequests() {
     var requests = [];
+    var lines = [];
     var indices = new RequestIndices();
 
     try {
@@ -68,7 +79,7 @@ function getRequests() {
         var file = fso.OpenTextFile("./colibri_user_observations.csv", 1); // 1 = For Reading
 
         var rowCounter = 0;
-        var lines = [];
+        // var lines = [];
         var rowData = [];
 
         while(!file.AtEndOfStream) {
@@ -79,25 +90,42 @@ function getRequests() {
             Console.PrintLine(rowData);
             
             if (rowData[parseInt(indices.completion)] == 0) {
-                var request = new Request;
+
+                var request = new Request(
+                    rowData[(indices.directoryName)],
+                    parseInt(rowData[(indices.priority)]),
+                    parseFloat(rowData[(indices.ra)]),
+                    parseFloat(rowData[(indices.dec)]),
+                    rowData[(indices.startTime)],
+                    UTCtoJD(rowData[(indices.startTime)]),
+                    rowData[(indices.endTime)],
+                    UTCtoJD(rowData[(indices.endTime)]),
+                    rowData[(indices.numExposures)],
+                    rowData[(indices.exposureTime)],
+                    rowData[(indices.filter)],
+                    rowData[(indices.binning)],
+                    rowCounter
+                );
+
+                // var request = new Request;
                 
-                request.directoryName = rowData[parseInt(indices.directoryName)];
-                request.priority = parseInt(rowData[parseInt(indices.priority)]);
+                // request.directoryName = rowData[parseInt(indices.directoryName)];
+                // request.priority = parseInt(rowData[parseInt(indices.priority)]);
 
-                request.ra = parseFloat(rowData[parseInt(indices.ra)]);
-                request.dec = parseFloat(rowData[parseInt(indices.dec)]);
+                // request.ra = parseFloat(rowData[parseInt(indices.ra)]);
+                // request.dec = parseFloat(rowData[parseInt(indices.dec)]);
 
-                request.startUTC = rowData[parseInt(indices.startTime)];
-                request.endUTC = rowData[parseInt(indices.endTime)];
-                request.startJD = UTCtoJD(request.startUTC);
-                request.endJD = UTCtoJD(request.endUTC);
+                // request.startUTC = rowData[parseInt(indices.startTime)];
+                // request.endUTC = rowData[parseInt(indices.endTime)];
+                // request.startJD = UTCtoJD(request.startUTC);
+                // request.endJD = UTCtoJD(request.endUTC);
 
-                request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
-                request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
-                request.filter = rowData[parseInt(indices.filter)];
-                request.binning = rowData[parseInt(indices.binning)];
+                // request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
+                // request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
+                // request.filter = rowData[parseInt(indices.filter)];
+                // request.binning = rowData[parseInt(indices.binning)];
 
-                request.csvIndex = rowCounter;
+                // request.csvIndex = rowCounter;
 
                 requests.push(request);
             }
@@ -114,14 +142,10 @@ function getRequests() {
 }
 
 function selectBestObservation(requests, sunset, sunrise, moonCT) {
-    var suitableObs;
-    var rankedObs;
-    var bestObs;
-
-    suitableObs = filterByTime(requests, sunset, sunrise);
+    var suitableObs = filterByTime(requests, sunset, sunrise);
     suitableObs = filterByAstronomy(suitableObs, moonCT);
-    rankedObs = rankObservations(suitableObs);
-    bestObs = selectTopObservation(rankedObs);
+    var rankedObs = rankObservations(suitableObs);
+    var bestObs = selectTopObservation(rankedObs);
 
     return bestObs;
 }
@@ -160,9 +184,7 @@ function filterByAstronomy(requests, moonCT) {
 
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
-        if (meetsAstronomyConditions(request, moonCT, currLST)) {
-            filteredObs.push(request);
-        }
+        if (meetsAstronomyConditions(request, moonCT, currLST)) { filteredObs.push(request); }
     }
 
     return filteredObs;
@@ -259,6 +281,28 @@ function openLogFile(sunset) {
     Console.PrintLine("Log file ready.");
 
     return ts;
+}
+
+function updateDay(timeString) {
+    var parts = timeString.split(":");
+    var day = parseInt(parts[2]) + 1;
+    parts[2] = (day < 10 ? "0" : "") + day;
+    return parts.join(":");
+}
+
+function updateCSV(lines) {
+    try{
+        var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // 2 = writing
+        for (var i = 0; i < lines.length; i++) {
+            writeFile.WriteLine(lines[i]);
+        }
+        writeFile.Close();
+        Console.PrintLine("CSV File modified successfuly.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: CSV File modified successfuly.");
+    } catch (e) {
+        Console.PrintLine("ERROR: " + e.message);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
+    }
 }
 
 //RunColibri Functions
@@ -467,6 +511,30 @@ function darkCollection(today) {
     // Append and delete ColibriGrab log to ACP log after collectin dark frames
     appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
+
+/*
+// Does the dirty work of collecting image data given a filter.
+// Combines functionality of biasCollection and darkCollection functions.
+function imgCollection(today, filter) {
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfiel + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+    Console.PrintLine("Starting " + filter + " frame collection...");
+    Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\" + filter);
+
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p " + filter + "_25ms -e 25 -t 0 -f " + filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + filter;
+    
+    wshShell.Run(commdn, 1, true); // 1: normal window, true: wait for completion
+
+    Util.WaitForMilliseconds(100);
+    Console.PrintLine("Finished collecting " + filter + " frames...");
+
+    // Append and delete ColibriGrab log to ACP log after collecting filter frames
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+}
+
+*/
 
 ///////////////////////////
 // Function to connect the telescope
@@ -1009,18 +1077,49 @@ function adjustPointing(ra, dec)
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
 ///////////////////////////////////////////////////////////////
-function shutDown()
-{
-    trkOff()
-    Console.PrintLine("Tracking turned off. Parking telescope now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
-    Telescope.Park()
+// function shutDown()
+// {
+//     trkOff()
+//     Console.PrintLine("Tracking turned off. Parking telescope now...")
+//     ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
+//     Telescope.Park()
+//     trkOff();
+//     Console.PrintLine("Telescope parked. Closing dome now...")
+//     ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
+//     domeClose()
+//     Console.PrintLine("Dome closed. Good night/morning.")
+//     ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
+// }
+
+function shutDown() {
     trkOff();
-    Console.PrintLine("Telescope parked. Closing dome now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
-    domeClose()
-    Console.PrintLine("Dome closed. Good night/morning.")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
+    Console.PrintLine("Tracking turned off. Parking telescope now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.");
+    Telescope.Park();
+    trkOff();
+    Console.PrintLine("Telescope parked. Closing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+    domeClose();
+    Console.PrintLine("Dome closed. Good night/morning.");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.");
+
+    // Handle the case when requested observations are not completed
+    var lines = getRequests()[1];
+    for (var i = 0; i < lines.length; i++) {
+        var data = lines[i].split(",");
+        if (data[10] == 0) {
+            Console.PrintLine("Observation " + line[0] + " was not completed.");
+            ts.WriteLine(Util.SysUTCDate + " Observation " + line[0] + " was not completed.");
+            Console.PrintLine("Updating date and priority to be observed tomorrow.");
+            ts.WriteLine(Util.SysUTCDate + " Updating date and priority to be observed tomorrow.");
+
+            data[4] = updateDay(data[4]);
+            data[5] = updateDay(data[5]);
+            data[1] = parseInt(data[1]) + 1;
+        }
+    }
+    
+    updateCSV(lines);
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1567,8 +1666,8 @@ function main() {
                     var rowData = lines[bestObs.csvIndex].split(",");
 
                     // Modify data in rowData as needed
-                    var requestIndices = new RequestIndices();
-                    rowData[parseInt(requestIndices.completion)] = 1;
+                    // var requestIndices = new RequestIndices();
+                    rowData[10] = 1;
 
                     // Join modified rowData back into a CSV line
                     lines[bestObs.csvIndex] = rowData.join(",");
@@ -1576,14 +1675,15 @@ function main() {
                     Console.PrintLine("Index out of range or file is empty.");
                 }
 
-                // Write the modified data back to the file
-                var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // ForWriting (2)
-                for (var i = 0; i < lines.length; i++) {
-                    writeFile.WriteLine(lines[i]);
-                }
-                writeFile.Close();
+                updateCSV(lines);
+            //     // Write the modified data back to the file
+            //     var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // ForWriting (2)
+            //     for (var i = 0; i < lines.length; i++) {
+            //         writeFile.WriteLine(lines[i]);
+            //     }
+            //     writeFile.Close();
 
-            Console.PrintLine("CSV File modified successfully.");
+            // Console.PrintLine("CSV File modified successfully.");
             } catch (e) {
                 Console.PrintLine("Error: " + e.message);
             }
@@ -1591,8 +1691,6 @@ function main() {
             requests.shift();
         // }
     } while (requests.length > 0);
-
-
 
     shutDown();
 }
