@@ -274,14 +274,19 @@ function domeOpen() {
 }
 
 // Returns available disk space
-function freeDiskSpace() {
+function freeDiskSpace()
+{
     var AX = new ActiveXObject("WScript.Shell");
     var SE = AX.Exec(ACPApp.Path + "\\freespace.bat");
+
     var size = "";
-    size = SE.StdOut.Read(25);
-    size = size / 1000000000000;
-    return (size)
+
+    size = SE.StdOut.Read(25);   // size in bytes
+    size = size / 1000000000000; // size in TB
+
+    return(size)
 }
+
 
 // Returns date as yyyymmdd
 function getDate() {
@@ -759,6 +764,11 @@ function main()
     // Check if there is enough space for this to run
     var spaceneeded = darkHours * 3600 * 40 * 12600000 / 1000000000000;
     var freespace = freeDiskSpace();
+
+    Console.PrintLine(freespace)
+    Console.PrintLine(spaceneeded)
+
+    // Check if there is enough space for this to run
     if (freespace > spaceneeded)
     {
         Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.");
@@ -767,8 +777,17 @@ function main()
     }
     else
     {
-        abort();
+        if (Util.Confirm("You need to free up " + (spaceneeded - freespace) + " TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
+        {
+            Console.PrintLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.");
+        }
+        else
+        {
+            abort();
+        }
+
     }
+    
 
     // Add check for simulation mode
     if (!Util.Confirm("Are you running this script with the dome in simulated mode? Running this script without simulation mode could cause serious damage to the telescope. \n\nDo you confirm the dome is in simulated mode?")) {
