@@ -620,6 +620,26 @@ function main()
     trkOff()
 
 
+
+     /*-----------------------Waits for the starting time---------------------*/
+
+
+    //Waints until a determined time is reached to start. This should syncronize the telescopes.
+
+
+    startTime = 2460537.7916666665;
+    timeUntilStart = (startTime - Util.SysJulianDate) * 24; 
+    while (timeUntilStart > 0)
+        {
+            Console.PrintLine("");
+            Console.PrintLine("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.");
+            
+            Util.WaitForMilliseconds(1000);
+            timeUntilSunset = (startTime - Util.SysJulianDate) * 24; // hours
+        }
+
+
+
     /*------------------------Begin Script Operations------------------------*/
 
     // Iterate over all airmasses in the airmass list and all exposures in the
@@ -665,7 +685,7 @@ function main()
             
             var wsh = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
-            pid = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + "-e" + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
+            pid = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e" + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
             Console.PrintLine("Process ID = " + pid.toString())
             wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             Console.PrintLine("Done exposing run # " + j.toString())
@@ -676,5 +696,5 @@ function main()
     }
 
     // Close up shop
-    //shutDown();
+    shutDown();
 }

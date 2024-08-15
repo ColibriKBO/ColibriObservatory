@@ -63,6 +63,20 @@ verboseprint = lambda *a, **k: None
 
 #--------------------------------functions------------------------------------#
 
+def windows_to_wsl_path(windows_path):
+    """Convert a Windows path to a Unix-style path for WSL."""
+    windows_path = windows_path.replace('\\', '/')
+    
+    # If the path starts with a drive letter (e.g., "D:") handle it
+    if windows_path[1] == ':':
+        drive, path = os.path.splitdrive(windows_path)
+        drive = drive.lower().strip(':')  # Convert to lowercase and remove the colon
+        wsl_path = f"/mnt/{drive}/{path.lstrip('/')}"  # Ensure there is a slash after the drive letter
+    else:
+        wsl_path = windows_path
+    
+    return wsl_path
+    
 ###########################
 ## File Reading
 ###########################
@@ -310,57 +324,34 @@ def extractStars(image_data, detect_threshold):
 ###########################
 
 def getLocalSolution(image_file, save_file, order):
-    """
-    Astrometry.net must be installed locally to use this function. It installs under WSL.
-    To use the local solution, you'll need to modify call to the function somewhat.
-    This function will write the new fits file w/ plate solution to a file with the name save_file in the
-    tmp directory on the d: drive.
-    The function will return wcs_header. Alternatively, you could comment out those lines and read it from
-    the pipeline.
-
-    Args:
-        image_file (str): Path to the image file to submit
-        save_file (str): Basename to save the WCS solution header to
-        order (int): Order of the WCS solution
-
-    Returns:
-        wcs_header (astropy.io.fits.header.Header): WCS solution header
+    # try:
+    image_dir = os.path.dirname(image_file)
+    save_file_base = image_dir
     
-    """
+    image_file_wsl = windows_to_wsl_path(image_file)
+    save_file_base_wsl = windows_to_wsl_path(save_file_base)
+    save_file_wsl = save_file
 
-    # Define tmp directory and image file path using WSL path
-    tmp_dir = '/mnt/d/tmp/'
-    image_file = convertToWSLPath(image_file)
+    print(f"Image file: {image_file_wsl}")
+    print(f"Save file base: {save_file_base_wsl}")
+    print(f"Save file: {save_file_wsl}")
 
-    verboseprint(f"Reading from {image_file} for astrometry solution.")
-    save_base = save_file.split('.fits')[0]
-    save_wcs_path = save_base + '.wcs'
-    save_axy_path = save_base + '.axy'
-    save_new_fits = save_base + '_solved.fits'
-    verboseprint(f"Writing WCS header to {save_wcs_path}")
+    cwd = os.getcwd()
+    os.chdir('d:\\')
 
-    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_base}' + \
-                     f' -N {tmp_dir + save_new_fits} -t {order}' + \
-                     f' --scale-units arcsecperpix --scale-low 2.0 --scale-high 4.0 {image_file}'
-    verboseprint(subprocess_arg)
-    result = subprocess.run(subprocess_arg, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    command = f'wsl time solve-field --no-plots -D {save_file_base_wsl} -N {save_file_base_wsl}/{save_file_wsl} -t {order} --scale-units arcsecperpix --scale-low 2.2 --overwrite --scale-high 2.6 {image_file_wsl}'
 
-    verboseprint("Astrometry.net solution completed.")
-    verboseprint(f"stdout: {result.stdout.decode()}")
-    verboseprint(f"stderr: {result.stderr.decode()}")
+    subprocess.run(command, shell=True, check=True)
+    os.chdir(cwd)
 
-    wcs_file_path = f'd:\\tmp\\{save_wcs_path}'
-    if not os.path.exists(wcs_file_path):
-        # Check if .axy file exists as a troubleshooting step
-        axy_file_path = f'd:\\tmp\\{save_axy_path}'
-        if os.path.exists(axy_file_path):
-            raise FileNotFoundError(f"WCS file not found, but .axy file is present: {axy_file_path}")
-        else:
-            raise FileNotFoundError(f"WCS file not found and .axy file is not present: {wcs_file_path}")
-    else:
-        verboseprint(f"WCS file successfully written to {wcs_file_path}")
+    # Load the WCS header
+    wcs_header_path = f'{save_file_base}\\{save_file}'
+    wcs_header = Header.fromfile(wcs_header_path)
 
-    wcs_header = Header.fromfile(wcs_file_path)
+    # except Exception as e:
+    #     print(f"An error occurred: {e}")
+    #     wcs_header = getSolution(image_file, save_file, order)
+
     return wcs_header
 
 def solve_image_parallel(image_file, save_file, order):

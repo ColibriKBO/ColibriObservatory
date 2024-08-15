@@ -2,6 +2,7 @@ var SUP;
 var ForReading = 1;
 var ForAppending = 8;
 var finalFields = [];
+
 // Ensure the FileSystemObject is available
 var fso = new ActiveXObject("Scripting.FileSystemObject");
 
@@ -9,8 +10,22 @@ var fso = new ActiveXObject("Scripting.FileSystemObject");
 var logFilePath = "d:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs_DayTime_SimTest") + "-ACP.log";
 var logMode = 8; // Append mode
 
+
+
 String.prototype.trim = function() {
     return this.replace(/(^\s*)|(\s*$)/g, "");
+}
+
+function getSimulatedJulianDate(offsetHours)
+{
+    // Get the current Julian Date
+    var currentJD = Util.SysJulianDate;
+
+    // Offset the Julian Date by the specified number of hours
+    var offsetJD = offsetHours / 24; // Convert hours to days (since Julian Date is in days)
+    var simulatedJD = currentJD + offsetJD;
+
+    return simulatedJD;
 }
 
 // Aborts script
@@ -71,15 +86,19 @@ function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile) {
     try {
         if (fso.FileExists(colibriLogFile)) {
             var colibriLog = fso.OpenTextFile(colibriLogFile, ForReading, false);
+            
             while (!colibriLog.AtEndOfStream) {
                 var logLine = colibriLog.ReadLine();
-                Console.PrintLine(Util.SysUTCDate + " " + logLine);
             }
+
             colibriLog.Close();
+
+            // Delete the ColibriGrab log file after appending its contents
             fso.DeleteFile(colibriLogFile);
             Console.PrintLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
         } else {
             Console.PrintLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
+        }
     } catch (e) {
         Console.PrintLine(Util.SysUTCDate + " ERROR: " + e.message);
     }
@@ -507,22 +526,6 @@ function twilightTimes(jDate) {
     return [Jrise, Jset];
 }
 
-// Causes program to wait until sunset
-function waitUntilSunset(updatetime) {
-    var currentJD = Util.SysJulianDate
-    while (currentJD < sunset) {
-        Console.Clear()
-        if (currentJD > sunrise && currentJD < sunset) {
-            Console.PrintLine("Sun is up");
-            Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise) * 24, "h ", "m ", "s"));
-            Console.PrintLine("It will set in " + Util.Hours_HMS(-1 * (currentJD - sunset) * 24, "h ", "m ", "s"));
-            Console.PrintLine("Waiting " + -1 * (currentJD - sunset) * 24 + " hours to start operations.");
-            Util.WaitForMilliseconds(updatetime);
-            currentJD = Util.SysJulianDate;
-        }
-    }
-}
-
 function sortFields(fieldtosort) {
     sortedFields = fieldtosort.sort(function(a, b) {
         return b[10] - a[10]
@@ -530,109 +533,54 @@ function sortFields(fieldtosort) {
     return sortedFields;
 }
 
-function whichField(timeJD) {
-    const elevationLimit = 10; // Define a safe minimum elevation limit
+function calculateFieldElevation(fieldRA, fieldDec, lst) {
+    var ct = Util.NewCT(Telescope.SiteLatitude, lst);
+    ct.RightAscension = fieldRA / 15; // Convert RA from degrees to hours
+    ct.Declination = fieldDec; // Declination in degrees
+    var elevation = ct.Elevation;  // Returns the elevation angle
+
+    // Force elevation to be above the limit for simulation purposes
+    if (elevation < elevationLimit) {
+        elevation = elevationLimit + 5; // or set it to any value you prefer
+    }
+
+    return elevation;
+}
+
+
+
+function whichField(timeJD, newLST) {
     nextField = 0;
     Console.PrintLine("Called whichField function...");
     Console.PrintLine("Number of fields in finalFields: " + finalFields.length);
 
-    if (finalFields.length === 0) {
-        Console.PrintLine("No fields to observe. Aborting...");
-        return [-1, 0, 0, 0, 0, "None", 999];
-    }
-
-    if (timeJD < finalFields[0][12]) {
-        Console.PrintLine("\r\n  Earlier than first observation time.");
-        Console.PrintLine("************************************");
-        targetJD = finalFields[0][12];
-        targetDur = finalFields[0][12] - timeJD;
-        targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
-        targetRA = finalFields[0][2][0];
-        targetDec = finalFields[0][2][1];
-        if (finalFields[0][0] < elevationLimit) {
-            Console.PrintLine("First field elevation is too low. Aborting...");
-            return [-1, 0, 0, 0, 0, "None", 999];
-        }
-        Console.PrintLine("\r\nThe JD start time is " + targetJD.toFixed(4));
-        Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.");
-        Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.");
-        currField = -1;
-        nextField = 0;
-        fieldName = "TooEarly";
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
-    }
-
-    if (finalFields.length == 1) {
-        Console.PrintLine("Only one field to observe!");
-        targetJD = finalFields[0][12] + finalFields[0][13];
-        targetDur = targetJD - timeJD;
-        targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
-        currField = 0;
-        nextField = -999;
-        targetRA = finalFields[0][2][0];
-        targetDec = finalFields[0][2][1];
-        if (finalFields[0][0] < elevationLimit) {
-            Console.PrintLine("Field elevation is too low. Aborting...");
-            return [-1, 0, 0, 0, 0, "None", 999];
-        }
-        fieldName = finalFields[0][3].toString();
-        Console.PrintLine("target JD: " + targetJD);
-        Console.PrintLine("Number of loops: " + targetLoops);
-        Console.PrintLine("Target duration: " + targetDur);
-        Console.PrintLine("finalFields: " + finalFields[0][12]);
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
-    }
-
     for (i = 0; i < finalFields.length - 1; i++) {
-        if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i + 1][12])) {
-            targetJD = finalFields[i + 1][12];
-            targetDur = finalFields[i + 1][12] - timeJD;
-            targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
-            currField = i;
-            nextField = i + 1;
-            targetRA = finalFields[i][2][0];
-            targetDec = finalFields[i][2][1];
-            if (finalFields[i][0] < elevationLimit) {
-                Console.PrintLine("Field elevation is too low. Skipping to next field...");
-                continue; // Skip to the next field
+        // Calculate the elevation using the simulated LST
+        var fieldElevation = calculateFieldElevation(finalFields[i][2][0], finalFields[i][2][1], newLST);
+
+        // Ensure we only return a field with a safe elevation (REMOVE THIS IF NEEDED)
+        // if (fieldElevation >= elevationLimit) {
+            if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i + 1][12])) {
+                targetJD  = finalFields[i + 1][12];
+                targetDur = finalFields[i + 1][12] - timeJD;
+                targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
+                currField = i;
+                nextField = i + 1;
+                targetRA = finalFields[i][2][0];
+                targetDec = finalFields[i][2][1];
+                fieldName = finalFields[i][3].toString();
+
+                return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
             }
-            fieldName = finalFields[i][3].toString();
-            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
-        }
+        // }
     }
 
-    if (timeJD > finalFields[finalFields.length - 1][12]) {
-        Console.PrintLine("At last field");
-        targetJD = finalFields[finalFields.length - 1][12] + finalFields[finalFields.length - 1][13];
-        targetDur = targetJD - timeJD;
-        targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
-        currField = finalFields.length - 1;
-        nextField = 999;
-        targetRA = finalFields[finalFields.length - 1][2][0];
-        targetDec = finalFields[finalFields.length - 1][2][1];
-        if (finalFields[finalFields.length - 1][0] < elevationLimit) {
-            Console.PrintLine("Last field elevation is too low. Aborting...");
-            return [-1, 0, 0, 0, 0, "None", 999];
-        }
-        fieldName = finalFields[finalFields.length - 1][3].toString();
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
-    }
-
-    Console.PrintLine("No valid fields");
-    targetJD = 999;
-    targetDur = 999;
-    targetLoops = 0;
-    currField = 999;
-    nextField = 999;
-    targetRA = 37.75;
-    targetDec = 89.15;
-    fieldName = "NoFields";
-    Console.PrintLine(Util.SysUTCDate + " WARNING: No valid fields. Closing up shop.");
-    Telescope.Park();
-    trkOff();
-    domeClose();
-    return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
+    // Default if no valid fields are found (for any reason)
+    Console.PrintLine("No valid fields found with safe elevation.");
+    return [-1, 0, 0, 0, 0, "None", 0];
 }
+
+
 
 // ACP Variables
 var logconsole = true;
@@ -645,7 +593,7 @@ var pierside = "E";
 
 // Magic numbers
 var curTarget = null;
-var elevationLimit = 10; // minimum elevation of field in degrees
+var elevationLimit = 5; // minimum elevation of field in degrees
 var minMoonOffset = 15; // angular seperation from moon in degrees
 var numExposures = 2400; // exposures/min
 var timestep = 1.0; // time between fields in hours
@@ -725,258 +673,407 @@ fieldInfo = [
     [0, 0, field24, "field24", 0, 0, 1.0, 184,  0.0005, 1.0, 184, 0, 0]
 ];
 
+function adjustFieldRAForSimulatedTime(fields, actualLST, simulatedLST) {
+    var LSTDifference = simulatedLST - actualLST;
+    var adjustedFields = [];
+
+    for (var i = 0; i < fields.length; i++) {
+        var adjustedRA = fields[i][0] + LSTDifference * 15.0;  // LST difference in degrees
+        if (adjustedRA >= 360) adjustedRA -= 360;
+        if (adjustedRA < 0) adjustedRA += 360;
+        adjustedFields.push([adjustedRA, fields[i][1]]);
+    }
+    return adjustedFields;
+}
+
+
+function getSimulatedJulianDateAndLST(offsetHours) {
+    var currentJD = Util.SysJulianDate;
+    var offsetJD = offsetHours / 24;
+    var simulatedJD = currentJD + offsetJD;
+
+    var currentLST = Util.NowLST();
+    var simulatedLST = currentLST + offsetHours;
+
+    // Make sure simulatedLST is within 0-24 hours range
+    if (simulatedLST >= 24) simulatedLST -= 24;
+    if (simulatedLST < 0) simulatedLST += 24;
+
+    return { simulatedJD: simulatedJD, simulatedLST: simulatedLST };
+}
+
+function calculateGMST(julianDate) {
+    var T = (julianDate - 2451545.0) / 36525.0;
+    var GMST = 280.46061837 + 360.98564736629 * (julianDate - 2451545.0) + 0.000387933 * T * T - (T * T * T) / 38710000.0;
+    return GMST % 360;
+}
+
+function calculateLST(gmst, longitude) {
+    var LST = (gmst + longitude) % 360;
+    if (LST < 0) LST += 360;
+    return LST / 15.0;  // Convert to hours
+}
+
 
 // Call to initialize the log file at the start of the script
 // Main function
-function main() 
+function main()
 {
-    // Get times of sunrise and sunset
-    sunset = twilightTimes(Util.SysJulianDate)[1];
-    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
-    sunsetLST = (Util.Julian_GMST(sunset) + Telescope.SiteLongitude / 15).toFixed(1);
-    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude / 15).toFixed(1);
+    var offSetHours = 8;
+    var simulation = getSimulatedJulianDateAndLST(offSetHours);  // Offset by 8 hours
+    var currentJD = simulation.simulatedJD;
+    var simulatedLST = simulation.simulatedLST;
 
+    // Calculate the actual sunset and sunrise times using the simulated Julian Date
+    var sunset = twilightTimes(currentJD)[1];
+    var sunrise = twilightTimes(currentJD + 1)[0];
+
+    // Apply the same offset to simulate sunset and sunrise times
+    var simulatedSunsetJD = sunset + (offSetHours / 24); 
+    var simulatedSunriseJD = sunrise + (offSetHours / 24);  
+
+    // Manually calculate GMST for these simulated times
+    var simulatedSunsetGMST = calculateGMST(simulatedSunsetJD);  // GMST for simulated sunset
+    var simulatedSunriseGMST = calculateGMST(simulatedSunriseJD);  // GMST for simulated sunrise
+
+    // Convert GMST to LST for the observer's location
+    var sunsetLST = calculateLST(simulatedSunsetGMST, Telescope.SiteLongitude);
+    var sunriseLST = calculateLST(simulatedSunriseGMST, Telescope.SiteLongitude);
+
+    Console.PrintLine("Simulated Sunset LST: " + sunsetLST);
+    Console.PrintLine("Simulated Sunrise LST: " + sunriseLST);
+
+    // Length of night
     var darkHours = (sunrise - sunset) * 24;
-    var timeUntilSunset = (sunset - Util.SysJulianDate) * 24; // hours
-    var timeUntilSunrise = (sunrise - Util.SysJulianDate) * 24; // hours
-    var darkHoursLeft = Math.min(darkHours, timeUntilSunrise);
 
-    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise));
-    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset));
-    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate));
+    // Skip the check for time until sunset and sunrise
 
-    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise));
-    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset));
-
-    Console.PrintLine("Sunset JD: " + sunset);
     Console.PrintLine("Sunrise JD: " + sunrise);
-    Console.PrintLine("Current JD: " + Util.SysJulianDate);
+    Console.PrintLine("Sunset JD: " + sunset);
+    Console.PrintLine("Current JD: " + currentJD);
 
     Console.PrintLine("Length of the Night: " + darkHours + " hours");
-    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours");
-    Console.PrintLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours");
 
-    Console.PrintLine("");
+    /*-----------------------------Prestart Checks-------------------------------*/
+
+    // Check if there is enough space for this to run
+    var spaceneeded = darkHours * 3600 * 40 * 12600000 / 1000000000000;
+    var freespace = freeDiskSpace();
+    if (freespace > spaceneeded)
+    {
+        Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.");
+        Console.PrintLine("And we have " + freespace + " TB of free space available.");
+        Console.PrintLine("So, we're good to go!");
+    }
+    else
+    {
+        abort();
+    }
+
+    // Add check for simulation mode
+    if (!Util.Confirm("Are you running this script with the dome in simulated mode? Running this script without simulation mode could cause serious damage to the telescope. \n\nDo you confirm the dome is in simulated mode?")) {
+        abort();
+    } else {
+        Console.PrintLine("User confirmed that the dome is in simulated mode. Continuing...");
+    }
+    // Skip the waiting for sunset check
+
+    // Ready to go. Print alert that we will start observations now.
     Console.PrintLine("It is after sunset... Creating observation plan now.");
 
-    // Create directory for today's data and collect dark frames
-    if (firstRun == true) {
-        var today = JDtoUTC(sunset);
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark");
-        Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString());
-        Console.PrintLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString());
-        firstRun = false;
-    }
+    /*-----------------------------Observing Plan--------------------------------*/
+
+    // Create directory for tonight's data and collect dark frames
+    var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
+    Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark");
+
+    Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString());
 
     // Calculate field-moon angle for each field.
     var moonAngles = [];
     var moonct = getMoon();
-    for (i = 0; i < fieldInfo.length; i++) {
+    var actualLST = Util.NowLST();
+
+    // Print original RAs for debugging
+    Console.PrintLine("Original Field RAs:");
+    for (var i = 0; i < fieldInfo.length; i++) {
+        Console.PrintLine("Field " + fieldInfo[i][3] + " RA: " + fieldInfo[i][2][0]);
+    }
+
+    // Adjust field RAs for the simulated time
+    var adjustedFields = [];  // Array to hold adjusted fields
+    for (var i = 0; i < fieldInfo.length; i++) {
+        var originalRA = fieldInfo[i][2][0];
+        var adjustedRA = originalRA + (simulatedLST - actualLST) * 15.0; // LST difference in degrees
+
+        // Wrap around if RA goes beyond 0-360 degrees
+        if (adjustedRA >= 360) adjustedRA -= 360;
+        if (adjustedRA < 0) adjustedRA += 360;
+
+        // Store the adjusted RA back into fieldInfo and log it
+        fieldInfo[i][2][0] = adjustedRA;
+        Console.PrintLine("Field " + fieldInfo[i][3] + " Adjusted RA: " + adjustedRA);
+
+        adjustedFields.push([adjustedRA, fieldInfo[i][2][1]]);  // Storing for further use if needed
+    }
+
+    // Update fieldInfo with adjusted RAs and calculate moon angles
+    for (var i = 0; i < fieldInfo.length; i++) {
+        fieldInfo[i][2][0] = adjustedFields[i][0];  // Update RA with the adjusted RA based on simulated LST
+
         var b = (90 - fieldInfo[i][2][1]) * Math.PI / 180;
         var c = (90 - moonct.Declination) * Math.PI / 180;
+
         var aa = Math.abs(fieldInfo[i][2][0] - moonct.RightAscension) * Math.PI / 180;
+
         var moonAngle = Math.acos((Math.cos(b) * Math.cos(c)) + (Math.sin(b) * Math.sin(c) * Math.cos(aa))) * 180 / Math.PI;
         moonAngles.push(moonAngle);
         fieldInfo[i][4] = moonAngle;
     }
 
-    var fieldsToObserve = [];
+    // Print the updated elevations for each field
+    Console.PrintLine("Field Elevations after Adjustment:");
+    for (var i = 0; i < fieldInfo.length; i++) {
+        var elevation = calculateFieldElevation(fieldInfo[i][2][0], fieldInfo[i][2][1], simulatedLST);
+        Console.PrintLine("Field " + fieldInfo[i][3] + " Elevation: " + elevation.toFixed(2) + " degrees");
+    }
+
+    var fieldsToObserve = []; // Array containing best field info in 6 minute increments
+
+    // n is the number of samples in one observing block (length = timestep)
+    // that will be computed.
     var n = Math.round(darkHours.toFixed(2) / timestep);
     Console.PrintLine("# of samples tonight: " + n);
+
+    // Calculate the local coordinates of each field at each timestep and the
+    // number of visible stars in each field when accounting for extinction
     var prevField = "";
-    for (k = 0; k < n; k++) {
-        var newLST = parseFloat(sunsetLST) + k * timestep;
-        var newJD = sunset + k * timestep / 24;
-        var ct = Util.NewCT(Telescope.SiteLatitude, newLST);
-        for (j = 0; j < fieldInfo.length; j++) 
+    for (k = 0; k < n; k++)
+    {
+        var simulatedLST = parseFloat(sunsetLST) + k * timestep;
+        var newJD  = sunset + k * timestep / 24;
+        var ct = Util.NewCT(Telescope.SiteLatitude, simulatedLST);
+
+        for (j = 0; j < fieldInfo.length; j++)
         {
-            ct.RightAscension = fieldInfo[j][2][0] / 15;
-            ct.Declination = parseFloat(fieldInfo[j][2][1]);
+            ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
+            ct.Declination = parseFloat(fieldInfo[j][2][1]); // in degrees
+
             var lat = ct.Latitude;
             var alt = ct.Elevation;
-            var LST = ct.SiderealTime;
-            var HA = LST - ct.RightAscension;
+            var HA = simulatedLST - ct.RightAscension;
+
             fieldInfo[j][0] = ct.Elevation;
             fieldInfo[j][1] = ct.Azimuth;
             fieldInfo[j][5] = HA;
             fieldInfo[j][12] = newJD;
+
             var airmass = 1 / Math.cos((90 - alt) * Math.PI / 180);
             fieldInfo[j][6] = airmass;
             var extinction = (airmass - 1) * extScale;
+
             var numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9] * (magnitudeLimit - extinction)));
             fieldInfo[j][10] = numVisibleStars;
         }
+
         var goodFields = [];
         for (j = 0; j < fieldInfo.length; j++) {
-            if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset) {
-                goodFields.push([fieldInfo[j][0], fieldInfo[j][1], fieldInfo[j][2], fieldInfo[j][3], fieldInfo[j][4], fieldInfo[j][5], fieldInfo[j][6], fieldInfo[j][7], fieldInfo[j][8], fieldInfo[j][9], fieldInfo[j][10], fieldInfo[j][11], fieldInfo[j][12]]);
+            if (moonAngles[j] > minMoonOffset) {
+                // Since we're simulating, assume all fields are above the elevation limit.
+                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]]);
             }
         }
-        sortFields(goodFields);
-        if (sortedFields.length == 1) {
-            fieldsToObserve.push([sortedFields[0][0], sortedFields[0][1], sortedFields[0][2], sortedFields[0][3], sortedFields[0][4], sortedFields[0][5], sortedFields[0][6], sortedFields[0][7], sortedFields[0][8], sortedFields[0][9], sortedFields[0][10], sortedFields[0][11], sortedFields[0][12]]);
-            prevField = sortedFields[0][3];
-        } else if ((sortedFields[0][3] != prevField) && (sortedFields[1][3] == prevField) && (sortedFields[0][10] - sortedFields[1][10] < minDiff)) {
-            fieldsToObserve.push([sortedFields[1][0], sortedFields[1][1], sortedFields[1][2], sortedFields[1][3], sortedFields[1][4], sortedFields[1][5], sortedFields[1][6], sortedFields[1][7], sortedFields[1][8], sortedFields[1][9], sortedFields[1][10], sortedFields[1][11], sortedFields[1][12]]);
-            prevField = sortedFields[1][3];
-        } else {
-            fieldsToObserve.push([sortedFields[0][0], sortedFields[0][1], sortedFields[0][2], sortedFields[0][3], sortedFields[0][4], sortedFields[0][5], sortedFields[0][6], sortedFields[0][7], sortedFields[0][8], sortedFields[0][9], sortedFields[0][10], sortedFields[0][11], sortedFields[0][12]]);
-            prevField = sortedFields[0][3];
+
+        // Sort the good fields based on their rankings or other criteria
+        goodFields = sortFields(goodFields);
+        
+        if (goodFields.length > 0) {
+            if (goodFields.length == 1 || (goodFields[0][3] != prevField && goodFields.length > 1)) {
+                fieldsToObserve.push(goodFields[0]);
+                prevField = goodFields[0][3];
+            } else if (goodFields[1][3] == prevField && (goodFields[0][10] - goodFields[1][10] < minDiff)) {
+                fieldsToObserve.push(goodFields[1]);
+                prevField = goodFields[1][3];
+            } else {
+                fieldsToObserve.push(goodFields[0]);
+                prevField = goodFields[0][3];
+            }
         }
     }
 
-    Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
-    Console.PrintLine("")
+    /*---------------------------Order & Print Plan------------------------------*/
+
+    // Push first field, then check if the following field is the same. If it
+    // is, move onto the next field. Repeat until the end of the list and
+    // then push the final field
     finalFields.push(fieldsToObserve[0]);
-    for (i = 0; i < fieldsToObserve.length - 1; i++) {
-        if (fieldsToObserve[i][3] != fieldsToObserve[i + 1][3]) {
+    for (i = 0; i < fieldsToObserve.length - 1; i++)
+    {
+        if (fieldsToObserve[i][3] != fieldsToObserve[i + 1][3])
+        {
             finalFields.push(fieldsToObserve[i + 1]);
         }
     }
-    for (i = 0; i < finalFields.length - 1; i++) {
+
+    // Calculate the duration of each field and append it onto the end of its
+    // finalFields object. The last element goes to sunrise
+    for (i = 0; i < finalFields.length - 1; i++)
+    {
         finalFields[i].push(finalFields[i + 1][12] - finalFields[i][12]);
     }
     finalFields[finalFields.length - 1].push(sunrise - finalFields[finalFields.length - 1][12]);
 
-    Console.PrintLine("");
-    Console.PrintLine("=== finalFields ===");
-    for (k = 0; k < finalFields.length; k++) {
-        Console.PrintLine(Util.SysUTCDate + " " + finalFields[k]);
-        Console.PrintLine(finalFields[k]);
-    }
+    /*-----------------------------Begin Operations------------------------------*/
 
-    Console.PrintLine("");
-    Console.PrintLine("=== Final Field Short List ===");
-    for (i = 0; i < finalFields.length - 1; i++) {
-        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i + 1][12].toFixed(3) + " for " + (finalFields[i][13] * 24).toFixed(2) + " hours");
-        Console.PrintLine(" with " + finalFields[i][10].toString() + " visible stars");
-        Console.PrintLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i + 1][12].toFixed(3) + " for " + (finalFields[i][13] * 24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars");
-    }
-    Console.PrintLine(finalFields[finalFields.length - 1][3] + " starts " + finalFields[finalFields.length - 1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length - 1][13] * 24).toFixed(2) + " hours");
-    Console.PrintLine(" with " + finalFields[finalFields.length - 1][10].toString() + " visible stars");
-    Console.PrintLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length - 1][3] + " starts " + finalFields[finalFields.length - 1][12].toFixed(3) + " ends " + sunrise.toFixed(3) + " for " + (finalFields[finalFields.length - 1][13] * 24).toFixed(2) + " hours with " + finalFields[finalFields.length - 1][10].toString());
-    Console.PrintLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===");
-    for (i = 0; i < finalFields.length; i++) {
-        Console.PrintLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + " Elev: " + finalFields[i][0] + " Az: " + finalFields[i][1]);
-    }
-
+    // Initialize the current field
     runNum = 0;
     currentField = [0, 0, 0, 0, 0, "None", 0];
-    while (currentField[0] > -1 && currentField[0] < 999) {
-        currentJD = Util.SysJulianDate;
-        currentField = whichField(Util.SysJulianDate);
+
+    while (currentField[0] > -1 && currentField[0] < 999)
+    {
+        // Identify the current field in the finalFields list based on the time
+        var currentGMST = calculateGMST(currentJD);
+        var newLST = calculateLST(currentGMST, Telescope.SiteLongitude);
+
+        currentField = whichField(currentJD, newLST);
         endJD = currentField[6];
+
+        // Log outputs of whichField
         Console.PrintLine("");
-        Console.PrintLine(Util.SysUTCDate + " INFO: Field Info");
         Console.PrintLine("Field index: " + currentField[0]);
         Console.PrintLine("Time until end of field: " + currentField[1]);
         Console.PrintLine("Number of loops: " + currentField[2]);
         Console.PrintLine("Field RA: " + currentField[3]);
         Console.PrintLine("Field Dec: " + currentField[4]);
         Console.PrintLine("Field Name: " + currentField[5]);
-        while (Util.SysJulianDate < sunset) {
-            Console.PrintLine("");
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate) * 86400).toFixed(0) + " seconds.");
-            Util.WaitForMilliseconds(5000);
-        }
-        if (Util.SysJulianDate > sunrise) {
-            Console.PrintLine("");
-            Console.PrintLine("Too late. Nothing left to observe.");
-            andRestart();
-        } else if (currentField[2] < 0 && currField[0] != -1) {
-            Console.PrintLine("Negative loops remaining. Past last field. Closing up.");
-            andRestart();
-        }
-        if ((Weather.Available && Weather.safe) || (ignoreWeather == true)) {
-            Console.PrintLine("Checking Weather");
-            connectScope();
-            domeOpen();
-            trkOn();
-        }
+
+        // Skip any time checks for sunrise/sunset since we're in simulation mode
+
+        // Create coordinate transform for the current field
         currentFieldCt = Util.NewCThereAndNow();
         currentFieldCt.RightAscension = currentField[3] / 15;
         currentFieldCt.Declination = currentField[4];
+
+        // Monitor and log the coordinates which the telescope slews to
         Console.PrintLine("");
         Console.PrintLine("Slewing to...");
         Console.PrintLine("RA: " + currentFieldCt.RightAscension);
         Console.PrintLine("Dec: " + currentFieldCt.Declination);
-        Console.PrintLine(Util.SysUTCDate + " INFO: Slewing to...");
-        Console.PrintLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension);
-        Console.PrintLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination);
-        Console.PrintLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
-        Console.PrintLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
-        while (Telescope.Slewing == true) {
-            Console.PrintLine("Huh. Still Slewing...");
-            Util.WaitForMilliseconds(500);
-        }
-        Dome.UnparkHome();
-        if (Dome.slave == false) {
-            Dome.slave = true;
-        }
-        while (Dome.Slewing == true) {
-            Console.PrintLine("Dome is still slewing. Give me a minute...");
-            Util.WaitForMilliseconds(500);
-        }
-        Console.PrintLine("At target.");
-        Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + " Az.= " + currentFieldCt.Azimuth.toFixed(2));
 
-        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
-        while (Telescope.Slewing == true) {
-            Console.PrintLine("Huh. Still Slewing...");
+        // Slew to the current field without any elevation checks
+        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+        // Slave the dome to the telescope and wait until they are both in
+        // the correct position to begin observing
+        while (Telescope.Slewing == true)
+        {
+            Console.PrintLine("Still Slewing...");
             Util.WaitForMilliseconds(500);
         }
-        Dome.UnparkHome()
-        if (Dome.slave == false) {
+
+        Dome.UnparkHome();
+        if (Dome.slave == false)
+        {
             Dome.slave = true;
         }
-        while (Dome.Slewing == true) {
-            Console.PrintLine("Dome is still slewing. Give me a minute...");
+
+        while (Dome.Slewing == true)
+        {
+            Console.PrintLine("Dome is still slewing. Please wait...");
             Util.WaitForMilliseconds(500);
         }
-        if (Telescope.SideOfPier == 0) {
+
+        Console.PrintLine("At target.");
+        Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+
+        // Readjust the telescope pointing using child script
+        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+        while (Telescope.Slewing == true)
+        {
+            Console.PrintLine("Still Slewing...");
+            Util.WaitForMilliseconds(500);
+        }
+
+        Dome.UnparkHome();
+        if (Dome.slave == false)
+        {
+            Dome.slave = true;
+        }
+
+        while (Dome.Slewing == true)
+        {
+            Console.PrintLine("Dome is still slewing. Please wait...");
+            Util.WaitForMilliseconds(500);
+        }
+
+        // Check pier side
+        if (Telescope.SideOfPier == 0)
+        {
             pierside = "E";
             Console.PrintLine("Pier side: " + pierside);
-        } else {
-            pierside = "W"
+        }
+        else
+        {
+            pierside = "W";
             Console.PrintLine("Pier side: " + pierside);
         }
-        Console.PrintLine("");
-        Console.PrintLine("Starting data collection...");
-        Console.PrintLine("Running from " + Util.SysJulianDate + " until " + endJD);
 
+        /*-----------------------------Data Collection-------------------------------*/
+
+        Console.PrintLine("Starting data collection...");
+        Console.PrintLine("Running from " + currentJD + " until " + endJD);
+
+        // Iterables
         var darkCounter = darkInterval;
         var runCounter = 1;
-        while (Util.SysJulianDate < endJD) {
-            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
+
+        while (currentJD < endJD)
+        {
+            // Check pier side
+            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
+            {
                 Console.PrintLine("Flipping sides of pier...");
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+                // Readjust the telescope pointing using child script
                 adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-                while (Telescope.Slewing == true) {
-                    Console.PrintLine("Huh. Still Slewing...");
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Still Slewing...");
                     Util.WaitForMilliseconds(500);
                 }
-                Dome.UnparkHome()
-                if (Dome.slave == false) {
-                    Dome.slave == true;
+
+                Dome.UnparkHome();
+                if (Dome.slave == false)
+                {
+                    Dome.slave = true;
                 }
-                while (Dome.Slewing == true) {
-                    Console.PrintLine("Dome is still slewing. Give me a minute...");
+
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing. Please wait...");
                     Util.WaitForMilliseconds(500);
                 }
-                if (Telescope.SideOfPier == 0) {
+
+                if (Telescope.SideOfPier == 0)
+                {
                     pierside = "E";
                     Console.PrintLine("Pier side: " + pierside);
-                } else {
+                }
+                else
+                {
                     pierside = "W";
                     Console.PrintLine("Pier side: " + pierside);
                 }
-            } else {
-                Console.PrintLine("Already on the right side of the pier");
             }
+            else 
+            { 
+                Console.PrintLine("Already on the right side of the pier."); 
+            }
+
             if (darkCounter == darkInterval) {
-                darkCollection(today, LogFile);
                 darkCounter = 0;
             }
             darkCounter++;
@@ -997,4 +1094,3 @@ function main()
     }
     shutDown();
 }
-
