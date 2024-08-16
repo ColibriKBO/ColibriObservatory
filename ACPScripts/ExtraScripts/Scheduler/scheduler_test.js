@@ -47,14 +47,35 @@ function RequestIndices() {
 // Equation from https://aa.usno.navy.mil/faq/JD_formula
 function UTCtoJD(UTC) {
     var dividedUTC = UTC.split(":");
-    var K = parseInt(dividedUTC[0]);
-    var M = parseInt(dividedUTC[1]);
-    var I = parseInt(dividedUTC[2]);
-    var H = parseInt(dividedUTC[3]);
-    var m = parseInt(dividedUTC[4]);
+    // var K = parseInt(dividedUTC[0]);
+    // var M = parseInt(dividedUTC[1]);
+    // var I = parseInt(dividedUTC[2]);
+    // var H = parseInt(dividedUTC[3]);
+    // var m = parseInt(dividedUTC[4]);
 
-    var ut = H + (m / 60);
-    var JD = (367 * K) - trunc((7 * (K + trunc((M + 9) / 12))) / 4) + trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * sign(100 * K + M - 190002.5)) + 0.5;
+    var year = parseInt(dividedUTC[0], 10);
+    // var year = dividedUTC[0];
+    Console.PrintLine(typeof(year));
+    Console.PrintLine("Year: " + year);
+    var month = parseInt(dividedUTC[1], 10);
+    Console.PrintLine("Month: " + month);
+    var day = parseInt(dividedUTC[2], 10);
+    Console.PrintLine("Day: " + day);
+    var hour = parseInt(dividedUTC[3], 10);
+    Console.PrintLine("Hour: " + hour);
+    var minute = parseInt(dividedUTC[4], 10);
+    Console.PrintLine("Minute: " + minute);
+
+    var fracHour = hour + (minute / 60);
+    Console.PrintLine("fracHour: " + fracHour);
+
+    var fracDay = day + (fracHour / 24);
+    Console.PrintLine("fracDay: " + fracDay);
+
+    var JD = Util.Calendar_Julian(year, month, fracDay);
+    Console.PrintLine(JD)
+
+    // var JD = (367 * K) - trunc((7 * (K + trunc((M + 9) / 12))) / 4) + trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * sign(100 * K + M - 190002.5)) + 0.5;
 
     return JD;
 }
@@ -83,53 +104,32 @@ function getRequests() {
         var rowData = [];
 
         while(!file.AtEndOfStream) {
-            //if (rowCounter != 0) {
-            var line = file.ReadLine();
-            lines.push(line);
-            rowData = line.split(",");
-            Console.PrintLine(rowData);
-            
-            if (rowData[parseInt(indices.completion)] == 0) {
-
-                var request = new Request(
-                    rowData[(indices.directoryName)],
-                    parseInt(rowData[(indices.priority)]),
-                    parseFloat(rowData[(indices.ra)]),
-                    parseFloat(rowData[(indices.dec)]),
-                    rowData[(indices.startTime)],
-                    UTCtoJD(rowData[(indices.startTime)]),
-                    rowData[(indices.endTime)],
-                    UTCtoJD(rowData[(indices.endTime)]),
-                    rowData[(indices.numExposures)],
-                    rowData[(indices.exposureTime)],
-                    rowData[(indices.filter)],
-                    rowData[(indices.binning)],
-                    rowCounter
-                );
-
-                // var request = new Request;
+            if (rowCounter != 0) {
+                var line = file.ReadLine();
+                lines.push(line);
+                rowData = line.split(",");
+                Console.PrintLine(rowData);
                 
-                // request.directoryName = rowData[parseInt(indices.directoryName)];
-                // request.priority = parseInt(rowData[parseInt(indices.priority)]);
+                if (rowData[parseInt(indices.completion)] == 0) {
+                    var request = new Request(
+                        rowData[(indices.directoryName)],
+                        parseInt(rowData[(indices.priority)]),
+                        parseFloat(rowData[(indices.ra)]),
+                        parseFloat(rowData[(indices.dec)]),
+                        rowData[(indices.startTime)],
+                        UTCtoJD(rowData[(indices.startTime)]),
+                        rowData[(indices.endTime)],
+                        UTCtoJD(rowData[(indices.endTime)]),
+                        rowData[(indices.numExposures)],
+                        rowData[(indices.exposureTime)],
+                        rowData[(indices.filter)],
+                        rowData[(indices.binning)],
+                        rowCounter
+                    );
 
-                // request.ra = parseFloat(rowData[parseInt(indices.ra)]);
-                // request.dec = parseFloat(rowData[parseInt(indices.dec)]);
-
-                // request.startUTC = rowData[parseInt(indices.startTime)];
-                // request.endUTC = rowData[parseInt(indices.endTime)];
-                // request.startJD = UTCtoJD(request.startUTC);
-                // request.endJD = UTCtoJD(request.endUTC);
-
-                // request.numExposures = parseInt(rowData[parseInt(indices.numExposures)]);
-                // request.exposureTime = parseFloat(rowData[parseInt(indices.exposureTime)]);
-                // request.filter = rowData[parseInt(indices.filter)];
-                // request.binning = rowData[parseInt(indices.binning)];
-
-                // request.csvIndex = rowCounter;
-
-                requests.push(request);
+                    requests.push(request);
+                }
             }
-            //}
             rowCounter++;
         }
         file.Close();
@@ -142,9 +142,18 @@ function getRequests() {
 }
 
 function selectBestObservation(requests, sunset, sunrise, moonCT) {
+    Console.PrintLine("Before filtering.");
+    printPlan(requests);
+
     var suitableObs = filterByTime(requests, sunset, sunrise);
+    Console.PrintLine("After time filtering");
+    printPlan(suitableObs);
     suitableObs = filterByAstronomy(suitableObs, moonCT);
+    Console.Printline("After astronomy filtering");
+    printPlan(suitableObs);
     var rankedObs = rankObservations(suitableObs);
+    Console.PrintLine("After ranking");
+    printPlan(rankedObs);
     var bestObs = selectTopObservation(rankedObs);
 
     return bestObs;
@@ -168,7 +177,7 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
     var start = request.startJD;
     var end = request.endJD;
 
-    return start <= currJD && currJD <= end && withinNightTime(request, sunset, sunrise);
+    return start <= currJD && currJD <= end // && withinNightTime(request, sunset, sunrise); // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
 }
 
 function withinNightTime(request, sunset, sunrise) {
@@ -180,7 +189,7 @@ function withinNightTime(request, sunset, sunrise) {
 
 function filterByAstronomy(requests, moonCT) {
     var filteredObs = [];
-    var currLST = Util.NowLST;
+    var currLST = Util.NowLST();
 
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
@@ -197,7 +206,7 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
     var targetAltitude = calculateAltitude(ra, dec, newLST);
     var moonAngle = calculateMoonAngle(ra, dec, moonCT);
 
-    request.altitude = altitude;
+    request.altitude = targetAltitude;
     request.moonAngle = moonAngle;
 
     return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
@@ -236,7 +245,7 @@ function rankObservations(requests) {
 function calculateScore(request) {
     var score = request.priority;
 
-    score += evaluateTimeScore(reqeust);
+    score += evaluateTimeScore(request);
     score += evaluateAstronomyScore(request);
 
     request.score = score;
@@ -258,7 +267,7 @@ function evaluateAstronomyScore(request) {
 
 function selectTopObservation(requests) {
     if (requests.length == 0) {
-        return null;
+        return "None";
     }
     return requests[0];
 }
@@ -302,6 +311,15 @@ function updateCSV(lines) {
     } catch (e) {
         Console.PrintLine("ERROR: " + e.message);
         ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
+    }
+}
+
+function printPlan(plan) {
+    Console.PrintLine("=== Current Plan ===");
+    for (var i = 0; i < plan.length; i++) {
+        var request = plan[i];
+        Console.PrintLine(request.directoryName + " starts " + request.startUTC + " (" + request.startJD + ") ends " + request.endUTC + " (" + request.endJD + ") with score " + request.score);
+        Console.PrintLine("RA: " + request.ra + " Dec: " + request.dec + " Alt: " + request.alt + " Moon Angle: " + request.moonAngle);
     }
 }
 
@@ -1006,71 +1024,95 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(ra, dec)
+function adjustPointing(ra, dec) 
 {
     // Convert RA to decimal degrees
-    ra = ra*15;
+    ra = ra * 15;
 
     // Call astrometry_correction.py to get pointing offset
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python C:\\Users\\RedBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
+    // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
+    var python_error = "";
 
-    while(BS.Status != 1)
-    {
-        while(!BS.StdOut.AtEndOfStream)
-        {
+    var start = new Date().getTime();
+    var timeout = 300000; // Timeout in milliseconds (5 minutes)
+    
+    Console.PrintLine("Script started at: " + start);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script started at: " + start);
+
+    // Added an escape here in case the Python script hangs.
+    while (BS.Status == 0) { 
+        while (!BS.StdOut.AtEndOfStream) {
             python_output += BS.StdOut.Read(1);
         }
+        while (!BS.StdErr.AtEndOfStream) {
+            python_error += BS.StdErr.Read(1);
+        }
         Util.WaitForMilliseconds(100);
-    };
+
+        var currentTime = new Date().getTime();
+        Console.PrintLine("Current Time: " + currentTime);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Current Time: " + currentTime);
+
+        if (currentTime - start > timeout) {
+            Console.PrintLine("Python script timed out.");
+            ts.WriteLine(Util.SysUTCDate + " ERROR: Python script timed out.");
+            BS.Terminate();
+            return;
+        }
+    }
+
+    var end = new Date().getTime();
+    Console.PrintLine("Script ended at: " + end);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script ended at: " + end);
+    Console.PrintLine("Script duration: " + (end - start) + " ms");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Script duration: " + (end - start) + " ms");
+
+    if (python_error) {
+        Console.PrintLine("Python script error output: " + python_error);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: Python script error output: " + python_error);
+    }
 
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
-    var radec_offset = py_lines[py_lines.length-2].split(" ");
+    var radec_offset = py_lines[py_lines.length - 2].split(" ");
 
     // Calculate new RA and Dec pointing
-    // Convert RA to hms
-    new_ra = (ra + parseFloat(radec_offset[0]))/15;
-    new_dec = dec + parseFloat(radec_offset[1]);
-    
+    var new_ra = (ra + parseFloat(radec_offset[0])) / 15;
+    var new_dec = dec + parseFloat(radec_offset[1]);
+
     // Print new pointing
     Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
     ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
     // Check that new pointing is reasonable
-    if (isNaN(new_ra) || isNaN(new_dec))
-    {
+    if (isNaN(new_ra) || isNaN(new_dec)) {
         Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
         return;
-    }
-
-    else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90))
-    {
+    } else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90)) {
         Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
         return;
     }
 
     // Check that new pointing is safe
-    targetCt = Util.NewCThereAndNow()
-    targetCt.RightAscension = new_ra
-    targetCt.Declination = new_dec
-    if (targetCt.Elevation < elevationLimit)
-    {
-        Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
+    targetCt = Util.NewCThereAndNow();
+    targetCt.RightAscension = new_ra;
+    targetCt.Declination = new_dec;
+    if (targetCt.Elevation < elevationLimit) {
+        Console.PrintLine("Tried to move to an unsafe elevation of " + targetCt.Elevation.toFixed(4));
         Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
+    } else {
+        // Call gotoRADec() to slew to new pointing
+        gotoRADec(new_ra, new_dec);
     }
-
-    // Call gotoRADec() to slew to new pointing
-    else
-    {gotoRADec(new_ra, new_dec)};
-
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1424,6 +1466,7 @@ function main() {
     // Begin Operations
     do {
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
+        Console.PrintLine(bestObs)
 
         // Safeguard against opening before the start of the observing plan
         // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
@@ -1453,9 +1496,9 @@ function main() {
             trkOn()
         }
 
-        if (bestObs == null) {
-            // No suitable observation found in current conditions.
-            // Wait for 5 minutes and try again.
+        if (bestObs == "None") {
+            Console.PrintLine("No suitable observation found in current conditions.")
+            Console.PrintLine("Wait for 5 minutes and try again.")
             Util.WaitForMilliseconds(300000);
             continue;
         }
@@ -1480,7 +1523,7 @@ function main() {
         ts.WriteLine(Util.SysUTCDate + "INFO: End UTC: " + bestObs.endUTC)
         Console.PrintLine("End JD: " + bestObs.endJD)
         ts.WriteLine(Util.SysUTCDate + "INFO: End JD: " + bestObs.endJD)
-        Console.WriteLine("Number of Exposure: " + bestObs.numExposures)
+        Console.PrintLine("Number of Exposure: " + bestObs.numExposures)
         ts.WriteLine(Util.SysUTCDate + "INFO: Number of Exposures: " + bestObs.numExposures)
         Console.PrintLine("Exposure Time: " + bestObs.exposureTime)
         ts.WriteLine(Util.SysUTCDate + "INFO: Exposure Time: " + bestObs.exposureTime)
