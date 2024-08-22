@@ -627,16 +627,19 @@ function main()
     //Waints until a determined time is reached to start. This should syncronize the telescopes.
 
 
-    startTime = 2460537.7916666665;
-    timeUntilStart = (startTime - Util.SysJulianDate) * 24; 
-    while (timeUntilStart > 0)
-        {
-            Console.PrintLine("");
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.");
-            
-            Util.WaitForMilliseconds(1000);
-            timeUntilSunset = (startTime - Util.SysJulianDate) * 24; // hours
-        }
+    let startTime = 2460544.9430556; // JD for 10:38 PM UTC on August 21, 2024
+    let timeUntilStart = (startTime - Util.SysJulianDate) * 24;
+
+    while (timeUntilStart > 0) {
+        console.log("");
+        console.log("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate) * 24 * 3600).toFixed(0) + " seconds.");
+    
+        Util.WaitForMilliseconds(1000);
+    
+        // Recalculate time until start after waiting
+        timeUntilStart = (startTime - Util.SysJulianDate) * 24;
+    }
+
 
 
 
@@ -678,7 +681,11 @@ function main()
             wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
 
             Console.PrintLine("Process ID = " + pid.toString());
-            Util.WaitForMilliseconds(10000);
+                
+
+
+
+
 
             Console.PrintLine("Done exposing run # " + j.toString());
 
