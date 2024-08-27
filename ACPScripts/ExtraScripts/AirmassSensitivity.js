@@ -634,7 +634,7 @@ function main()
             Console.PrintLine("");
             Console.PrintLine("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.");
             
-            Util.WaitForMilliseconds(1000); // short wait
+            Util.WaitForMilliseconds(1000);
             timeUntilSunset = (startTime - Util.SysJulianDate) * 24; // hours
         }
 
@@ -660,7 +660,7 @@ for (i = 0; i < airmassList.length; i++) {
     // Wait for the dome to finish slewing before continuing
     while (Dome.Slewing) {
         Console.PrintLine("Waiting for dome to finish slewing...");
-        Util.WaitForMilliseconds(1000); // Check every second
+        Util.WaitForMilliseconds(1000); // Check every 500ms
     }
     Console.PrintLine("Dome has finished slewing. Proceeding to capture images...");
 
