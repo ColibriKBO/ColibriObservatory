@@ -328,7 +328,7 @@ function gotoRADec(ra, dec)
     Dome.UnparkHome()
     if (Dome.slave == false)
     {
-        Dome.slave == true
+        Dome.slave = true;
     }
 
     // Try to slew to the target coordinates
@@ -391,16 +391,16 @@ function gotoAltAz(alt, az)
     Dome.UnparkHome()
     if (Dome.slave == false)
     {
-        Console.PrintLine("Unparking dome and slaving to telescope...")
-        Dome.slave == true
+        Console.PrintLine("Unparking dome and slaving to telescope...");
+        Dome.slave = true;
     }
 
     // Wait for the dome to finish slewing
     Console.PrintLine("Skipped it...")
     while (Dome.Slewing == true)
     {
-        Console.PrintLine("Dome is still slewing. Give me a minute...")
-        Util.WaitForMilliseconds(500)
+        Console.PrintLine("Dome is still slewing. Give me a minute...");
+        Util.WaitForMilliseconds(500);
     }
 
     // Try to slew to the target coordinates
@@ -641,57 +641,55 @@ function main()
 
 
     /*------------------------Begin Script Operations------------------------*/
+    Util.WaitForMilliseconds(10000);
 
-    // Iterate over all airmasses in the airmass list and all exposures in the
-    // exposure list.
-    for (i=0; i<airmassList.length; i++)
+    // Iterate over all airmasses in the airmass list and all exposures in the exposure list.
+for (i = 0; i < airmassList.length; i++) {
+    // Calculate elevation of target
+    var elevation = airmassToElevation(airmassList[i]);
+
+    // Check that elevation is above elevation limit
+    if (elevation < elevationLimit) {
+        Console.PrintLine("Elevation of target is below elevation limit. Skipping this target.");
+        continue;
+    }
+
+    // Slew to target
+    gotoAltAz(elevation, azimuthTarget);
+
+    // Wait for the dome to finish slewing before continuing
+    while (Dome.Slewing) {
+        Console.PrintLine("Waiting for dome to finish slewing...");
+        Util.WaitForMilliseconds(1000); // Check every second
+    }
+    Console.PrintLine("Dome has finished slewing. Proceeding to capture images...");
+
+    // Iterate over all exposures in the exposure list
+    for (j = 0; j < exposureList.length; j++) 
     {
-        // Calculate elevation of target
-        var elevation = airmassToElevation(airmassList[i]);
-
-        // Check that elevation is above elevation limit
-        if (elevation < elevationLimit)
-        {
-            Console.PrintLine("Elevation of target is below elevation limit. Skipping this target.");
-            continue;
-        }
-
-        // Iterate over all exposures in the exposure list
-        for (j=0; j<exposureList.length; j++)
-        {
-
-            // Slew to target
-            gotoAltAz(elevation, azimuthTarget);
-
             // Calculate number of images to take
             var numExposures = Math.floor(observationTime/exposureList[j]);
 
             var wshShell = new ActiveXObject("WScript.Shell");
             var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
             var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-
+            
             // Take image
             var wsh = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
             var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\";
-    
-            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
-
             Console.PrintLine("Process ID = " + pid.toString());
-            Util.WaitForMilliseconds(10000);
-
-            Console.PrintLine("Done exposing run # " + j.toString());
-
+            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             
-            var wsh = new ActiveXObject("WScript.Shell");
+            Util.WaitForMilliseconds(2000);
+
+            var wsh1 = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
-            pid = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e" + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
-            Console.PrintLine("Process ID = " + pid.toString());
-            wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
+            var pid1 = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
+            wsh1.Run(pid1, 1, true); // 1: normal window, true: wait for completion
             Console.PrintLine("Done exposing run # " + j.toString());
             Util.WaitForMilliseconds(250);
 
-            
         }
     }
 
