@@ -12,7 +12,7 @@ def readxbytes(fid, numbytes):
 
 # Function to read 12-bit data with Numba to speed things up
 def nb_read_data(data_chunk):
-    """data_chunk is a contigous 1D array of uint8 data)
+    """data_chunk is a contiguous 1D array of uint8 data.
     eg.data_chunk = np.frombuffer(data_chunk, dtype=np.uint8)"""
     assert np.mod(data_chunk.shape[0], 3) == 0
 
@@ -39,80 +39,46 @@ def readRCD(filename):
 
     return table
 
-def process_directory(directory, output_file):
+def process_directory(directory):
+    results = []
+    normal_frames = []
+    dark_frames = []
+    dark_mode = False
+
+    for root, dirs, files in os.walk(directory):
+        for file in sorted(files):
+            if file.endswith(".rcd"):
+                file_path = os.path.join(root, file)
+                try:
+                    data = readRCD(file_path)
+                    image_data = nb_read_data(data)
+
+                    mean_value = np.mean(image_data)
+                    std_dev_value = np.std(image_data)
+
+                    if dark_mode:  # Process as dark frame
+                        dark_frames.append((mean_value, std_dev_value))
+                        dark_mode = False  # Reset for next normal frame
+                    else:  # Process as normal frame
+                        normal_frames.append((mean_value, std_dev_value))
+                        dark_mode = True  # Next should be dark frame
+
+                except Exception as e:
+                    print(f"Error processing file {file_path}: {e}")
+
+    return normal_frames, dark_frames
+
+def write_results_to_file(output_file, normal_frames, dark_frames):
     with open(output_file, 'w') as f:
         f.write("Elevation (°)\tExposure Time (ms)\tAvg Pixel Value (Normal Frame)\tStd Dev (Normal Frame)\tAvg Pixel Value (Dark Frame)\tStd Dev (Dark Frame)\n")
 
-        current_elevation = None
-        current_exposure = None
-        normal_frames = []
-        dark_frames = []
-        
-        for root, dirs, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".rcd"):
-                    file_path = os.path.join(root, file)
-                    try:
-                        # Parse elevation and exposure from filename or directory structure
-                        elevation, exposure_time = parse_filename_or_directory(file_path)
-
-                        data = readRCD(file_path)
-                        image_data = nb_read_data(data)
-
-                        # Detect when we switch to a new elevation/exposure set
-                        if (elevation != current_elevation or exposure_time != current_exposure) and normal_frames:
-                            write_results(f, current_elevation, current_exposure, normal_frames, dark_frames)
-                            normal_frames = []
-                            dark_frames = []
-
-                        # Add data to normal or dark frame list
-                        if is_dark_frame(file_path):
-                            dark_frames.append(image_data)
-                        else:
-                            normal_frames.append(image_data)
-
-                        # Update current elevation and exposure
-                        current_elevation = elevation
-                        current_exposure = exposure_time
-
-                    except Exception as e:
-                        print(f"Error processing file {file_path}: {e}")
-        
-        # Write remaining results
-        if normal_frames:
-            write_results(f, current_elevation, current_exposure, normal_frames, dark_frames)
-
-def is_dark_frame(file_path):
-    # Implement logic to detect dark frames based on filename or other indicators
-    return "Dark" in file_path
-
-def write_results(f, elevation, exposure_time, normal_frames, dark_frames):
-    if normal_frames:
-        normal_mean = np.mean([np.mean(frame) for frame in normal_frames])
-        normal_std = np.std([np.std(frame) for frame in normal_frames])
-    else:
-        normal_mean = 0.0
-        normal_std = 0.0
-
-    if dark_frames:
-        dark_mean = np.mean([np.mean(frame) for frame in dark_frames])
-        dark_std = np.std([np.std(frame) for frame in dark_frames])
-    else:
-        dark_mean = 0.0
-        dark_std = 0.0
-
-    f.write(f"{elevation:.1f}\t{exposure_time:.1f}\t{normal_mean:.2f}\t{normal_std:.2f}\t{dark_mean:.2f}\t{dark_std:.2f}\n")
-
-def parse_filename_or_directory(file_path):
-    # Implement logic to extract elevation and exposure time from filename or directory structure
-    # This is a placeholder, adjust based on your file naming convention
-    filename = os.path.basename(file_path)
-    elevation = float(filename.split('_')[0].replace("Alt", ""))
-    exposure_time = float(filename.split('_')[1].replace("ms", ""))
-    return elevation, exposure_time
+        for norm, dark in zip(normal_frames, dark_frames):
+            f.write(f"##\t25\t{norm[0]:.2f}\t{norm[1]:.2f}\t{dark[0]:.2f}\t{dark[1]:.2f}\n")
+            # Adjust the format to reflect actual elevation and exposure time if needed.
 
 if __name__ == "__main__":
     root_dir = 'D:\\tmp\\AirmassSensitivity'
     output_file = 'output_results.txt'
 
-    process_directory(root_dir, output_file)
+    normal_frames, dark_frames = process_directory(root_dir)
+    write_results_to_file(output_file, normal_frames, dark_frames)
