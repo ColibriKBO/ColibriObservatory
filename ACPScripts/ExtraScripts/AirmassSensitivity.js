@@ -627,8 +627,8 @@ function main()
     //Waints until a determined time is reached to start. This should syncronize the telescopes.
 
 
-    let startTime = 2460544.9430556; // JD for 10:38 PM UTC on August 21, 2024
-    let timeUntilStart = (startTime - Util.SysJulianDate) * 24;
+    var startTime = 2460544.9430556; // JD for 10:38 PM UTC on August 21, 2024
+    var timeUntilStart = (startTime - Util.SysJulianDate) * 24;
 
     while (timeUntilStart > 0) {
         console.log("");
