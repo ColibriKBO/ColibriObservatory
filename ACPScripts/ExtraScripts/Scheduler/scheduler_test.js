@@ -99,12 +99,12 @@ function getRequests() {
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         var file = fso.OpenTextFile("./colibri_user_observations.csv", 1); // 1 = For Reading
 
-        var rowCounter = 0;
+        var rowCounter = -1;
         // var lines = [];
         var rowData = [];
 
         while(!file.AtEndOfStream) {
-            if (rowCounter != 0) {
+            if (rowCounter >= 0) {
                 var line = file.ReadLine();
                 lines.push(line);
                 rowData = line.split(",");
@@ -301,11 +301,21 @@ function updateDay(timeString) {
 
 function updateCSV(lines) {
     try{
+        // Open the existing CSV file for reading
+        var readFile = fso.OpenTextFile('./colibri_user_observations.csv', 1); // 1 = reading
+        var header = readFile.ReadLine(); // Read the first line (header)
+        readFile.Close();
+
+        // Open the CSV file for writing
         var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // 2 = writing
+        // writeFile.WriteLine(header);
+
+        // Write the new lines after the header
         for (var i = 0; i < lines.length; i++) {
             writeFile.WriteLine(lines[i]);
         }
         writeFile.Close();
+
         Console.PrintLine("CSV File modified successfuly.");
         ts.WriteLine(Util.SysUTCDate + " INFO: CSV File modified successfuly.");
     } catch (e) {
@@ -1033,7 +1043,7 @@ function adjustPointing(ra, dec)
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python C:\\Users\\RedBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
     // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
@@ -1679,7 +1689,7 @@ function main() {
 
             // Commands to run ColibriGrabe.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + "-w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
+            var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
 
             Console.PrintLine("Executing command: " + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
@@ -1698,13 +1708,6 @@ function main() {
 
             // Mark requested observation as completed in CSV file
             try {
-                // var readFile = fso.OpenTextFile('./colibri_user_observations.csv', 1);
-                // var lines = [];
-                // while (!readFile.AtEndOfStream) {
-                //     lines.push(file.ReadLine());
-                // }
-                // readFile.Close();
-
                 if (bestObs.csvIndex >= 0 && bestObs.csvIndex < lines.length) {
                     var rowData = lines[bestObs.csvIndex].split(",");
 
@@ -1716,17 +1719,10 @@ function main() {
                     lines[bestObs.csvIndex] = rowData.join(",");
                 } else {
                     Console.PrintLine("Index out of range or file is empty.");
+                    Console.PrintLine("CSV Index: " + bestObs.csvIndex)
                 }
 
                 updateCSV(lines);
-            //     // Write the modified data back to the file
-            //     var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // ForWriting (2)
-            //     for (var i = 0; i < lines.length; i++) {
-            //         writeFile.WriteLine(lines[i]);
-            //     }
-            //     writeFile.Close();
-
-            // Console.PrintLine("CSV File modified successfully.");
             } catch (e) {
                 Console.PrintLine("Error: " + e.message);
             }
