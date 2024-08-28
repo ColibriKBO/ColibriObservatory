@@ -129,8 +129,11 @@ def clean_up_results_file(output_file):
         pass
 
 if __name__ == "__main__":
-    root_dir = 'D:\\colibrigrab_test_new'
-    output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+    # root_dir = 'D:\\colibrigrab_test_new'
+    # output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+
+    root_dir = 'D:\\tmp\\AirmassSensitivity'
+    output_file = 'D:\\tmp\\AirmassSensitivity\\output_results.txt'
 
     results = process_root_directory(root_dir)
     write_results_to_file(output_file, results)
