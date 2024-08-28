@@ -1,11 +1,6 @@
 import numpy as np
 import os
-import concurrent.futures
-import logging
 from numba import jit
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @jit(nopython=True, parallel=True)
 def nb_read_data(data_chunk):
@@ -35,97 +30,108 @@ def process_file(file_path):
 
         return mean_value, std_dev_value
     except Exception as e:
-        logging.error(f"Error processing file {file_path}: {e}")
         return None
 
 def extract_info_from_filename(file_name):
     try:
         parts = file_name.split('_')
-        if "Dark" in parts[0]:
-            is_dark = True
-            parts = parts[1:]  # Skip the "Dark" part
-        else:
-            is_dark = False
-
+        is_dark = "Dark" in parts[0]
+        if is_dark:
+            parts = parts[1:]
         elevation = float(parts[0].replace('Alt', ''))
         exposure_time = int(parts[1].split('ms')[0])
-
         return elevation, exposure_time, is_dark
-    except (IndexError, ValueError) as e:
-        logging.error(f"Failed to parse information from file name: {file_name}")
+    except (IndexError, ValueError):
         return None, None, None
 
 def process_directory(directory):
     results = {}
-    file_counter = 0
+    files = [os.path.join(root, filename) for root, _, filenames in os.walk(directory) 
+             for filename in filenames if filename.lower().endswith(".rcd")]
     
-    for file in sorted(os.listdir(directory)):
-        if file.endswith(".rcd"):
-            file_path = os.path.join(directory, file)
-            elevation, exposure_time, is_dark = extract_info_from_filename(file)
-            if elevation is not None and exposure_time is not None:
-                if file_counter % 25 == 0:
-                    logging.info(f"Processing file: {file} | Elevation: {elevation} | Exposure Time: {exposure_time}ms | Dark: {is_dark}")
-                result = process_file(file_path)
-                if result:
-                    mean_value, std_dev_value = result
-                    key = (elevation, exposure_time)
-                    if key not in results:
-                        results[key] = {"normal": (None, None), "dark": (None, None)}
-                    if is_dark:
-                        results[key]["dark"] = (mean_value, std_dev_value)
-                    else:
-                        results[key]["normal"] = (mean_value, std_dev_value)
+    total_files = len(files)
 
-            file_counter += 1
-    
+    for i, file in enumerate(files):
+        elevation, exposure_time, is_dark = extract_info_from_filename(os.path.basename(file))
+        if elevation is not None and exposure_time is not None:
+            if i % 50 == 0 or i == total_files - 1:  # Print every 50 files processed
+                print(f"Processed {i + 1}/{total_files} files.")
+            result = process_file(file)
+            if result:
+                mean_value, std_dev_value = result
+                key = (elevation, exposure_time, is_dark)
+                if key not in results:
+                    results[key] = {"normal": (None, None), "dark": (None, None)}
+                if is_dark:
+                    results[key]["dark"] = (mean_value, std_dev_value)
+                else:
+                    results[key]["normal"] = (mean_value, std_dev_value)
+
     return results
 
 def process_root_directory(root_directory):
     all_results = {}
-
     for sub_dir in os.listdir(root_directory):
         full_sub_dir = os.path.join(root_directory, sub_dir)
         if os.path.isdir(full_sub_dir):
             results = process_directory(full_sub_dir)
             all_results.update(results)
-    
     return all_results
 
 def write_results_to_file(output_file, results):
     try:
         with open(output_file, 'w') as f:
-            f.write("Elevation (°)\tExposure Time (ms)\tAvg Pixel Value (Normal Frame)\tStd Dev (Normal Frame)\tAvg Pixel Value (Dark Frame)\tStd Dev (Dark Frame)\n")
+            f.write("Elevation (°)\tExposure Time (ms)\tAvg Pixel Normal\tStd Dev Normal\tAvg Pixel Dark\tStd Dev Dark\n")
             for key, value in results.items():
-                elevation, exposure_time = key
+                elevation, exposure_time = key[:2]
                 normal_mean, normal_std = value["normal"]
                 dark_mean, dark_std = value["dark"]
 
-                # Handle None values properly
-                normal_mean = f"{normal_mean:.2f}" if normal_mean is not None else "nan"
-                normal_std = f"{normal_std:.2f}" if normal_std is not None else "nan"
-                dark_mean = f"{dark_mean:.2f}" if dark_mean is not None else "nan"
-                dark_std = f"{dark_std:.2f}" if dark_std is not None else "nan"
+                normal_mean = f"{normal_mean:.2f}" if normal_mean is not None else "NaN"
+                normal_std = f"{normal_std:.2f}" if normal_std is not None else "NaN"
+                dark_mean = f"{dark_mean:.2f}" if dark_mean is not None else "NaN"
+                dark_std = f"{dark_std:.2f}" if dark_std is not None else "NaN"
 
                 f.write(f"{elevation}\t{exposure_time}\t{normal_mean}\t{normal_std}\t{dark_mean}\t{dark_std}\n")
-            logging.info(f"Results written to {output_file}")
     except Exception as e:
-        logging.error(f"Error writing to file {output_file}: {e}")
+        pass
 
+def clean_up_results_file(output_file):
+    try:
+        with open(output_file, 'r') as f:
+            lines = f.readlines()
+        
+        header = lines[0]
+        data_lines = lines[1:]
+        cleaned_data = {}
 
-# if __name__ == "__main__":
-#     root_dir = 'D:\\colibrigrab_test_new'  # Change this to your directory
-#     output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+        for line in data_lines:
+            parts = line.strip().split("\t")
+            elevation, exposure_time = parts[:2]
+            normal_mean, normal_std, dark_mean, dark_std = parts[2:]
 
-#     results = process_root_directory(root_dir)
-#     write_results_to_file(output_file, results)
+            key = (elevation, exposure_time)
+
+            if key in cleaned_data:
+                existing_line = cleaned_data[key]
+                if "NaN" in existing_line[2:4]:
+                    cleaned_data[key][2:4] = [normal_mean, normal_std]
+                if "NaN" in existing_line[4:]:
+                    cleaned_data[key][4:] = [dark_mean, dark_std]
+            else:
+                cleaned_data[key] = [elevation, exposure_time, normal_mean, normal_std, dark_mean, dark_std]
+
+        with open(output_file, 'w') as f:
+            f.write(header)
+            for key, values in cleaned_data.items():
+                f.write("\t".join(values) + "\n")
+    except Exception as e:
+        pass
 
 if __name__ == "__main__":
-    
-    root_dir = 'D:\\tmp\\AirmassSensitivity'  # Change this to your directory
-    output_file = 'D:\\tmp\\AirmassSensitivity\\output_results.txt'
-    # root_dir = 'D:\\colibrigrab_test_new'
-    # output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+    root_dir = 'D:\\colibrigrab_test_new'
+    output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
 
     results = process_root_directory(root_dir)
     write_results_to_file(output_file, results)
+    clean_up_results_file(output_file)
