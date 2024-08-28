@@ -1,9 +1,7 @@
 import numpy as np
 import os
-import concurrent.futures
 import logging
 from numba import jit
-import re
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,21 +24,7 @@ def readRCD(filename):
         table = np.memmap(fid, dtype=np.uint8, mode='r', offset=384, shape=(12582912,))
     return table
 
-def extract_exposure_time(filename):
-    match = re.search(r'(\d+)ms', filename)
-    if match:
-        return int(match.group(1))
-    else:
-        return 25  # Default or fallback exposure time
-
-def extract_elevation(filename):
-    match = re.search(r'Alt(\d+\.\d+)', filename)
-    if match:
-        return float(match.group(1))
-    else:
-        return 0  # Default or fallback elevation
-
-def process_file(file_path, dark_mode):
+def process_file(file_path):
     try:
         data = readRCD(file_path)
         image_data = nb_read_data(data)
@@ -48,88 +32,95 @@ def process_file(file_path, dark_mode):
         mean_value = np.mean(image_data)
         std_dev_value = np.std(image_data)
 
-        exposure_time = extract_exposure_time(file_path)
-        elevation = extract_elevation(file_path)
-
-        return 'dark' if dark_mode else 'normal', mean_value, std_dev_value, exposure_time, elevation
+        return mean_value, std_dev_value
     except Exception as e:
         logging.error(f"Error processing file {file_path}: {e}")
         return None
 
-def process_directory_parallel(directory):
-    normal_frames = []
-    dark_frames = []
-    dark_mode = False
-
-    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
-        futures = []
-        file_count = 0
-        for root, dirs, files in os.walk(directory):
-            for file in sorted(files):
-                if file.endswith(".rcd"):
-                    file_path = os.path.join(root, file)
-                    futures.append(executor.submit(process_file, file_path, dark_mode))
-                    dark_mode = not dark_mode  # Alternate between normal and dark mode
-                    file_count += 1
-
-        for i, future in enumerate(concurrent.futures.as_completed(futures, timeout=600)):  # 10-minute timeout
-            try:
-                result = future.result()
-                if result:
-                    frame_type, mean_value, std_dev_value, exposure_time, elevation = result
-                    if frame_type == 'dark':
-                        dark_frames.append((mean_value, std_dev_value, exposure_time, elevation))
-                    else:
-                        normal_frames.append((mean_value, std_dev_value, exposure_time, elevation))
-                if i % 10 == 0:
-                    logging.info(f"Processed {i + 1}/{file_count} files.")
-            except concurrent.futures.TimeoutError:
-                logging.error(f"Task timed out after 10 minutes.")
-
-    return normal_frames, dark_frames
-
-def write_results_to_file(output_file, normal_frames, dark_frames):
+def extract_info_from_filename(file_name):
     try:
-        # Combine normal and dark frames with their associated metadata for easier grouping
-        combined_frames = [(norm[3], norm[2], norm[0], norm[1], dark[0], dark[1]) for norm, dark in zip(normal_frames, dark_frames)]
+        parts = file_name.split('_')
+        if "Dark" in parts[0]:
+            is_dark = True
+            parts = parts[1:]
+        else:
+            is_dark = False
         
-        # Group data by elevation and exposure time
-        results_dict = {}
-        
-        for frame in combined_frames:
-            key = (frame[0], frame[1])  # (elevation, exposure_time)
-            if key not in results_dict:
-                results_dict[key] = {'norm_means': [], 'norm_stds': [], 'dark_means': [], 'dark_stds': []}
-            
-            results_dict[key]['norm_means'].append(frame[2])
-            results_dict[key]['norm_stds'].append(frame[3])
-            results_dict[key]['dark_means'].append(frame[4])
-            results_dict[key]['dark_stds'].append(frame[5])
+        elevation = float(parts[0].replace('Alt', ''))
+        exposure_time = int(parts[1].split('ms')[0])
 
+        return elevation, exposure_time, is_dark
+    except (IndexError, ValueError) as e:
+        logging.error(f"Failed to parse information from file name: {file_name}")
+        return None, None, None
+
+def process_directory(directory):
+    results = {}
+    file_counter = 0
+    
+    for file in sorted(os.listdir(directory)):
+        if file.endswith(".rcd"):
+            file_path = os.path.join(directory, file)
+            elevation, exposure_time, is_dark = extract_info_from_filename(file)
+            if elevation is not None and exposure_time is not None:
+                if file_counter % 25 == 0:
+                    logging.info(f"Processing file: {file} | Elevation: {elevation} | Exposure Time: {exposure_time}ms | Dark: {is_dark}")
+                result = process_file(file_path)
+                if result:
+                    mean_value, std_dev_value = result
+                    key = (elevation, exposure_time)
+                    if key not in results:
+                        results[key] = {"normal_means": [], "normal_stds": [], "dark_means": [], "dark_stds": []}
+                    if is_dark:
+                        results[key]["dark_means"].append(mean_value)
+                        results[key]["dark_stds"].append(std_dev_value)
+                    else:
+                        results[key]["normal_means"].append(mean_value)
+                        results[key]["normal_stds"].append(std_dev_value)
+            
+            file_counter += 1
+    
+    averaged_results = []
+    for key, values in results.items():
+        elevation, exposure_time = key
+        avg_normal_mean = np.mean(values["normal_means"]) if values["normal_means"] else float('NaN')
+        avg_normal_std = np.mean(values["normal_stds"]) if values["normal_stds"] else float('NaN')
+        avg_dark_mean = np.mean(values["dark_means"]) if values["dark_means"] else float('NaN')
+        avg_dark_std = np.mean(values["dark_stds"]) if values["dark_stds"] else float('NaN')
+        averaged_results.append((elevation, exposure_time, avg_normal_mean, avg_normal_std, avg_dark_mean, avg_dark_std))
+    
+    return averaged_results
+
+def process_root_directory(root_directory):
+    all_results = []
+    
+    for sub_dir in os.listdir(root_directory):
+        full_sub_dir = os.path.join(root_directory, sub_dir)
+        if os.path.isdir(full_sub_dir):
+            results = process_directory(full_sub_dir)
+            if results:
+                all_results.extend(results)
+    
+    return all_results
+
+def write_results_to_file(output_file, results):
+    try:
         with open(output_file, 'w') as f:
             f.write("Elevation (°)\tExposure Time (ms)\tAvg Pixel Value (Normal Frame)\tStd Dev (Normal Frame)\tAvg Pixel Value (Dark Frame)\tStd Dev (Dark Frame)\n")
-            
-            for key, values in sorted(results_dict.items()):
-                elevation, exposure_time = key
-                avg_norm_mean = np.mean(values['norm_means'])
-                avg_norm_std = np.mean(values['norm_stds'])
-                avg_dark_mean = np.mean(values['dark_means'])
-                avg_dark_std = np.mean(values['dark_stds'])
-                
-                f.write(f"{elevation:.1f}\t{exposure_time}\t{avg_norm_mean:.2f}\t{avg_norm_std:.2f}\t{avg_dark_mean:.2f}\t{avg_dark_std:.2f}\n")
-                f.flush()  # Ensure data is written immediately
-            
+            for res in results:
+                elevation, exposure_time, normal_mean, normal_std, dark_mean, dark_std = res
+                f.write(f"{elevation}\t{exposure_time}\t{normal_mean:.2f}\t{normal_std:.2f}\t{dark_mean:.2f}\t{dark_std:.2f}\n")
             logging.info(f"Results written to {output_file}")
     except Exception as e:
         logging.error(f"Error writing to file {output_file}: {e}")
 
-
 if __name__ == "__main__":
     
-    root_dir = "D:\\tmp\\AirmassSensitivity"
-    output_file = "D:\\tmp\\AirmassSensitivity\\output_results.txt"
-    #root_dir = 'D:\\colibrigrab_test_new'
-    #output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
 
-    normal_frames, dark_frames = process_directory_parallel(root_dir)
-    write_results_to_file(output_file, normal_frames, dark_frames)
+    root_dir = 'D:\\tmp\\AirmassSensitivity'  # Change this to your directory
+    output_file = 'D:\\tmp\\AirmassSensitivity\\output_results.txt'
+    # root_dir = 'D:\\colibrigrab_test_new'  # Change this to your directory
+    # output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+
+    results = process_root_directory(root_dir)
+    write_results_to_file(output_file, results)
