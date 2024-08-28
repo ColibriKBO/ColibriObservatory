@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import concurrent.futures
 import logging
 from numba import jit
 
@@ -42,10 +43,10 @@ def extract_info_from_filename(file_name):
         parts = file_name.split('_')
         if "Dark" in parts[0]:
             is_dark = True
-            parts = parts[1:]
+            parts = parts[1:]  # Skip the "Dark" part
         else:
             is_dark = False
-        
+
         elevation = float(parts[0].replace('Alt', ''))
         exposure_time = int(parts[1].split('ms')[0])
 
@@ -70,36 +71,24 @@ def process_directory(directory):
                     mean_value, std_dev_value = result
                     key = (elevation, exposure_time)
                     if key not in results:
-                        results[key] = {"normal_means": [], "normal_stds": [], "dark_means": [], "dark_stds": []}
+                        results[key] = {"normal": (None, None), "dark": (None, None)}
                     if is_dark:
-                        results[key]["dark_means"].append(mean_value)
-                        results[key]["dark_stds"].append(std_dev_value)
+                        results[key]["dark"] = (mean_value, std_dev_value)
                     else:
-                        results[key]["normal_means"].append(mean_value)
-                        results[key]["normal_stds"].append(std_dev_value)
-            
+                        results[key]["normal"] = (mean_value, std_dev_value)
+
             file_counter += 1
     
-    averaged_results = []
-    for key, values in results.items():
-        elevation, exposure_time = key
-        avg_normal_mean = np.mean(values["normal_means"]) if values["normal_means"] else float('NaN')
-        avg_normal_std = np.mean(values["normal_stds"]) if values["normal_stds"] else float('NaN')
-        avg_dark_mean = np.mean(values["dark_means"]) if values["dark_means"] else float('NaN')
-        avg_dark_std = np.mean(values["dark_stds"]) if values["dark_stds"] else float('NaN')
-        averaged_results.append((elevation, exposure_time, avg_normal_mean, avg_normal_std, avg_dark_mean, avg_dark_std))
-    
-    return averaged_results
+    return results
 
 def process_root_directory(root_directory):
-    all_results = []
-    
+    all_results = {}
+
     for sub_dir in os.listdir(root_directory):
         full_sub_dir = os.path.join(root_directory, sub_dir)
         if os.path.isdir(full_sub_dir):
             results = process_directory(full_sub_dir)
-            if results:
-                all_results.extend(results)
+            all_results.update(results)
     
     return all_results
 
@@ -107,19 +96,31 @@ def write_results_to_file(output_file, results):
     try:
         with open(output_file, 'w') as f:
             f.write("Elevation (°)\tExposure Time (ms)\tAvg Pixel Value (Normal Frame)\tStd Dev (Normal Frame)\tAvg Pixel Value (Dark Frame)\tStd Dev (Dark Frame)\n")
-            for res in results:
-                elevation, exposure_time, normal_mean, normal_std, dark_mean, dark_std = res
+            for key, value in results.items():
+                elevation, exposure_time = key
+                normal_mean, normal_std = value["normal"]
+                dark_mean, dark_std = value["dark"]
+                normal_mean = normal_mean if normal_mean is not None else "nan"
+                normal_std = normal_std if normal_std is not None else "nan"
+                dark_mean = dark_mean if dark_mean is not None else "nan"
+                dark_std = dark_std if dark_std is not None else "nan"
                 f.write(f"{elevation}\t{exposure_time}\t{normal_mean:.2f}\t{normal_std:.2f}\t{dark_mean:.2f}\t{dark_std:.2f}\n")
             logging.info(f"Results written to {output_file}")
     except Exception as e:
         logging.error(f"Error writing to file {output_file}: {e}")
 
+# if __name__ == "__main__":
+#     root_dir = 'D:\\colibrigrab_test_new'  # Change this to your directory
+#     output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
+
+#     results = process_root_directory(root_dir)
+#     write_results_to_file(output_file, results)
+
 if __name__ == "__main__":
     
-
     root_dir = 'D:\\tmp\\AirmassSensitivity'  # Change this to your directory
     output_file = 'D:\\tmp\\AirmassSensitivity\\output_results.txt'
-    # root_dir = 'D:\\colibrigrab_test_new'  # Change this to your directory
+    # root_dir = 'D:\\colibrigrab_test_new'
     # output_file = 'D:\\colibrigrab_test_new\\output_results.txt'
 
     results = process_root_directory(root_dir)
