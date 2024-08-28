@@ -100,14 +100,18 @@ def write_results_to_file(output_file, results):
                 elevation, exposure_time = key
                 normal_mean, normal_std = value["normal"]
                 dark_mean, dark_std = value["dark"]
-                normal_mean = normal_mean if normal_mean is not None else "nan"
-                normal_std = normal_std if normal_std is not None else "nan"
-                dark_mean = dark_mean if dark_mean is not None else "nan"
-                dark_std = dark_std if dark_std is not None else "nan"
-                f.write(f"{elevation}\t{exposure_time}\t{normal_mean:.2f}\t{normal_std:.2f}\t{dark_mean:.2f}\t{dark_std:.2f}\n")
+
+                # Handle None values properly
+                normal_mean = f"{normal_mean:.2f}" if normal_mean is not None else "nan"
+                normal_std = f"{normal_std:.2f}" if normal_std is not None else "nan"
+                dark_mean = f"{dark_mean:.2f}" if dark_mean is not None else "nan"
+                dark_std = f"{dark_std:.2f}" if dark_std is not None else "nan"
+
+                f.write(f"{elevation}\t{exposure_time}\t{normal_mean}\t{normal_std}\t{dark_mean}\t{dark_std}\n")
             logging.info(f"Results written to {output_file}")
     except Exception as e:
         logging.error(f"Error writing to file {output_file}: {e}")
+
 
 # if __name__ == "__main__":
 #     root_dir = 'D:\\colibrigrab_test_new'  # Change this to your directory
