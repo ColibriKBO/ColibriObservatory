@@ -51,7 +51,7 @@ function main() {
 
         if (exposure == 1 || exposure == 10)
         {
-            framesPerIteration  = 200000;
+            framesPerIteration  = 144000;
         }
         else
         {
