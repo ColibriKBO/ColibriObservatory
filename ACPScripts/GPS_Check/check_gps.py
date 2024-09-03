@@ -1,19 +1,33 @@
 import os
 from pathlib import Path
+import re
 
 def testGPSLock(filepath):
     with open(filepath, 'rb') as fid:
-        fid.seek(140, 0)
+        fid.seek(140, 0)  # Move to the byte where ControlBlock2 is expected
         ControlBlock2 = ord(fid.read(1))
-
     gpslock = (ControlBlock2 == 96)
     return gpslock
+
+def getCaptureDate(filepath):
+    # This function attempts to extract the date by searching through the hex data
+    with open(filepath, 'rb') as fid:
+        hex_data = fid.read(512)  # Read first 512 bytes as an example (adjust as needed)
+        ascii_data = hex_data.decode('ascii', errors='ignore')  # Convert to ASCII
+        
+        # Use regex to find the date format "YYYY-MM-DD"
+        match = re.search(r'\d{4}-\d{2}-\d{2}', ascii_data)
+        if match:
+            return match.group(0)  # Returns the first occurrence of a date in the format YYYY-MM-DD
+        else:
+            return None
+
 
 # Define the root directory
 GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized\\")
 
 # Open the summary log file in append mode
-with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
+with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_file:
     best_exposure = None
     lowest_gps_loss_ratio = float('inf')
     
@@ -27,18 +41,20 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log.txt", "a") as summary_log_file:
         total_images = 0
 
         # Open the detailed log file for the current exposure folder
-        with open(exposure_folder / "gps_check_log.txt", "w") as log_file:
+        with open(exposure_folder / "gps_check_log_test.txt", "w") as log_file:
             # Recursively search for .rcd files in the current exposure folder
             for subdir in exposure_folder.iterdir():
                 if subdir.is_dir():
                     for filepath in subdir.rglob("*.rcd"):
                         gps_lock = testGPSLock(filepath)
-                        if not gps_lock:
+                        capture_date = getCaptureDate(filepath)
+                        
+                        if not gps_lock or capture_date is None:
                             gps_loss += 1
                         total_images += 1
 
                         # Log the result for the current file
-                        log_file.write(f"File: {filepath} - GPS Lock: {gps_lock}\n")
+                        log_file.write(f"File: {filepath} - GPS Lock: {gps_lock} - Capture Date: {capture_date}\n")
 
             # Log the summary for the current exposure folder
             log_file.write(f"\nExposure Folder: {exposure_folder.name}\n")
