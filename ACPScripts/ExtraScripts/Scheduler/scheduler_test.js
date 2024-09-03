@@ -333,6 +333,11 @@ function printPlan(plan) {
     }
 }
 
+function updateLog(contents, type) {
+    Console.PrintLine(contents);
+    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
+}
+
 //RunColibri Functions
 // Handles script --> Combines the functionality of abort, abortAndRestart, and andRestart scripts from RunColibri
 // function handleScript(ts, action) {
@@ -680,7 +685,7 @@ function domeClose()
     }
 
     // Check to see if the dome is closed or in error
-    if (Dome.Status != 1)
+    if (Dome.ShutterStatus != 1)
     {
         Console.PrintLine("Dome is not closed. Trying again...")
         Util.WaitForMilliseconds(1000)
@@ -1356,28 +1361,40 @@ function main() {
         {darkHoursLeft = darkHours}
 
     // Print today's time of nautical sunrise and sunset.
-    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
-    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset))
-    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise))
-    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
-    Console.PrintLine("Sunset JD: " + sunset)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset)
-    Console.PrintLine("Sunrise JD: " + sunrise)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise)
-    Console.PrintLine("Current JD: " + Util.SysJulianDate)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate)
+    updateLog("Sunrise GMST: " + Util.Julian_GMST(sunrise), "INFO");
+    // Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
+    updateLog("Sunset GMST: " + Util.Julian_GMST(sunset), "INFO");
+    // Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset))
+    updateLog("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate), "INFO");
+    // Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
+    updateLog("Sunrise UTC: " + Util.Julian_Date(sunrise), "INFO");
+    // Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise))
+    updateLog("Sunset UTC: " + Util.Julian_Date(sunset), "INFO");
+    // Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
+    updateLog("Sunset JD: " + sunset, "INFO");
+    // Console.PrintLine("Sunset JD: " + sunset)
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset)
+    updateLog("Sunrise JD: " + sunrise, "INFO");
+    // Console.PrintLine("Sunrise JD: " + sunrise)
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise)
+    updateLog("Current JD: " + Util.SysJulianDate, "INFO");
+    // Console.PrintLine("Current JD: " + Util.SysJulianDate)
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate)
 
-    Console.PrintLine("Length of the Night: " + darkHours + "hours")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
-    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
-    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours")
+    updateLog("Length of the Night: " + darkHours + " hours", "INFO");
+    // Console.PrintLine("Length of the Night: " + darkHours + "hours")
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
+    updateLog("Time until sunset: " + timeUntilSunset + " hours", "INFO");
+    updateLog("Time until sunrise: " + timeUntilSunrise + " hours");
+    updateLog("Dark hours left: " + darkHoursLeft + " hours", "INFO");
+    // Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
+    // Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
+    // ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours")
 
     // Prestart checks
     // Check to see if the weather server is connected. If it isn't ask for
@@ -1457,8 +1474,9 @@ function main() {
         // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
         // Console.Logging = true
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\")
-        Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
-        ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
+        updateLog("Created today's data directory at d:\\ColibriData\\" + today.toString, "INFO");
+        // Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
         //Console.PrintLine("Collecting dark frames...")
         firstRun = false
     }
@@ -1472,6 +1490,8 @@ function main() {
         var request = requests[i];
         Console.PrintLine(request.directoryName);
     }
+
+    Console.PrintLine("")
 
     // Begin Operations
     do {
@@ -1489,8 +1509,9 @@ function main() {
         // Safeguard against opening after the end of the observing plan/sunrise
         if (Util.SysJulianDate > sunrise) {
             Console.PrintLine("")
-            Console.PrintLine("Too late. Nothing left to observe.")
-            ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.")
+            updateLog("Too late. Nothing left to observe.", "INFO");
+            // Console.PrintLine("Too late. Nothing left to observe.")
+            // ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.")
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
             // abortAndRestart()
@@ -1515,40 +1536,58 @@ function main() {
 
         // Log output of selectBestObservation
         // selectBestObservation returns a Request with properties: directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, numExposures, exposureTime, filter, binning, altitude, moonAngle, score, and csvIndex
-        Console.PrintLine("")
-        ts.WriteLine(Util.SysUTCDate + " INFO: Requested observation Info")
-        Console.PrintLine("Directory Name: " + bestObs.directoryName)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Directory Name: " + bestObs.directoryName)
-        Console.PrintLine("Priority: " + bestObs.priority)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Priority: " + bestObs.priority)
-        Console.PrintLine("RA: " + bestObs.ra)
-        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + bestObs.ra)
-        Console.PrintLine("Dec: " + bestObs.dec)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + bestObs.dec)
-        Console.PrintLine("Start UTC: " + bestObs.startUTC)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Start UTC: " + bestObs.startUTC)
-        Console.PrintLine("Start JD: " + bestObs.startJD)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Start JD: " + bestObs.startJD)
-        Console.PrintLine("End UTC: " + bestObs.endUTC)
-        ts.WriteLine(Util.SysUTCDate + "INFO: End UTC: " + bestObs.endUTC)
-        Console.PrintLine("End JD: " + bestObs.endJD)
-        ts.WriteLine(Util.SysUTCDate + "INFO: End JD: " + bestObs.endJD)
-        Console.PrintLine("Number of Exposure: " + bestObs.numExposures)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Number of Exposures: " + bestObs.numExposures)
-        Console.PrintLine("Exposure Time: " + bestObs.exposureTime)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Exposure Time: " + bestObs.exposureTime)
-        Console.PrintLine("Filter: " + bestObs.filter)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Filter: " + bestObs.filter)
-        Console.PrintLine("Binning: " + bestObs.binning)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Binning: " + bestObs.binning)
-        Console.PrintLine("Altitude: " + bestObs.altitude)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Altitude: " + bestObs.altitude)
-        Console.PrintLine("Moon Angle: " + bestObs.moonAngle)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Moon Angle: " + bestObs.moonAngle)
-        Console.PrintLine("Score: " + bestObs.score)
-        ts.WriteLine(Util.SysUTCDate + "INFO: Score: " + bestObs.score)
-        Console.PrintLine("CSV Index: " + bestObs.csvIndex)
-        ts.WriteLine(Util.SysUTCDate + "INFO: CSV Index: " + bestObs.csvIndex)
+        updateLog("Requested Observation Info", "INFO");
+        updateLog("Directory Name: " + bestObs.directoryName, "INFO");
+        updateLog("Priority: " + bestObs.priority, "INFO");
+        updateLog("RA: " + bestObs.ra, "INFO");
+        updateLog("Dec: " + bestObs.dec, "INFO");
+        updateLog("Start UTC:" + bestObs.startUTC, "INFO");
+        updateLog("Start JD: " + bestObs.startJD, "INFO");
+        updateLog("End UTC: " + bestObs.endUTC, "INFO");
+        updateLog("End JD: " + bestObs.endJD, "INFO");
+        updateLog("Number of Exposures: " + bestObs.numExposures, "INFO");
+        updateLog("Exposure Time: " + bestObs.exposureTime, "INFO");
+        updateLog("Filter: " + bestObs.filter, "INFO");
+        updateLog("Binning: " + bestObs.binning, "INFO");
+        updateLog("Altitude: " + bestObs.altitude, "INFO");
+        updateLog("Moon Angle: " + bestObs.moonAngle, "INFO");
+        updateLog("Score: " + bestObs.score, "INFO");
+        updateLog("CSV Index: " + bestObs.csvIndex, "INFO");
+
+        // Console.PrintLine("")
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Requested observation Info")
+        // Console.PrintLine("Directory Name: " + bestObs.directoryName)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Directory Name: " + bestObs.directoryName)
+        // Console.PrintLine("Priority: " + bestObs.priority)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Priority: " + bestObs.priority)
+        // Console.PrintLine("RA: " + bestObs.ra)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + bestObs.ra)
+        // Console.PrintLine("Dec: " + bestObs.dec)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + bestObs.dec)
+        // Console.PrintLine("Start UTC: " + bestObs.startUTC)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Start UTC: " + bestObs.startUTC)
+        // Console.PrintLine("Start JD: " + bestObs.startJD)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Start JD: " + bestObs.startJD)
+        // Console.PrintLine("End UTC: " + bestObs.endUTC)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: End UTC: " + bestObs.endUTC)
+        // Console.PrintLine("End JD: " + bestObs.endJD)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: End JD: " + bestObs.endJD)
+        // Console.PrintLine("Number of Exposure: " + bestObs.numExposures)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Number of Exposures: " + bestObs.numExposures)
+        // Console.PrintLine("Exposure Time: " + bestObs.exposureTime)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Exposure Time: " + bestObs.exposureTime)
+        // Console.PrintLine("Filter: " + bestObs.filter)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Filter: " + bestObs.filter)
+        // Console.PrintLine("Binning: " + bestObs.binning)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Binning: " + bestObs.binning)
+        // Console.PrintLine("Altitude: " + bestObs.altitude)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Altitude: " + bestObs.altitude)
+        // Console.PrintLine("Moon Angle: " + bestObs.moonAngle)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Moon Angle: " + bestObs.moonAngle)
+        // Console.PrintLine("Score: " + bestObs.score)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: Score: " + bestObs.score)
+        // Console.PrintLine("CSV Index: " + bestObs.csvIndex)
+        // ts.WriteLine(Util.SysUTCDate + "INFO: CSV Index: " + bestObs.csvIndex)
         
 
         // Create coordinate transform for the current request
@@ -1558,14 +1597,20 @@ function main() {
 
         // Monitor and log the coordinates which the telescope slews to
         Console.PrintLine("")
-        Console.PrintLine("Slewing to...")
-        Console.PrintLine("RA: " + currentFieldCt.RightAscension)
-        Console.PrintLine("Dec: " + currentFieldCt.Declination)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
-        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
+        updateLog("Slewing to...", "INFO");
+        updateLog("RA: " + currentFieldCt.RightAscension, "INFO");
+        updateLog("Dec: " + currentFieldCt.Declination, "INFO");
+        updateLog("Alt: " + currentFieldCt.Elevation, "INFO");
+        updateLog("Az: " + currentFieldCt.Azimuth, "INFO");
+
+        // Console.PrintLine("Slewing to...")
+        // Console.PrintLine("RA: " + currentFieldCt.RightAscension)
+        // Console.PrintLine("Dec: " + currentFieldCt.Declination)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
+        // ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
 
         // Slew to the current field
         gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination)
@@ -1590,10 +1635,13 @@ function main() {
             Util.WaitForMilliseconds(500)
         }
 
-        Console.PrintLine("At target.");
-        Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
-        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
-        ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
+        updateLog("At target.", "INFO");
+        updateLog("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2), "INFO");
+
+        // Console.PrintLine("At target.");
+        // Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+        // ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
 
         // Readjust the telescope pointing using child script
         adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
@@ -1629,9 +1677,10 @@ function main() {
 
         // Data Collection
         Console.PrintLine("")
-        Console.Printline("Starting data collection...")
+        // Console.Printline("Starting data collection...")
         // Console.PrintLine("Running from " + Util.SysJulianDate + " until " + endJD)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
+        // ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
+        updateLog("Starting data collection...", "INFO");
 
         // Create directory for requested observation images
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName)
@@ -1643,8 +1692,9 @@ function main() {
         // while (runCounter <= bestObs.numExposures) {
             // Check pier side
             if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
-                Console.PrintLine("Flipping sides of pier...")
-                ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
+                updateLog("Flipping sides of pier...", "INFO");
+                // Console.PrintLine("Flipping sides of pier...")
+                // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
                 // Readjust the telescope pointing using child script
@@ -1691,8 +1741,9 @@ function main() {
             var wsh = new ActiveXObject("WScript.Shell");
             var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
 
-            Console.PrintLine("Executing command: " + command);
-            ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
+            updateLog("Executing command: " + command, "INFO");
+            // Console.PrintLine("Executing command: " + command);
+            // ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
 
             // Run ColibriGrab.exe
             wsh.Run(command, 1, true);
@@ -1701,8 +1752,9 @@ function main() {
 
             // Append and delete ColibriGrab log fo ACP log after each run
             appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-            Console.PrintLine("Done exposing run # " + runCounter.toString());
-            ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+            updateLog("Done exposing run # " + runCounter.toString(), "INFO");
+            // Console.PrintLine("Done exposing run # " + runCounter.toString());
+            // ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
 
             runCounter++;
 
@@ -1724,10 +1776,16 @@ function main() {
 
                 updateCSV(lines);
             } catch (e) {
-                Console.PrintLine("Error: " + e.message);
+                updateLog("Error: " + e.message, "ERROR");
+                // Console.PrintLine("Error: " + e.message);
             }
 
-            requests.shift();
+            // requests.shift();
+            requests = getRequests()[0];
+            updateLog("Remaining requests: " + requests.length, "INFO");
+            // Console.PrintLine("Remaining requests: " + requests.length);
+            Console.PrintLine("Updated Plan:");
+            printPlan(requests);
         // }
     } while (requests.length > 0);
 

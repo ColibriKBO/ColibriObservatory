@@ -231,26 +231,36 @@ function main() {
     //     Console.PrintLine("------------------");
     // }
     
-
-    try {
-        var sunset = twilightTimes(Util.SysJulianDate)[1];
-        var today = JDtoUTC(sunset);
+    // Testing path to colibri grab command
+    // try {
+    //     var sunset = twilightTimes(Util.SysJulianDate)[1];
+    //     var today = JDtoUTC(sunset);
         
-        Console.PrintLine("Test Path");
+    //     Console.PrintLine("Test Path");
     
-        var bestObs = new Request("orion",8,83.3975,5.7561,"2024:08:16:16:00",UTCtoJD("2024:08:16:16:00"),"2024:08:16:18:00", UTCtoJD("2024:08:16:18:00"),30,60000,"dark",2,0);
+    //     var bestObs = new Request("orion",8,83.3975,5.7561,"2024:08:16:16:00",UTCtoJD("2024:08:16:16:00"),"2024:08:16:18:00", UTCtoJD("2024:08:16:18:00"),30,60000,"dark",2,0);
 
-        var wshShell = new ActiveXObject("WScript.Shell");
-        var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    //     var wshShell = new ActiveXObject("WScript.Shell");
+    //     var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
 
-        var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-        Console.PrintLine(colibriGrabPath);
+    //     var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+    //     Console.PrintLine(colibriGrabPath);
 
-        var test_path = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + "-w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
-        Console.PrintLine(test_path);
-    } catch (e) {
-        Console.PrintLine("Error: " + e.message);
+    //     var test_path = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
+    //     Console.PrintLine(test_path);
+    // } catch (e) {
+    //     Console.PrintLine("Error: " + e.message);
+    // }
+
+    // Testing shift method for arrays in ACP 
+    var test_array = ["orion", "leo", "draco", "cignus"];
+
+    while (test_array.length > 0) {
+        for (var i = 0; i < test_array.length; i++) {
+            Console.PrintLine(test_array[i]);
+        }
+        Console.PrintLine("--------------------");
+        test_array.shift();
     }
-
     
 }
