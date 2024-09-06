@@ -57,7 +57,7 @@ def write_user_input_to_csv(*args):
         start_time_val = str(start_time.get())
         end_time_val = str(end_time.get())
 
-        num_exposures_val = str(num_exposures.get())
+        obs_duration_val = str(obs_duration.get())
         exposure_time_val = str(exposure_time.get())
 
         filter_val = str(filter.get())
@@ -88,8 +88,8 @@ def write_user_input_to_csv(*args):
             messagebox.showerror("Input Error", "Dec must be a valid decimal number between -90 and 90. Offending input: " + dec_val)
             return
         
-        if not num_exposures_val.isdigit() or int(num_exposures_val) <= 0:
-            messagebox.showerror("Input Error", "Number of Exposures must be a positive integer. Offending input: " + num_exposures_val)
+        if not obs_duration_val.isdigit() or int(obs_duration_val) <= 0:
+            messagebox.showerror("Input Error", "Observation Duration must be a positive integer in minutes. Offending input: " + obs_duration_val)
             return
         
         if not is_valid_decimal(exposure_time_val, 0):
@@ -100,13 +100,13 @@ def write_user_input_to_csv(*args):
             messagebox.showerror("Input Error", "Filter must be 'normal', 'dark', or 'biased'. Offending input: " + filter_val)
             return
         
-        if binning_val not in ["1", "2", "3"]:
-            messagebox.showerror("Input Error", "Binning must be 1, 2, or 3. Offending input: " + binning_val)
+        if binning_val not in ["1", "2"]:
+            messagebox.showerror("Input Error", "Binning must be 1 or 2. Offending input: " + binning_val)
             return
 
         # If all checks pass, write to the CSV file
         with open('colibri_user_observations.csv', 'a+', newline='') as write_file:
-            csv_writer = csv.DictWriter(write_file, fieldnames=['Directory Name', 'Priority', 'RA', 'Dec', 'Start Time', 'End Time', 'Num Exposures', 'Exposure Time', 'Filter', 'Binning', 'Completion'])
+            csv_writer = csv.DictWriter(write_file, fieldnames=['Directory Name', 'Priority', 'RA', 'Dec', 'Start Time', 'End Time', 'Obs Duration', 'Exposure Time', 'Filter', 'Binning', 'Completion'])
 
             if is_csv_empty('colibri_user_observations.csv'):
                 csv_writer.writeheader()
@@ -118,8 +118,8 @@ def write_user_input_to_csv(*args):
                 'Dec': dec_val,
                 'Start Time': start_time_val,
                 'End Time': end_time_val,
-                'Num Exposures': num_exposures_val,
-                'Exposure Time': int(float(exposure_time_val) * 1000),
+                'Obs Duration': obs_duration_val,
+                'Exposure Time': exposure_time_val,
                 'Filter': filter_val,
                 'Binning': binning_val,
                 'Completion': 0
@@ -136,7 +136,7 @@ def write_user_input_to_csv(*args):
         dec_entry.delete(0, END)
         start_time_entry.delete(0, END)
         end_time_entry.delete(0, END)
-        num_exposures_entry.delete(0, END)
+        obs_duration_entry.delete(0, END)
         exposure_time_entry.delete(0, END)
         filter_entry.delete(0, END)
         binning_entry.delete(0, END)
@@ -180,9 +180,9 @@ end_time = StringVar()
 end_time_entry = ttk.Entry(mainframe, width=7, textvariable=end_time)
 end_time_entry.grid(column=5, row=3)
 
-num_exposures = StringVar()
-num_exposures_entry = ttk.Entry(mainframe, width=7, textvariable=num_exposures)
-num_exposures_entry.grid(column=2, row=4)
+obs_duration = StringVar()
+obs_duration_entry = ttk.Entry(mainframe, width=7, textvariable=obs_duration)
+obs_duration_entry.grid(column=2, row=4)
 
 exposure_time = StringVar()
 exposure_time_entry = ttk.Entry(mainframe, width=7, textvariable=exposure_time)
@@ -208,11 +208,11 @@ ttk.Label(mainframe, text="Declination (decimal degrees):").grid(column=4, row=2
 ttk.Label(mainframe, text="Start Time (in UTC, format YYYY:MM:DD:HH:mm):").grid(column=1, row=3)
 ttk.Label(mainframe, text="End Time (in UTC, format YYYY:MM:DD:HH:mm):").grid(column=4, row=3)
 
-ttk.Label(mainframe, text="Number of Exposures:").grid(column=1, row=4)
+ttk.Label(mainframe, text="Observation Duration (minutes):").grid(column=1, row=4)
 ttk.Label(mainframe, text="Exposure Time (seconds):").grid(column=4, row=4)
 
 ttk.Label(mainframe, text="Filter (normal, dark, or biased):").grid(column=1, row=5)
-ttk.Label(mainframe, text="Binning (1, 2, or 3):").grid(column=4, row=5)
+ttk.Label(mainframe, text="Binning (1 or 2):").grid(column=4, row=5)
 
 # Request count label at the bottom right
 request_count_label = ttk.Label(mainframe, text="Total Requests: 0 | Pending Requests: 0")

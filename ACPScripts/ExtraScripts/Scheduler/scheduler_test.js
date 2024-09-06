@@ -1,5 +1,5 @@
 // Scheduling observation request objects
-function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, numExposures, exposureTime, filter, binning, csvIndex) {
+function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, numExposures, filter, binning, csvIndex) {
     this.directoryName = directoryName;
     this.priority = priority;
 
@@ -11,8 +11,11 @@ function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, en
     this.endUTC = endUTC;
     this.endJD = endJD;
 
-    this.numExposures = numExposures;
+    this.obsDuration = obsDuration;
     this.exposureTime = exposureTime;
+    this.numExposures = numExposures;
+
+
     this.filter = filter;
     this.binning = binning;
 
@@ -35,7 +38,7 @@ function RequestIndices() {
     this.startTime = 4;
     this.endTime = 5;
 
-    this.numExposures = 6;
+    this.obsDuration = 6;
     this.exposureTime = 7;
     this.filter = 8;
     this.binning = 9;
@@ -80,15 +83,15 @@ function UTCtoJD(UTC) {
     return JD;
 }
 
-function trunc(number) {
-    return parseInt(number);
-}
+// function trunc(number) {
+//     return parseInt(number);
+// }
 
-function sign(number) {
-    if (number > 0) { return 1; }
-    else if (number < 0) { return -1; }
-    return 0;
-}
+// function sign(number) {
+//     if (number > 0) { return 1; }
+//     else if (number < 0) { return -1; }
+//     return 0;
+// }
 
 function getRequests() {
     var requests = [];
@@ -110,20 +113,21 @@ function getRequests() {
                 rowData = line.split(",");
                 Console.PrintLine(rowData);
                 
-                if (rowData[parseInt(indices.completion)] == 0) {
+                if (rowData[indices.completion] == 0) {
                     var request = new Request(
-                        rowData[(indices.directoryName)],
-                        parseInt(rowData[(indices.priority)]),
-                        parseFloat(rowData[(indices.ra)]),
-                        parseFloat(rowData[(indices.dec)]),
-                        rowData[(indices.startTime)],
-                        UTCtoJD(rowData[(indices.startTime)]),
-                        rowData[(indices.endTime)],
-                        UTCtoJD(rowData[(indices.endTime)]),
-                        rowData[(indices.numExposures)],
-                        rowData[(indices.exposureTime)],
-                        rowData[(indices.filter)],
-                        rowData[(indices.binning)],
+                        rowData[indices.directoryName],
+                        parseInt(rowData[indices.priority]),
+                        parseFloat(rowData[indices.ra]),
+                        parseFloat(rowData[indices.dec]),
+                        rowData[indices.startTime],
+                        UTCtoJD(rowData[indices.startTime]),
+                        rowData[indices.endTime],
+                        UTCtoJD(rowData[indices.endTime]),
+                        parseInt(rowData[indices.obsDuration]),
+                        parseFloat(rowData[indices.exposureTime]) * 1000,
+                        60 / parseFloat(rowData[indices.exposureTime]),
+                        rowData[indices.filter],
+                        rowData[indices.binning],
                         rowCounter
                     );
 
@@ -1626,7 +1630,7 @@ function main() {
         Dome.UnparkHome()
         if (Dome.slave == false)
         {
-            Dome.slave == true
+            Dome.slave = true
         }
 
         while (Dome.Slewing == true)
@@ -1654,7 +1658,7 @@ function main() {
         Dome.UnparkHome()
         if (Dome.slave == false)
         {
-            Dome.slave == true
+            Dome.slave = true
         }
 
         while (Dome.Slewing == true)
@@ -1689,7 +1693,20 @@ function main() {
         darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
         runCounter = 1
 
-        // while (runCounter <= bestObs.numExposures) {
+        // Initialize time tracking variables
+        var startTime = Util.SysJulianDate;
+        var timeSinceLastPointingUpdate = 0; // In minutes
+        var pointingUpdateInterval = 30; // 30 minutes for updating pointing
+        var imageChunkTime = 30; // 30 minutes in total per chunk
+        var remainingObsTime = bestObs.obsDuration; // Observation duration in minutes
+        var exposureTimeInSeconds = bestObs.exposureTime / 1000; // Convert exposure time from milliseconds to seconds
+        var exposureTimeInMinutes = exposureTimeInSeconds / 60; // Convert exposure time from seconds to minutes
+
+        while (reminingObsTime > 0) {
+        //while (runCounter <= bestObs.obsDuration) {
+            
+            var currentTime = Util.SysJulianDate;
+            var elapsedTime = (currentTime - startTime) * 1440; // Convert elapsed time from Julian Days to minutes
             // Check pier side
             if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
                 updateLog("Flipping sides of pier...", "INFO");
@@ -1706,7 +1723,7 @@ function main() {
 
                 Dome.UnparkHome()
                 if (Dome.slave == false) {
-                    Dome.slave == true
+                    Dome.slave = true
                 }
 
                 while (Dome.Slewing == true) {
@@ -1739,7 +1756,7 @@ function main() {
 
             // Commands to run ColibriGrabe.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
+            var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
 
             updateLog("Executing command: " + command, "INFO");
             // Console.PrintLine("Executing command: " + command);
@@ -1757,36 +1774,36 @@ function main() {
             // ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
 
             runCounter++;
+        }
 
-            // Mark requested observation as completed in CSV file
-            try {
-                if (bestObs.csvIndex >= 0 && bestObs.csvIndex < lines.length) {
-                    var rowData = lines[bestObs.csvIndex].split(",");
+        // Mark requested observation as completed in CSV file
+        try {
+            if (bestObs.csvIndex >= 0 && bestObs.csvIndex < lines.length) {
+                var rowData = lines[bestObs.csvIndex].split(",");
 
-                    // Modify data in rowData as needed
-                    // var requestIndices = new RequestIndices();
-                    rowData[10] = 1;
+                // Modify data in rowData as needed
+                // var requestIndices = new RequestIndices();
+                rowData[10] = 1;
 
-                    // Join modified rowData back into a CSV line
-                    lines[bestObs.csvIndex] = rowData.join(",");
-                } else {
-                    Console.PrintLine("Index out of range or file is empty.");
-                    Console.PrintLine("CSV Index: " + bestObs.csvIndex)
-                }
-
-                updateCSV(lines);
-            } catch (e) {
-                updateLog("Error: " + e.message, "ERROR");
-                // Console.PrintLine("Error: " + e.message);
+                // Join modified rowData back into a CSV line
+                lines[bestObs.csvIndex] = rowData.join(",");
+            } else {
+                Console.PrintLine("Index out of range or file is empty.");
+                Console.PrintLine("CSV Index: " + bestObs.csvIndex)
             }
 
-            // requests.shift();
-            requests = getRequests()[0];
-            updateLog("Remaining requests: " + requests.length, "INFO");
-            // Console.PrintLine("Remaining requests: " + requests.length);
-            Console.PrintLine("Updated Plan:");
-            printPlan(requests);
-        // }
+            updateCSV(lines);
+        } catch (e) {
+            updateLog("Error: " + e.message, "ERROR");
+            // Console.PrintLine("Error: " + e.message);
+        }
+
+        // requests.shift();
+        requests = getRequests()[0];
+        updateLog("Remaining requests: " + requests.length, "INFO");
+        // Console.PrintLine("Remaining requests: " + requests.length);
+        Console.PrintLine("Updated Plan:");
+        printPlan(requests);
     } while (requests.length > 0);
 
     shutDown();

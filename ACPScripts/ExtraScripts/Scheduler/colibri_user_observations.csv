@@ -1,5 +1,6 @@
-Directory Name,Priority,RA,Dec,Start Time,End Time,Num Exposures,Exposure Time,Filter,Binning,Completion
-orion,8,83.3975,5.7561,2024:09:03:16:00,2024:09:03:18:00,30,60000,dark,2,1
-leo,5,159.9125,18.9597,2024:09:02:16:00,2024:09:03:00:00,2400,25,normal,1,1
-draco,2,238.1833,68.3036,2024:09:02:16:00,2024:09:03:10:00,24,5000,normal,1,1
-cignus,7,305.1917,39.8875,2024:09:02:18:00,2024:09:03:07:00,12000,25,normal,1,1
+Directory Name,Priority,RA,Dec,Start Time,End Time,Obs Duration,Exposure Time,Filter,Binning,Completion
+cassiopeia,8,14.8583,62.1694,2024:09:03:23:00,2024:09:04:05:00,1,0.025,normal,1,0
+orion,8,83.3975,5.7561,2024:09:03:16:00,2024:09:03:18:00,30,60,dark,2,0
+draco,2,238.1833,68.3036,2024:09:04:16:00,2024:09:05:10:00,2,5,biased,1,1
+leo,5,159.9125,18.9597,2024:09:04:16:00,2024:09:05:00:00,3,0.025,normal,1,0
+cygnus,7,305.1917,39.8875,2024:09:04:18:00,2024:09:05:08:00,5,0.025,biased,1,1
