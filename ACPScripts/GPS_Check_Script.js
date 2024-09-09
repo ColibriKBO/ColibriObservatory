@@ -34,9 +34,9 @@ function main() {
     //var initialExposure = 25; // Initial exposure time in ms
     //var exposureIncrement = 1; // Exposure increment in ms
     //var totalExposures = 1; // Total number of different exposures to test
-    var exposures = [1, 10,  25, 33, 50, 100];
+    var exposures = [25];
     var totalExposures = exposures.length;
-    var totalCaptureTime = (60000 * 60); // Total capture time in milliseconds (60 minutes)
+    var totalCaptureTime = (60000); // Total capture time in milliseconds (60 minutes)
     var frameType = "dark"; // Frame type to test
     
     Console.PrintLine('ColibriGrab testing with various exposure settings');
@@ -76,7 +76,7 @@ function main() {
             var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
             
             // Dynamically start ColibriGrab
-            var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e " + exposure + " -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+            var command = "\"" + colibriGrabPath + "\" -n 0" + " -p colibrigrab_test_" + (i + 1) + " -e " + exposure + " -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
             var wsh = new ActiveXObject("WScript.Shell");
             wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
