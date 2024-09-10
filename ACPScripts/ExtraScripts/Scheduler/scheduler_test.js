@@ -247,7 +247,7 @@ function rankObservations(requests) {
 }
 
 function calculateScore(request) {
-    var score = request.priority;
+    var score = request.priority * 50; // Multiply by 50 to give priority more weight
 
     score += evaluateTimeScore(request);
     score += evaluateAstronomyScore(request);
@@ -1052,7 +1052,7 @@ function adjustPointing(ra, dec)
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python C:\\Users\\RedBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
     // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
@@ -1702,7 +1702,7 @@ function main() {
         var exposureTimeInSeconds = bestObs.exposureTime / 1000; // Convert exposure time from milliseconds to seconds
         var exposureTimeInMinutes = exposureTimeInSeconds / 60; // Convert exposure time from seconds to minutes
 
-        while (reminingObsTime > 0) {
+        while (remainingObsTime > 0) {
         //while (runCounter <= bestObs.obsDuration) {
             
             var currentTime = Util.SysJulianDate;
