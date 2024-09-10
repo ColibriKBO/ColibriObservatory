@@ -1707,39 +1707,54 @@ function main() {
             
             var currentTime = Util.SysJulianDate;
             var elapsedTime = (currentTime - startTime) * 1440; // Convert elapsed time from Julian Days to minutes
-            // Check pier side
-            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
-                updateLog("Flipping sides of pier...", "INFO");
-                // Console.PrintLine("Flipping sides of pier...")
-                // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
-                gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-                // Readjust the telescope pointing using child script
-                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
-                while (Telescope.Slewing == true) {
-                    Console.PrintLine("Huh. Still Slewing...")
-                    Util.WaitForMilliseconds(500)
-                }
+            // Calculate the time for the current image chunk (either 30 minutes or the remaining observation time)
+            var currentChunkDuration = Math.min(imageChunkTime, remainingObsTime); // In minutes
 
-                Dome.UnparkHome()
-                if (Dome.slave == false) {
-                    Dome.slave = true
-                }
+            // Calculate the number of exposures for the current chunk
+            var numExposuresForChunk = Math.floor(currentChunkDuration / exposureTimeInMinutes);
 
-                while (Dome.Slewing == true) {
-                    Console.PrintLine("Dome is still slewing. Give me a minute...")
-                    Util.WaitForMilliseconds(500)
-                }
-
+            // Update pointing every 30 minutes or if the remaining observation time is less than 30 minutes
+            if (timeSinceLastPointingUpdate >= pointingUpdateInterval || remainingObsTime <= imageChunkTime) {
                 // Check pier side
-                if (Telescope.SideOfPier == 0) {
-                    pierside = "E"
-                    Console.PrintLine("Pier side: " + pierside)
-                } else {
-                    pierside = "W"
-                    Console.PrintLine("Pier side: " + pierside)
-                }
-            } else { Console.PrintLine("Already on the right side of the pier"); }
+                if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
+                    updateLog("Flipping sides of pier...", "INFO");
+                    // Console.PrintLine("Flipping sides of pier...")
+                    // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
+                    gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+                    // Readjust the telescope pointing using child script
+                    adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                    while (Telescope.Slewing == true) {
+                        Console.PrintLine("Huh. Still Slewing...")
+                        Util.WaitForMilliseconds(500)
+                    }
+
+                    Dome.UnparkHome()
+                    if (Dome.slave == false) {
+                        Dome.slave = true
+                    }
+
+                    while (Dome.Slewing == true) {
+                        Console.PrintLine("Dome is still slewing. Give me a minute...")
+                        Util.WaitForMilliseconds(500)
+                    }
+
+                    // Check pier side
+                    if (Telescope.SideOfPier == 0) {
+                        pierside = "E"
+                        Console.PrintLine("Pier side: " + pierside)
+                    } else {
+                        pierside = "W"
+                        Console.PrintLine("Pier side: " + pierside)
+                    }
+                } else { Console.PrintLine("Already on the right side of the pier"); }
+
+                // Reset pointing update timer
+                timeSinceLastPointingUpdate = 0;
+            }
+
+            
 
             // Collect darkes when darkInterval is reached
             if (darkCounter == darkInterval) {
@@ -1756,7 +1771,7 @@ function main() {
 
             // Commands to run ColibriGrabe.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + bestObs.numExposures.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposuresForChunk.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
 
             updateLog("Executing command: " + command, "INFO");
             // Console.PrintLine("Executing command: " + command);
@@ -1774,6 +1789,17 @@ function main() {
             // ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
 
             runCounter++;
+
+            // Increment the time since last pointing update
+            timeSinceLastPointingUpdate += currentChunkDuration;
+
+            // Subtract the current chunk time from the remaining observation time
+            remainingObsTime -= currentChunkDuration;
+
+            // Check if observation time has exceeded
+            if (elapsedTime >= bestObs.obsDuration) {
+                break;
+            }
         }
 
         // Mark requested observation as completed in CSV file
