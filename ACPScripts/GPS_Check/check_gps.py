@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import re
 from datetime import datetime, timedelta
+import numpy as np
 
 def testGPSLock(filepath):
     with open(filepath, 'rb') as fid:
@@ -13,7 +14,7 @@ def testGPSLock(filepath):
 def getCaptureDate(filepath):
     # This function attempts to extract the date by searching through the hex data
     with open(filepath, 'rb') as fid:
-        hex_data = fid.read(2048)  # Read first 2048 bytes as an example (increased from 512)
+        hex_data = fid.read(2048)  # Read first 2048 bytes as an example
         ascii_data = hex_data.decode('ascii', errors ='ignore')  # Convert to ASCII
         
         # Use regex to find the datetime format "YYYY-MM-DDTHH:MM:SS.ssssssZ"
@@ -22,7 +23,6 @@ def getCaptureDate(filepath):
             return match.group(0)  # Returns the first occurrence of a datetime in the format
         else:
             return None
-
 
 def is_time_consistent(metadata_time, file_system_time):
     try:
@@ -44,11 +44,22 @@ def is_time_consistent(metadata_time, file_system_time):
         print(f"Error parsing time: {e}")
         return False
 
+def calculate_offset(time1, time2):
+    try:
+        time1_dt = datetime.strptime(time1.rstrip('Z'), "%Y-%m-%dT%H:%M:%S.%f")
+        time2_dt = datetime.strptime(time2.rstrip('Z'), "%Y-%m-%dT%H:%M:%S.%f")
+        return (time2_dt - time1_dt).total_seconds() * 1e6  # Return in microseconds
+    except ValueError as e:
+        print(f"Error parsing time: {e}")
+        return None
+
 # Define the root directory
 GPS_CHECK_ROOT_DIR = Path("D:\\colibrigrab_test_organized\\")
 
 # Open the summary log file in append mode
-with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_file:
+with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_file, \
+     open(GPS_CHECK_ROOT_DIR / "time_offset_log.txt", "a") as offset_log_file:
+    
     best_exposure = None
     lowest_gps_loss_ratio = float('inf')
     
@@ -61,6 +72,7 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
         gps_loss = 0
         total_images = 0
         inconsistent_frames = 0
+        capture_times = []
 
         # Open the detailed log file for the current exposure folder
         with open(exposure_folder / "gps_check_log_test.txt", "w") as log_file:
@@ -79,6 +91,9 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
                                 inconsistent_frames += 1
                         total_images += 1
 
+                        if capture_date:
+                            capture_times.append(capture_date)
+
                         # Log the result for the current file
                         log_file.write(f"File: {filepath} - GPS Lock: {gps_lock} - Capture Date: {capture_date} - File System Time: {file_system_time}\n")
 
@@ -87,13 +102,30 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
             log_file.write(f"GPS Loss: {gps_loss} / {total_images}\n")
             log_file.write(f"Inconsistent Time Frames: {inconsistent_frames} / {total_images}\n")
 
+        # Calculate time offsets and log to a separate log file
+        time_offsets = []
+        for i in range(1, len(capture_times)):
+            offset = calculate_offset(capture_times[i-1], capture_times[i])
+            if offset is not None:
+                time_offsets.append(offset)
+                offset_log_file.write(f"Exposure {exposure_folder.name}: Time offset between frame {i} and {i+1}: {offset:.2f} µs\n")
+        
+        # Calculate and log average and standard deviation of time offsets
+        if time_offsets:
+            avg_offset = np.mean(time_offsets)
+            stddev_offset = np.std(time_offsets)
+            offset_log_file.write(f"Exposure {exposure_folder.name}: Average time offset: {avg_offset:.2f} µs\n")
+            offset_log_file.write(f"Exposure {exposure_folder.name}: Standard deviation of time offsets: {stddev_offset:.2f} µs\n\n")
+        else:
+            offset_log_file.write(f"Exposure {exposure_folder.name}: No valid time offsets to calculate.\n\n")
+
         # Append the summary results to the summary log file
         exposure = int(exposure_folder.name.replace('ms', ''))
         summary_log_file.write(f"Exposure Folder: {exposure_folder.name}\n")
         summary_log_file.write(f"Exposure: {exposure} ms\n")
         summary_log_file.write(f"GPS Loss: {gps_loss} / {total_images}\n")
         summary_log_file.write(f"Inconsistent Time Frames: {inconsistent_frames} / {total_images}\n\n")
-        print(f"Exposure Folder: {exposure_folder.name} - GPS Loss: {gps_loss} / {total_images} - Inconsistent Time Frames: {inconsistent_frames}", flush = True)
+        print(f"Exposure Folder: {exposure_folder.name} - GPS Loss: {gps_loss} / {total_images} - Inconsistent Time Frames: {inconsistent_frames}", flush=True)
 
         # Calculate the GPS loss ratio
         if total_images > 0:
@@ -108,4 +140,4 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
 
     # Log the best exposure setting
     summary_log_file.write(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss Ratio: {lowest_gps_loss_ratio}\n")
-    print(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss Ratio: {lowest_gps_loss_ratio}", flush = True)
+    print(f"\nBest Exposure Setting: {best_exposure} ms with GPS Loss Ratio: {lowest_gps_loss_ratio}", flush=True)
