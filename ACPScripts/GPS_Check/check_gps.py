@@ -49,7 +49,7 @@ def calculate_offset(time1, time2):
         time1_dt = parse_capture_date(time1)
         time2_dt = parse_capture_date(time2)
         if time1_dt and time2_dt:
-            return (time2_dt - time1_dt).total_seconds() * 1e6  # Return in microseconds
+            return (time2_dt - time1_dt).total_seconds() * 1e3  # Return in milliseconds
         return None
     except Exception as e:
         print(f"Error calculating offset: {e}")
@@ -96,9 +96,9 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
 
                         # Log the result for the current file
                         log_file.write(f"File: {filepath} - GPS Lock: {gps_lock} - Capture Date: {capture_date} - File System Time: {file_system_time}\n")
-
+            cleaned_exposure_name = exposure_folder.name.replace('msms', 'ms')  # Clean up 'msms' to 'ms'
             # Log the summary for the current exposure folder
-            log_file.write(f"\nExposure Folder: {exposure_folder.name}\n")
+            log_file.write(f"\nExposure Folder: {cleaned_exposure_name}\n")
             log_file.write(f"GPS Loss: {gps_loss} / {total_images}\n")
             log_file.write(f"Inconsistent Time Frames: {inconsistent_frames} / {total_images}\n")
 
@@ -108,24 +108,24 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
             offset = calculate_offset(capture_times[i-1], capture_times[i])
             if offset is not None:
                 time_offsets.append(offset)
-                offset_log_file.write(f"Exposure {exposure_folder.name}: Time offset between frame {i} and {i+1}: {offset:.2f} µs\n")
+                offset_log_file.write(f"Exposure {cleaned_exposure_name}: Time offset between frame {i} and {i+1}: {offset:.2f} ms\n")
         
         # Calculate and log average and standard deviation of time offsets
         if time_offsets:
             avg_offset = np.mean(time_offsets)
             stddev_offset = np.std(time_offsets)
-            offset_log_file.write(f"Exposure {exposure_folder.name}: Average time offset: {avg_offset:.2f} µs\n")
-            offset_log_file.write(f"Exposure {exposure_folder.name}: Standard deviation of time offsets: {stddev_offset:.2f} µs\n\n")
+            offset_log_file.write(f"Exposure {cleaned_exposure_name}: Average time offset: {avg_offset:.3f} ms\n")
+            offset_log_file.write(f"Exposure {cleaned_exposure_name}: Standard deviation of time offsets: {stddev_offset:.3f} ms\n\n")
         else:
-            offset_log_file.write(f"Exposure {exposure_folder.name}: No valid time offsets to calculate.\n\n")
+            offset_log_file.write(f"Exposure {cleaned_exposure_name}: No valid time offsets to calculate.\n\n")
 
         # Append the summary results to the summary log file
-        exposure = int(exposure_folder.name.replace('ms', ''))
-        summary_log_file.write(f"Exposure Folder: {exposure_folder.name}\n")
+        exposure = int(cleaned_exposure_name.replace('ms', ''))
+        summary_log_file.write(f"Exposure Folder: {cleaned_exposure_name}\n")
         summary_log_file.write(f"Exposure: {exposure} ms\n")
         summary_log_file.write(f"GPS Loss: {gps_loss} / {total_images}\n")
         summary_log_file.write(f"Inconsistent Time Frames: {inconsistent_frames} / {total_images}\n\n")
-        print(f"Exposure Folder: {exposure_folder.name} - GPS Loss: {gps_loss} / {total_images} - Inconsistent Time Frames: {inconsistent_frames}", flush=True)
+        print(f"Exposure Folder: {cleaned_exposure_name} - GPS Loss: {gps_loss} / {total_images} - Inconsistent Time Frames: {inconsistent_frames}", flush=True)
 
         # Calculate the GPS loss ratio
         if total_images > 0:
