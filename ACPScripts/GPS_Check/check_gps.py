@@ -15,7 +15,7 @@ def getCaptureDate(filepath):
     # This function attempts to extract the date by searching through the hex data
     with open(filepath, 'rb') as fid:
         hex_data = fid.read(2048)  # Read first 2048 bytes as an example
-        ascii_data = hex_data.decode('ascii', errors ='ignore')  # Convert to ASCII
+        ascii_data = hex_data.decode('ascii', errors='ignore')  # Convert to ASCII
         
         # Use regex to find the datetime format "YYYY-MM-DDTHH:MM:SS.ssssssZ"
         match = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?', ascii_data)
@@ -24,33 +24,35 @@ def getCaptureDate(filepath):
         else:
             return None
 
-def is_time_consistent(metadata_time, file_system_time):
-    try:
-        # Truncate the fractional seconds to 6 digits if there are more
-        if '.' in metadata_time:
-            time_part, fractional_part = metadata_time.split('.')
-            fractional_part = fractional_part.rstrip('Z')[:6]  # Keep only the first 6 digits
-            metadata_time = f"{time_part}.{fractional_part}Z"
+def parse_capture_date(capture_date):
+    """
+    Parse the capture date while retaining all fractional seconds for high precision.
+    """
+    if capture_date.endswith('Z'):
+        # Remove 'Z' and split the datetime and fractional seconds part
+        time_part, fractional_part = capture_date.rstrip('Z').split('.')
         
-        metadata_dt = datetime.strptime(metadata_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+        # Parse the main datetime part
+        datetime_part = datetime.strptime(time_part, "%Y-%m-%dT%H:%M:%S")
         
-        # Since file_system_time is already a datetime object, use it directly
-        fs_dt = file_system_time
-        
-        # Check for consistency within the +/- 4 seconds window
-        delta = abs((metadata_dt - fs_dt).total_seconds())
-        return delta <= 4
-    except ValueError as e:
-        print(f"Error parsing time: {e}")
-        return False
+        # Convert the fractional part to seconds (full precision)
+        fractional_seconds = int(fractional_part) / (10 ** len(fractional_part))
+        return datetime_part + timedelta(seconds=fractional_seconds)
+    
+    return None
 
 def calculate_offset(time1, time2):
+    """
+    Calculate the time difference (in microseconds) between two timestamps.
+    """
     try:
-        time1_dt = datetime.strptime(time1.rstrip('Z'), "%Y-%m-%dT%H:%M:%S.%f")
-        time2_dt = datetime.strptime(time2.rstrip('Z'), "%Y-%m-%dT%H:%M:%S.%f")
-        return (time2_dt - time1_dt).total_seconds() * 1e6  # Return in microseconds
-    except ValueError as e:
-        print(f"Error parsing time: {e}")
+        time1_dt = parse_capture_date(time1)
+        time2_dt = parse_capture_date(time2)
+        if time1_dt and time2_dt:
+            return (time2_dt - time1_dt).total_seconds() * 1e6  # Return in microseconds
+        return None
+    except Exception as e:
+        print(f"Error calculating offset: {e}")
         return None
 
 # Define the root directory
@@ -65,7 +67,7 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
     
     # Get the list of exposure folders and sort them numerically
     exposure_folders = [folder for folder in GPS_CHECK_ROOT_DIR.iterdir() if folder.is_dir()]
-    exposure_folders.sort(key = lambda x: int(x.name.replace('ms', '')))
+    exposure_folders.sort(key=lambda x: int(x.name.replace('ms', '')))
     
     # Iterate through each sorted exposure folder in the root directory
     for exposure_folder in exposure_folders:
@@ -85,10 +87,8 @@ with open(GPS_CHECK_ROOT_DIR / "gps_summary_log_test.txt", "a") as summary_log_f
                         file_system_time = datetime.fromtimestamp(os.path.getmtime(filepath))
                         
                         # Check if the GPS lock is good and the time is consistent
-                        if not gps_lock or capture_date is None or not is_time_consistent(capture_date, file_system_time):
+                        if not gps_lock or capture_date is None:
                             gps_loss += 1
-                            if capture_date is not None and not is_time_consistent(capture_date, file_system_time):
-                                inconsistent_frames += 1
                         total_images += 1
 
                         if capture_date:
