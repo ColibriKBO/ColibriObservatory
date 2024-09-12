@@ -34,7 +34,7 @@ function main() {
     //var initialExposure = 25; // Initial exposure time in ms
     //var exposureIncrement = 1; // Exposure increment in ms
     //var totalExposures = 1; // Total number of different exposures to test
-    var exposures = [25];
+    var exposures = [16];
     var totalExposures = exposures.length;
     var totalCaptureTime = (60000); // Total capture time in milliseconds (60 minutes)
     var frameType = "dark"; // Frame type to test
