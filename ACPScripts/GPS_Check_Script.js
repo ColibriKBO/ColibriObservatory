@@ -57,7 +57,8 @@ function main() {
         {
             framesPerIteration = Math.floor(totalCaptureTime / exposure);
         }
-       
+        
+        framesPerIteration = 36000
 
         for (var i = 0; i < 1; i++) {
             var iterationDir = "D:\\colibrigrab_test_new\\" + dateString + "_" + exposure + "ms_" + (i + 1);
@@ -76,7 +77,7 @@ function main() {
             var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
             
             // Dynamically start ColibriGrab
-            var command = "\"" + colibriGrabPath + "\" -n 0" + " -p colibrigrab_test_" + (i + 1) + " -e " + exposure + " -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+            var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e " + exposure + " -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
             var wsh = new ActiveXObject("WScript.Shell");
             wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
