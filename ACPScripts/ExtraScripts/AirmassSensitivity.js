@@ -21,8 +21,8 @@ var elevationLimit = 10; // minimum elevation of field in degrees
 var runUnsafe = false; // if true, will disable weather checks
 
 // Scheduler Lists
-//var airmassList = [1.0001, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]; // list of airmasses to observe
-var airmassList = [1.0001]; // list of airmasses to observe
+var airmassList = [1.0001, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]; // list of airmasses to observe
+
 var exposureList = [25, 33, 50, 100, 200]; // list of exposure times to use (in ms)
 
 // Misc Variables
@@ -628,18 +628,19 @@ function main()
     //Waints until a determined time is reached to start. This should syncronize the telescopes.
 
 
-    startTime = 2460537.7916666665;
-    timeUntilStart = (startTime - Util.SysJulianDate) * 24; 
+    startTime = 2460566.595659722;
+
+    timeUntilStart = (startTime - Util.SysJulianDate) * 24;
     while (timeUntilStart > 0)
-        {
-            Console.PrintLine("");
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.");
-            
-            Util.WaitForMilliseconds(1000);
-            timeUntilSunset = (startTime - Util.SysJulianDate) * 24; // hours
-        }
-
-
+    {
+        Console.PrintLine("");
+        Console.PrintLine("It's still too early to begin... Waiting for " + ((startTime - Util.SysJulianDate) * 86400).toFixed(0) + " seconds.");
+        
+        Util.WaitForMilliseconds(1000);
+        
+        // Update timeUntilStart inside the loop
+        timeUntilStart = (startTime - Util.SysJulianDate) * 24; // hours
+    }
 
     /*------------------------Begin Script Operations------------------------*/
     Util.WaitForMilliseconds(10000);
@@ -677,18 +678,18 @@ for (i = 0; i < airmassList.length; i++) {
             
             // Take image
             var wsh = new ActiveXObject("WScript.Shell");
-            Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\CameraTimingCheck\\")
-            var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\CameraTimingCheck\\";
+            Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
+            var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\";
             Console.PrintLine("Process ID = " + pid.toString());
             wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             
-            /*Util.WaitForMilliseconds(2000);
+            Util.WaitForMilliseconds(2000);
 
             var wsh1 = new ActiveXObject("WScript.Shell");
             Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
             var pid1 = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
             wsh1.Run(pid1, 1, true); // 1: normal window, true: wait for completion
-            Console.PrintLine("Done exposing run # " + j.toString());*/
+            Console.PrintLine("Done exposing run # " + j.toString());
             Util.WaitForMilliseconds(250);
 
         }
