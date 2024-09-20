@@ -178,17 +178,19 @@ function filterByTime(requests, sunset, sunrise) {
 }
 
 function withinTimeWindow(request, currJD, sunset, sunrise) {
-    var start = request.startJD;
-    var end = request.endJD;
+    var startWindow = request.startJD;
+    var endWindow = request.endJD;
 
-    return start <= currJD && currJD <= end // && withinNightTime(request, sunset, sunrise); // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
+    var endJD = currJD + (request.obsDuration / 1440);
+
+    return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise; //withinNightTime(request, currJD, sunset, sunrise); // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
 }
 
-function withinNightTime(request, sunset, sunrise) {
-    var start = request.startJD;
-    var end = request.endJD;
+function withinNightTime(request, currJD, sunset, sunrise) {
+    var startWindow = request.startJD;
+    var endWindow = request.endJD;
 
-    return sunset <= start && start <= sunrise && sunset <= end && end <= sunrise;
+    return sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
 
 function filterByAstronomy(requests, moonCT) {
@@ -549,20 +551,20 @@ function darkCollection(today) {
     appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
-/*
+
 // Does the dirty work of collecting image data given a filter.
 // Combines functionality of biasCollection and darkCollection functions.
-function imgCollection(today, filter) {
+function imgCollection(today, filter, exposure) {
     var wshShell = new ActiveXObject("WScript.Shell");
     var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-    var colibriGrabPath = userProfiel + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
 
     Console.PrintLine("Starting " + filter + " frame collection...");
     Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\" + filter);
 
-    var command = "\"" + colibriGrabPath + "\" -n 10 -p " + filter + "_25ms -e 25 -t 0 -f " + filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + filter;
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p " + filter + "_" + exposure + "ms -e " + exposure + " -t 0 -f " + filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + filter;
     
-    wshShell.Run(commdn, 1, true); // 1: normal window, true: wait for completion
+    wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
 
     Util.WaitForMilliseconds(100);
     Console.PrintLine("Finished collecting " + filter + " frames...");
@@ -571,7 +573,6 @@ function imgCollection(today, filter) {
     appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
-*/
 
 ///////////////////////////
 // Function to connect the telescope
@@ -1052,7 +1053,7 @@ function adjustPointing(ra, dec)
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python C:\\Users\\RedBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
     // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
@@ -1297,6 +1298,24 @@ function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile) {
 
 // Global variables:
 // ACP Variables
+// try{
+//     SUP = new ActiveXObject("ACP.AcquireSupport");
+// } catch(e) {
+//     if(e.description.indexOf("can't create object") != -1) {
+//         updateLog("It appears that AcquireSupport is not registered with Windows.", "ERROR");
+//         updateLog("Find AcquireSupport.wsc in the ACP install folder, right click.", "ERROR");
+//         updateLog("on it, and select Register. Then try running the script again.", "ERROR");
+//     } else {
+//         updateLog("There is a problem with the script support library:", "ERROR");
+//         updateLog("    [" + e.description + "]", "ERROR");
+//         updateLog("If the above error message is not an obvious clue, contact", "ERROR");
+//         updateLog("DC-3 Dreams customer support on the Comm Center", "ERROR");
+//     }
+
+//     SUP = null;
+//     return;
+// }
+
 var logconsole = true;
 var firstRun = true;
 var isAfterSunset = false;
@@ -1317,7 +1336,19 @@ var timestep = 1.0; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
-var darkInterval = 15 // Number of minutes between dark series collection
+// var darkInterval = 15 // Number of minutes between dark series collection
+
+try{
+    updateLog("Attempting to create ActiveX object for MaxIM DL", "INFO");
+    // Create ActiveX object for MaxIM DL
+    var maximDL = new ActiveXObject("MaxIm.Application");
+    updateLog("MaxIM DL ActiveX object created successfully.", "INFO");
+
+    var ccdCamera = maximDL.CCDCamera;
+    updateLog("Accessing the CCD camera object", "INFO");
+} catch (e) {
+    updateLog("An error occurred " + e.message, "ERROR");
+}
 
 // Iterables
 var slewAttempt = 0;
@@ -1504,11 +1535,11 @@ function main() {
 
         // Safeguard against opening before the start of the observing plan
         // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
-        // while (Util.SysJulianDate < sunset) {
-        //     Console.PrintLine("")
-        //     Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
-        //     Util.WaitForMilliseconds(5000)
-        // }
+        while (Util.SysJulianDate < sunset) {
+            Console.PrintLine("")
+            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
+            Util.WaitForMilliseconds(5000)
+        }
 
         // Safeguard against opening after the end of the observing plan/sunrise
         if (Util.SysJulianDate > sunrise) {
@@ -1686,120 +1717,220 @@ function main() {
         // ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
         updateLog("Starting data collection...", "INFO");
 
+        // Try linking the camera
+        try {
+            if (!ccdCamera.LinkEnabled) {
+                updateLog("Camera is not linked. Attempting to link...", "INFO");
+                ccdCamera.LinkEnabled = true; // Try to link the camera
+
+                if (ccdCamera.LinkEnabled) {
+                    updateLog("Camera linked successfully.", "INFO");
+                } else {
+                    updateLog("Failed to link the camera." , "ERROR");
+                    return;
+                }
+            } else {
+                updateLog("Camera already linked.", "INFO");
+            }
+        } catch (e) {
+            updateLog("An error occurred: " + e.message, "ERROR");
+        }
+
         // Create directory for requested observation images
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName)
 
         // Iterables
-        darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
+        var darkInterval = 30; // Number of iterations of 
+        var darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
         runCounter = 1
 
-        // Initialize time tracking variables
-        var startTime = Util.SysJulianDate;
-        var timeSinceLastPointingUpdate = 0; // In minutes
-        var pointingUpdateInterval = 30; // 30 minutes for updating pointing
-        var imageChunkTime = 30; // 30 minutes in total per chunk
-        var remainingObsTime = bestObs.obsDuration; // Observation duration in minutes
-        var exposureTimeInSeconds = bestObs.exposureTime / 1000; // Convert exposure time from milliseconds to seconds
-        var exposureTimeInMinutes = exposureTimeInSeconds / 60; // Convert exposure time from seconds to minutes
+        var endJD = Util.SysJulianDate + (bestObs.obsDuration / 1440);
 
-        while (remainingObsTime > 0) {
+        // Initialize time tracking variables
+        // var startTime = Util.SysJulianDate;
+        // var timeSinceLastPointingUpdate = 0; // In minutes
+        // var pointingUpdateInterval = 30; // 30 minutes for updating pointing
+        // var imageChunkTime = 30; // 30 minutes in total per chunk
+        // var remainingObsTime = bestObs.obsDuration; // Observation duration in minutes
+        // var exposureTimeInSeconds = bestObs.exposureTime / 1000; // Convert exposure time from milliseconds to seconds
+        // var exposureTimeInMinutes = exposureTimeInSeconds / 60; // Convert exposure time from seconds to minutes
+
+        // while (remainingObsTime > 0) {
         //while (runCounter <= bestObs.obsDuration) {
+        while (Util.SysJulianDate <= endJD) {
             
-            var currentTime = Util.SysJulianDate;
-            var elapsedTime = (currentTime - startTime) * 1440; // Convert elapsed time from Julian Days to minutes
+            // var currentTime = Util.SysJulianDate;
+            // var elapsedTime = (currentTime - startTime) * 1440; // Convert elapsed time from Julian Days to minutes
 
             // Calculate the time for the current image chunk (either 30 minutes or the remaining observation time)
-            var currentChunkDuration = Math.min(imageChunkTime, remainingObsTime); // In minutes
+            // var currentChunkDuration = Math.min(imageChunkTime, remainingObsTime); // In minutes
 
             // Calculate the number of exposures for the current chunk
-            var numExposuresForChunk = Math.floor(currentChunkDuration / exposureTimeInMinutes);
+            // var numExposuresForChunk = Math.floor(currentChunkDuration / exposureTimeInMinutes);
 
-            // Update pointing every 30 minutes or if the remaining observation time is less than 30 minutes
+            // Update pointing and take darks every 30 minutes or if the remaining observation time is less than 30 minutes
             if (timeSinceLastPointingUpdate >= pointingUpdateInterval || remainingObsTime <= imageChunkTime) {
+                // Readjust the telescope pointing using child script
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Huh. Still Slewing...")
+                    Util.WaitForMilliseconds(500)
+                }
+
+                Dome.UnparkHome()
+                if (Dome.slave == false)
+                {
+                    Dome.slave = true
+                }
+
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing. Give me a minute...")
+                    Util.WaitForMilliseconds(500)
+                }
+
                 // Check pier side
-                if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
-                    updateLog("Flipping sides of pier...", "INFO");
-                    // Console.PrintLine("Flipping sides of pier...")
-                    // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
-                    gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+                if (Telescope.SideOfPier == 0)
+                {
+                    pierside = "E"
+                    Console.PrintLine("Pier side: " + pierside)
+                }
+                else
+                {
+                    pierside = "W"
+                    Console.PrintLine("Pier side: " + pierside)
+                }
+                
+                // Check pier side
+                // if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
+                //     updateLog("Flipping sides of pier...", "INFO");
+                //     // Console.PrintLine("Flipping sides of pier...")
+                //     // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
+                //     gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-                    // Readjust the telescope pointing using child script
-                    adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
-                    while (Telescope.Slewing == true) {
-                        Console.PrintLine("Huh. Still Slewing...")
-                        Util.WaitForMilliseconds(500)
-                    }
+                //     // Readjust the telescope pointing using child script
+                //     adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                //     while (Telescope.Slewing == true) {
+                //         Console.PrintLine("Huh. Still Slewing...")
+                //         Util.WaitForMilliseconds(500)
+                //     }
 
-                    Dome.UnparkHome()
-                    if (Dome.slave == false) {
-                        Dome.slave = true
-                    }
+                //     Dome.UnparkHome()
+                //     if (Dome.slave == false) {
+                //         Dome.slave = true
+                //     }
 
-                    while (Dome.Slewing == true) {
-                        Console.PrintLine("Dome is still slewing. Give me a minute...")
-                        Util.WaitForMilliseconds(500)
-                    }
+                //     while (Dome.Slewing == true) {
+                //         Console.PrintLine("Dome is still slewing. Give me a minute...")
+                //         Util.WaitForMilliseconds(500)
+                //     }
 
-                    // Check pier side
-                    if (Telescope.SideOfPier == 0) {
-                        pierside = "E"
-                        Console.PrintLine("Pier side: " + pierside)
-                    } else {
-                        pierside = "W"
-                        Console.PrintLine("Pier side: " + pierside)
-                    }
-                } else { Console.PrintLine("Already on the right side of the pier"); }
+                //     // Check pier side
+                //     if (Telescope.SideOfPier == 0) {
+                //         pierside = "E"
+                //         Console.PrintLine("Pier side: " + pierside)
+                //     } else {
+                //         pierside = "W"
+                //         Console.PrintLine("Pier side: " + pierside)
+                //     }
+                // } else { Console.PrintLine("Already on the right side of the pier"); }
 
                 // Reset pointing update timer
                 timeSinceLastPointingUpdate = 0;
             }
 
-            
+            imgCollection(today, "dark", bestObs.exposureTime);
 
-            // Collect darkes when darkInterval is reached
-            if (darkCounter == darkInterval) {
-                darkCollection(today) 
-                darkCounter = 0
-            }
-            darkCounter++
-            Console.PrintLine("Dark counter = " + darkCounter.toString())
+            // // Collect darkes when darkInterval is reached
+            // if (darkCounter == darkInterval) {
+            //     // darkCollection(today) 
+            //     imgCollection(today, "dark", bestObs.exposureTime);
+            //     darkCounter = 0
+            // }
+            // darkCounter++
+            // Console.PrintLine("Dark counter = " + darkCounter.toString())
 
             // Dynamicallly fetches the correct path to ColibriGrab.exe
-            var wshShell = new ActiveXObject("WScript.Shell");
-            var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-            var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+            // var wshShell = new ActiveXObject("WScript.Shell");
+            // var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+            // var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
 
-            // Commands to run ColibriGrabe.exe from the GitHub
-            var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + numExposuresForChunk.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
+            // // Commands to run ColibriGrabe.exe from the GitHub
+            // var wsh = new ActiveXObject("WScript.Shell");
+            // var command = "\"" + colibriGrabPath + "\" -n " + numExposuresForChunk.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
 
-            updateLog("Executing command: " + command, "INFO");
+            // updateLog("Executing command: " + command, "INFO");
             // Console.PrintLine("Executing command: " + command);
             // ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
 
             // Run ColibriGrab.exe
-            wsh.Run(command, 1, true);
+            // wsh.Run(command, 1, true);
 
-            Util.WaitForMilliseconds(50);
+            // Util.WaitForMilliseconds(50);
 
             // Append and delete ColibriGrab log fo ACP log after each run
-            appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-            updateLog("Done exposing run # " + runCounter.toString(), "INFO");
+            // appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            // updateLog("Done exposing run # " + runCounter.toString(), "INFO");
             // Console.PrintLine("Done exposing run # " + runCounter.toString());
             // ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
+            // Try starting an exposure
+            try {
+                updateLog("Starting exposure...", "INFO");
+                ccdCamera.BinX = bestObs.binning;
+                ccdCamera.BinY = bestObs.binning;
+                ccdCamera.Expose(bestObs.exposureTime, bestObs.filter); // Exposure Time needs to be in seconds!!
+                updateLog("Exposure started successfully");
+            } catch (e) {
+                updateLog("Error starting exposure: " + e.message);
+            }
+
+            // Wait for the image to become ready;
+            var maxWaitTime = (bestObs.exposureTime / 2) * 1000; // Maximum wait time of 1/2 the exposure time, in milliseconds
+            var waitInterval = 500; // Check every 500ms
+            var elapsedTime = 0;
+
+            try {
+                while (!ccdCamera.ImageReady && elapsedTime < maxWaitTime) {
+                    updateLog("Waiting for image to be ready...", "INFO");
+                    Util.WaitForMilliseconds(waitInterval);
+                    elapsedTime += waitInterval;
+                }
+
+                if (ccdCamera.ImageReady) {
+                    var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName + "\\image_" + new Date().getTime() + ".fits";
+                    updateLog("Saving image to: " + filePath, "INFO");
+                    ccdCamera.SaveImage(filePath); // Save the image
+                    updateLog("Image saved successfully to: " + filePath);
+                } else {
+                    updateLog("Image not ready after waiting.", "ERROR");
+                }
+            } catch (e) {
+                updateLog("Error saving image: " + e.message);
+            }
+            
 
             runCounter++;
 
             // Increment the time since last pointing update
-            timeSinceLastPointingUpdate += currentChunkDuration;
+            // timeSinceLastPointingUpdate += currentChunkDuration;
 
             // Subtract the current chunk time from the remaining observation time
-            remainingObsTime -= currentChunkDuration;
+            // remainingObsTime -= currentChunkDuration;
 
             // Check if observation time has exceeded
-            if (elapsedTime >= bestObs.obsDuration) {
-                break;
-            }
+            // if (elapsedTime >= bestObs.obsDuration) {
+            //     break;
+            // }
+        }
+
+        // Try disconnecting from camera
+        try {
+            ccdCameraCamera.LinkEnabled = false;
+            updateLog("Camera disconnected.", "INFO");
+        } catch (e) {
+            updateLog("An error occurred: " + e.message, "ERROR");
         }
 
         // Mark requested observation as completed in CSV file
