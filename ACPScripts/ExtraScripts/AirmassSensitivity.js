@@ -628,7 +628,7 @@ function main()
     //Waints until a determined time is reached to start. This should syncronize the telescopes.
 
 
-    startTime = 2460566.6006944445;
+    startTime = 2460582.5694444445;
 
     timeUntilStart = (startTime - Util.SysJulianDate) * 24;
     while (timeUntilStart > 0)
@@ -678,8 +678,9 @@ for (i = 0; i < airmassList.length; i++) {
             
             // Take image
             var wsh = new ActiveXObject("WScript.Shell");
-            Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\CameraTimingCheck\\")
-            var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\CameraTimingCheck\\";
+            Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\")
+            /*Console.PrintLine("ColibriGrab.exe " + "-n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\CameraTimingCheck\\")*/
+            var pid = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f normal -w D:\\tmp\\AirmassSensitivity\\";
             Console.PrintLine("Process ID = " + pid.toString());
             wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             
