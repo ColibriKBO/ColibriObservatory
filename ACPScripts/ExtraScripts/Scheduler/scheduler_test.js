@@ -1,389 +1,535 @@
 // Scheduling observation request objects
-function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, numExposures, filter, binning, csvIndex) {
+// Request Object is used to represent scheduling observation requests.
+// Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
+function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
+    // Directory name where the observation data will be saved.
     this.directoryName = directoryName;
+    // Priority of the observation request (higher priority requests are scheduled first).
     this.priority = priority;
 
+    // Right Ascension (RA) of the celestial target (in degrees).
     this.ra = ra;
+    // Declination (DEC) of the celestial target (in degrees).
     this.dec = dec;
 
+    // Start time of the observation in UTC format (human-readable).
     this.startUTC = startUTC;
+    // Start time of the observation in Julian Date (JD) format (for astronomical calculations).
     this.startJD = startJD;
+    // End time of the observation in UTC format.
     this.endUTC = endUTC;
+    // End time of the observation in Julian Date format.
     this.endJD = endJD;
 
+    // Total duration of the observation (in minutes).
     this.obsDuration = obsDuration;
+    // Time for a single exposure (in seconds).
     this.exposureTime = exposureTime;
-    this.numExposures = numExposures;
 
-
+    // Filter applied during the observation (1 for normal, 2 for dark, or 3 for biased)
     this.filter = filter;
+    // Binning setting for the camera (1 for 1x1 or 2 for 2x2)
     this.binning = binning;
 
+    // Altitude of the target during observation, initialized to 0 (calculated later).
     this.altitude = 0;
+    // Angular distance between the target and the moon, initialized to 0 (calculated later).
     this.moonAngle = 0;
 
+    // Score assigned to the request, used for sorting and prioritization.
     this.score = 0;
+    // Index of the request in the CSV file (used to track and manage CSV data).
     this.csvIndex = csvIndex;
 
+    // Method to compare the score of the current request with another request.
+    // Returns true if the current request's score is higher, used for sorting requests.
     this.compareScore = function(otherRequest) { return this.score > otherRequest.score; };
 }
 
+// RequestIndices object maps the fields in a CSV file to corresponding observation request parameters.
+// This class helps index fields when parsing observation requests from a CSV file.
 function RequestIndices() {
-    this.directoryName = 0;
-    this.priority = 1;
+    this.directoryName = 0;     // Index of the directory name in the CSV file.
+    this.priority = 1;          // Index of the priority field.
 
-    this.ra = 2;
-    this.dec = 3;
+    this.ra = 2;                // Index of the Right Ascension (RA) field.
+    this.dec = 3;               // Index of the Declination (DEC) field.
 
-    this.startTime = 4;
-    this.endTime = 5;
+    this.startTime = 4;         // Index of the observation start time field.
+    this.endTime = 5;           // Index of the observation end time field.
 
-    this.obsDuration = 6;
-    this.exposureTime = 7;
-    this.filter = 8;
-    this.binning = 9;
+    this.obsDuration = 6;       // Index of the observation duration field.
+    this.exposureTime = 7;      // Index of the exposure time field.
+    this.filter = 8;            // Index of the filter field.
+    this.binning = 9;           // Index of the binning field.
 
-    this.completion = 10;
+    this.completion = 10;       // Index to track whether the observation request has been completed (1 for completed, 0 for uncompleted).
 }
 
 // Scheduling-related functions
-// Equation from https://aa.usno.navy.mil/faq/JD_formula
+// Converts a UTC time string to a Julian Date (JD) for astronomical calculations.
+// JD is used for precision in tracking celestial events and scheduling observations.
 function UTCtoJD(UTC) {
+    // Split the UTC string into its components: year, month, day, hour, and minutes.
     var dividedUTC = UTC.split(":");
-    // var K = parseInt(dividedUTC[0]);
-    // var M = parseInt(dividedUTC[1]);
-    // var I = parseInt(dividedUTC[2]);
-    // var H = parseInt(dividedUTC[3]);
-    // var m = parseInt(dividedUTC[4]);
 
+    // Parse the components as integers for calculation.
     var year = parseInt(dividedUTC[0], 10);
-    // var year = dividedUTC[0];
-    Console.PrintLine(typeof(year));
-    Console.PrintLine("Year: " + year);
     var month = parseInt(dividedUTC[1], 10);
-    Console.PrintLine("Month: " + month);
     var day = parseInt(dividedUTC[2], 10);
-    Console.PrintLine("Day: " + day);
     var hour = parseInt(dividedUTC[3], 10);
-    Console.PrintLine("Hour: " + hour);
     var minute = parseInt(dividedUTC[4], 10);
-    Console.PrintLine("Minute: " + minute);
 
-    var fracHour = hour + (minute / 60);
-    Console.PrintLine("fracHour: " + fracHour);
+    // Convert the time into fractional hours and then fractional days.
+    var fracHour = hour + (minute / 60); // Convert minutes to hours.
+    var fracDay = day + (fracHour / 24); // Convert hours to a fractional part of the day.
 
-    var fracDay = day + (fracHour / 24);
-    Console.PrintLine("fracDay: " + fracDay);
-
+    // Use the ACP Util Object to calculate the Julian Date from the year, month, and fractional day.
     var JD = Util.Calendar_Julian(year, month, fracDay);
-    Console.PrintLine(JD)
-
-    // var JD = (367 * K) - trunc((7 * (K + trunc((M + 9) / 12))) / 4) + trunc((275 * M) / 9) + I + 1721013.5 + (ut / 24) - (0.5 * sign(100 * K + M - 190002.5)) + 0.5;
-
+    // Return the calculated Julian Date.
     return JD;
 }
 
-// function trunc(number) {
-//     return parseInt(number);
-// }
-
-// function sign(number) {
-//     if (number > 0) { return 1; }
-//     else if (number < 0) { return -1; }
-//     return 0;
-// }
-
+// Reads and parses observation requests from a CSV file.
+// The function returns an array of Request objects along with the raw CSV data.
 function getRequests() {
-    var requests = [];
-    var lines = [];
-    var indices = new RequestIndices();
+    var requests = [];  // Array to store the parsed Request objects.
+    var lines = [];     // Array to store the raw lines from the CSV file.
+    var indices = new RequestIndices(); // Object to map CSV fields to request parameters.
 
     try {
+        // Create an ActiveX object for file system operations.
         var fso = new ActiveXObject("Scripting.FileSystemObject");
-        var file = fso.OpenTextFile("./colibri_user_observations.csv", 1); // 1 = For Reading
+        // Open the CSV file containing the observation request in read-only mode.
+        var file = fso.OpenTextFile("./colibri_user_observations.csv", ForReading);
 
-        var rowCounter = -1;
-        // var lines = [];
-        var rowData = [];
+        var rowCounter = -1; // Counter to track the row index in the CSV file.
+        var rowData = [];    // Array to hold the individual fields of a CSV row.
 
+        // Loop through the CSV file line by line until reaching the end of the file.
         while(!file.AtEndOfStream) {
-            if (rowCounter >= 0) {
-                var line = file.ReadLine();
-                lines.push(line);
-                rowData = line.split(",");
-                Console.PrintLine(rowData);
+            if (rowCounter >= 0) { // Skip the header row (first row of the CSV).
+                var line = file.ReadLine(); // Read a line from the CSV file.
+                lines.push(line); // Add the raw line to the lines array.
+                rowData = line.split(","); // Split the line by commas to get individual fields.
                 
+                // Check if the observation request has not been completed (completion field is 0).
                 if (rowData[indices.completion] == 0) {
+                    // Create a new Request object using the parsed CSV fields.
                     var request = new Request(
-                        rowData[indices.directoryName],
-                        parseInt(rowData[indices.priority]),
-                        parseFloat(rowData[indices.ra]),
-                        parseFloat(rowData[indices.dec]),
-                        rowData[indices.startTime],
-                        UTCtoJD(rowData[indices.startTime]),
-                        rowData[indices.endTime],
-                        UTCtoJD(rowData[indices.endTime]),
-                        parseInt(rowData[indices.obsDuration]),
-                        parseFloat(rowData[indices.exposureTime]), // * 1000,
-                        60 / parseFloat(rowData[indices.exposureTime]),
-                        rowData[indices.filter],
-                        rowData[indices.binning],
-                        rowCounter
+                        rowData[indices.directoryName], // Directory name.
+                        parseInt(rowData[indices.priority]), // Priority as an integer.
+                        parseFloat(rowData[indices.ra]), // Right Ascension as a float.
+                        parseFloat(rowData[indices.dec]), // Declination as a float.
+                        rowData[indices.startTime], // Start time in UTC.
+                        UTCtoJD(rowData[indices.startTime]), // Convert start time to Julian Date.
+                        rowData[indices.endTime], // End time in UTC.
+                        UTCtoJD(rowData[indices.endTime]), // Convert end time to Julian Date.
+                        parseInt(rowData[indices.obsDuration]), // Observation duration as an integer.
+                        parseFloat(rowData[indices.exposureTime]), // Exposure time as a float.
+                        rowData[indices.filter], // Filter used for the observation.
+                        rowData[indices.binning], // Binning setting.
+                        rowCounter // Index of the request in the CSV file.
                     );
 
+                    // Add the newly created Request to the array.
                     requests.push(request);
                 }
             }
+            // Increment the row counter to move to the next line.
             rowCounter++;
         }
-        file.Close();
-        fso = null;
+        file.Close(); // Close the CSV file after reading all lines.
+        fso = null; // Release the FileSystemObject.
     } catch (e) {
+        // Print an error message to the console if an exception occurs.
         Console.PrintLine("An error occurred: " + e.message);
     }
 
+    // Return the array of Request objects and the raw CSV lines.
     return [requests, lines];
 }
 
+// Selects the best observation from a list of requests, based on various filtering and ranking criteria.
 function selectBestObservation(requests, sunset, sunrise, moonCT) {
-    Console.PrintLine("Before filtering.");
+    // Log and print the list of requests before filtering.
+    updateLog("Requests before filtering.", "INFO");
     printPlan(requests);
 
+    // Filter out observations that don't fit within the time window or between sunset and sunrise.
     var suitableObs = filterByTime(requests, sunset, sunrise);
-    Console.PrintLine("After time filtering");
+    // Log and print the list of requests after time filtering.
+    updateLog("Requests after time filtering.", "INFO");
     printPlan(suitableObs);
-    suitableObs = filterByAstronomy(suitableObs, moonCT);
-    Console.Printline("After astronomy filtering");
-    printPlan(suitableObs);
-    var rankedObs = rankObservations(suitableObs);
-    Console.PrintLine("After ranking");
-    printPlan(rankedObs);
-    var bestObs = selectTopObservation(rankedObs);
 
-    return bestObs;
+    // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
+    suitableObs = filterByAstronomy(suitableObs, moonCT);
+    // Log and print the list of requests after astronomy filtering.
+    updateLog("Requests after astronomy filtering.", "INFO");
+    printPlan(suitableObs);
+
+    // Rank the remaining suitable observations based on priority, time, and astronomy scores.
+    var rankedObs = rankObservations(suitableObs);
+    // Log and print the list of requests after ranking.
+    updateLog("Requests after ranking.", "INFO");
+    printPlan(rankedObs);
+    
+    // Select the highest-ranked observation.
+    var bestObs = selectTopObservation(rankedObs);
+    return bestObs; // Return the best observation request.
 }
 
+// Filters the observation requests by checking if they fall within the allowed time window and between sunset and sunrise.
 function filterByTime(requests, sunset, sunrise) {
     var filteredObs = [];
-    var currJD = Util.SysJulianDate;
+    var currJD = Util.SysJulianDate; // Get the current Julian Date.
 
+    // Loop through each request and check if it fits within the time window and sunset/sunrise.
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
-        if (withinTimeWindow(request, currJD, sunset, sunrise)) {
-            filteredObs.push(request);
-        }
+        // Add to filteredObs if the request is within the time window.
+        if (withinTimeWindow(request, currJD, sunset, sunrise)) { filteredObs.push(request); }
     }
 
-    return filteredObs;
+    return filteredObs; // Return the filtered list of requests.
 }
 
+// Checks if an observation request fits within the allowed time window and between sunset and sunrise.
 function withinTimeWindow(request, currJD, sunset, sunrise) {
-    var startWindow = request.startJD;
-    var endWindow = request.endJD;
+    var startWindow = request.startJD;  // Start time of the observation request (in Julian Date).
+    var endWindow = request.endJD;      // End time of the observation request (in Julian Date).
 
-    var endJD = currJD + (request.obsDuration / 1440);
+    // Calculate the end time of the observation in Julian Date.
+    var endJD = currJD + (request.obsDuration / 1440); // obsDuration is in minutes, dividing by 1440 gives days.
 
-    return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise; //withinNightTime(request, currJD, sunset, sunrise); // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
+    // Check if the observation fits within the time window and returns true if it does.
+    return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
 
-function withinNightTime(request, currJD, sunset, sunrise) {
-    var startWindow = request.startJD;
-    var endWindow = request.endJD;
-
-    return sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
-}
-
+// Filters the observation requests by checking if they meet certain astronomical conditions (e.g., target altitude and distance from the moon).
 function filterByAstronomy(requests, moonCT) {
     var filteredObs = [];
-    var currLST = Util.NowLST();
+    var currLST = Util.NowLST(); // Get the current Local Sidereal Time.
 
+    // Loop through each request and check if it meets the astronomical conditions.
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
+        // Add to filteredObs if the request meets the astronomy conditions.
         if (meetsAstronomyConditions(request, moonCT, currLST)) { filteredObs.push(request); }
     }
 
-    return filteredObs;
+    return filteredObs; // Return the filtered list of requests.
 }
 
+// Checks if the observation request meets the required astronomical conditions (elevation above a limit and minimum moon angle).
 function meetsAstronomyConditions(request, moonCT, newLST) {
-    var ra = request.ra;
-    var dec = request.dec;
+    var ra = request.ra;    // Right Ascension of the target.
+    var dec = request.dec;  // Declination of the target.
     
+    // Calculate the altitude of the target at the current Local Sidereal Time (LST).
     var targetAltitude = calculateAltitude(ra, dec, newLST);
+    // Calculate the angular distance between the target and the moon.
     var moonAngle = calculateMoonAngle(ra, dec, moonCT);
 
+    // Store the calculated values in the request object.
     request.altitude = targetAltitude;
     request.moonAngle = moonAngle;
 
+    // Return true if the target's ltitude is above the elevation limit and if the moon's angle is greater than the minimum offset.
     return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
 }
 
+// Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
 function calculateAltitude(ra, dec, newLST) {
-    var ct = Util.NewCT(Telescope.SiteLatitude, newLST);
+    var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
 
-    ct.RightAscension = ra/15;
-    ct.Declination = dec;
+    ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
+    ct.Declination = dec; // Set the Declination of the target.
 
-    return ct.Elevation;
+    return ct.Elevation; // Return the target's altitude (elevation) in degrees.
 }
 
+// Calculates the angular distance bbetween the target and the moon in degrees.
 function calculateMoonAngle(ra, dec, moonCT) {
-    var b = (90 - dec) * Math.PI / 180;
-    var c = (90 - moonCT.Declination) * Math.PI / 180;
-    var aa = Math.abs(ra - moonCT.RightAscension) * Math.PI / 180;
+    var b = (90 - dec) * Math.PI / 180; // Convert Declination to radians.
+    var c = (90 - moonCT.Declination) * Math.PI / 180; // Convert Moon Declination to radians.
+    var aa = Math.abs(ra - moonCT.RightAscension) * Math.PI / 180; // Convert RA difference to radians.
 
+    // Use the spherical law of cosines to calculate the angular distance between the target and the moon.
     var moonAngle = Math.acos((Math.cos(b) * Math.cos(c)) + (Math.sin(b) * Math.sin(c) * Math.cos(aa))) * 180 / Math.PI;
-    return moonAngle;
+    return moonAngle; // Return the moon angle in degrees.
 }
 
+// Ranks the observation requests by calculating a score for each one, and then sorts them in descending order based on that score.
 function rankObservations(requests) {
     var rankedObs = [];
 
+    // Loop through each request and calculate its score.
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
-        calculateScore(request);
+        calculateScore(request); // Calculate and assign a score to each request.
     }
 
-    rankedObs = requests.sort(function (request1, request2) { return request1.compareScore(request2); });
-    return rankedObs;
+    // Sort the request in descending order based on their scores.
+    rankedObs = requests.sort(function (request1, request2) { 
+        return request1.compareScore(request2); // Use the compareScore method to determine the order.
+    });
+
+    return rankedObs; // Return the ranked list of observation requests.
 }
 
+// Calculates the overall score for an observation request based on its priority, timing, and astronomical conditions.
 function calculateScore(request) {
-    var score = request.priority * 50; // Multiply by 50 to give priority more weight
+    var score = request.priority * 50; // Give priority extra weight (multiplied by 50).
 
+    // Add the scores from time and astronomy conditions to the total score.
     score += evaluateTimeScore(request);
     score += evaluateAstronomyScore(request);
 
-    request.score = score;
+    request.score = score; // Assign the calcualted score to the request.
 }
 
+// Calculates score based on the observation's time window (how long the observation lasts).
 function evaluateTimeScore(request) {
+    // Convert the start and end times from Julian date to seconds since Unix Epoch.
     var startSec = (request.startJD - 2440587.5) * 86400;
     var endSec = (request.endJD - 2440587.5) * 86400;
 
+    // Return the observation's duration in minutes (with a minimum score of 0).
     return Math.max(0, (endSec - startSec) / 60); // Duration in minutes
 }
 
+// Calculates the score based on the observation's astronomical conditions (e.g., altitude and distance from the moon).
 function evaluateAstronomyScore(request) {
+    // Calculate the score based on how much the altitude exceeds the elevation limit.
     var altitudeScore = Math.max(0, request.altitude - elevationLimit);
+    // Calculate the score based on how much the moon angle exceeds the minimum moon offset.
     var moonScore = Math.max(0, request.moonAngle - minMoonOffset);
 
+    // Return the sum of the altitude and moon angle scores.
     return altitudeScore + moonScore;
 }
 
+// Select the top observation from the ranked list of requests.
+// Returns the top request or "None" if the lsit is empty.
 function selectTopObservation(requests) {
     if (requests.length == 0) {
-        return "None";
+        return "None"; // Return "None" if there are no valid observations.
     }
-    return requests[0];
+    return requests[0]; // Return the first (highest-ranked) request.
 }
 
 // Auxiliary functions
-function openLogFile(sunset) {
-    var fso = newActiveXObject("Scripting.FileSystemObject");
-    var LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
-
-    if (fso.FileExists(LogFile)) {
-        Console.PrintLine("Log file exists. Appending to existing log file.");
-    }
-    else {
-        fso.CreateTextFile(LogFile);
-    }
-    
-    var f1 = fso.GetFile(LogFile);
-    // Check to see if f1 is open. If not, do the following...
-    var ts = f1.OpenAsTextStream(appendMode, true);
-    Console.PrintLine("Log file ready.");
-
-    return ts;
-}
-
+// Updates the day in a time string.
+// TODO: This function doesn't work yet.
 function updateDay(timeString) {
-    var parts = timeString.split(":");
-    var day = parseInt(parts[2]) + 1;
+    var parts = timeString.split(":"); // Split the time string into parts.
+    var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
+    // Ensure that the day part is formatted with a leading zero if necessary.
     parts[2] = (day < 10 ? "0" : "") + day;
+    // Recombine the parts into a single time string and return it.
     return parts.join(":");
 }
 
+// Updates the CSV file with new lines while preserving the header row.
+// 'lines' parameter is expected to be an array of strings representing the new date to be added.
 function updateCSV(lines) {
-    try{
-        // Open the existing CSV file for reading
-        var readFile = fso.OpenTextFile('./colibri_user_observations.csv', 1); // 1 = reading
-        var header = readFile.ReadLine(); // Read the first line (header)
-        readFile.Close();
+    try {
+        // Open the existing CSV file for reading.
+        var readFile = fso.OpenTextFile('./colibri_user_observations.csv', ForReading);
+        var header = readFile.ReadLine(); // Read and store the first line (header).
+        readFile.Close(); // Close the file after reading the header.
 
-        // Open the CSV file for writing
-        var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', 2) // 2 = writing
-        // writeFile.WriteLine(header);
+        // Open the CSV file again, but this time for writing (overwriting the file).
+        var writeFile = fso.OpenTextFile('./colibri_user_observations.csv', ForWriting);
 
-        // Write the new lines after the header
+        // Write the new lines of data to the file.
         for (var i = 0; i < lines.length; i++) {
-            writeFile.WriteLine(lines[i]);
+            writeFile.WriteLine(lines[i]); // Write each line from the 'lines' array to the file.
         }
-        writeFile.Close();
+        writeFile.Close(); // Close the file after writing.
 
-        Console.PrintLine("CSV File modified successfuly.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: CSV File modified successfuly.");
+        // Log a success message indicating that the CSV file was modified.
+        updateLog("CSV File modified successfully.", "INFO");
     } catch (e) {
-        Console.PrintLine("ERROR: " + e.message);
-        ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
+        // In case of an error (e.g., file access issues), log the error message.
+        updateLog(e.message, "ERROR");
     }
 }
 
+// Logs and prints the current observation plan.
+// 'plan' is an array of observation requests, each containing details like start time, end time, RA, Dec, etc. 
 function printPlan(plan) {
-    Console.PrintLine("=== Current Plan ===");
+    // Log a header indicating the start of the current plan display.
+    updateLog("=== Current Plan ===", "INFO");
+    
+    // Loop through each observation request in the plan and log its details.
     for (var i = 0; i < plan.length; i++) {
-        var request = plan[i];
-        Console.PrintLine(request.directoryName + " starts " + request.startUTC + " (" + request.startJD + ") ends " + request.endUTC + " (" + request.endJD + ") with score " + request.score);
-        Console.PrintLine("RA: " + request.ra + " Dec: " + request.dec + " Alt: " + request.alt + " Moon Angle: " + request.moonAngle);
+        var request = plan[i]; // Get the current observation request.
+        // Log the directory name, start and end times, (in both UTC and JD), and score the request.
+        updateLog(request.directoryName + " starts " + request.startUTC + " (" + request.startJD + ") ends " + request.endUTC + " (" + request.endJD + ") with score " + request.score, "INFO");
+        // Log additional details including RA, Dec, altitude, and moon angle of the request.
+        updateLog("RA: " + request.ra + " Dec: " + request.dec + " Alt: " + request.alt + " Moon Angle: " + request.moonAngle, "INFO");
     }
 }
 
+// Updates the log with the given message and type (e.g., INFO or ERROR).
+// 'contents' is the message to log, 'type' is the log type (INFO, ERROR, etc.).
 function updateLog(contents, type) {
+    // Print the log message to the console.
     Console.PrintLine(contents);
+    // Write the log message to a file with a timestamp, type, and the log content.
     ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
 }
 
-//RunColibri Functions
-// Handles script --> Combines the functionality of abort, abortAndRestart, and andRestart scripts from RunColibri
-// function handleScript(ts, action) {
-//     if (action == "abort" || action == "abortAndRestart") {
-//         Console.PrintLine("Aborting script!");
-//         ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!");
-//         if (action == "abortAndRestart") {
-//             ts.WriteLine("Restarting Script!" );
-//         } 
-//     } else if (action == "andRestart") {
-//             Console.PrintLine("Shutting down and restarting!");
-//     }
+// Handles script actions such as aborting, restarting, and shutdown 
+// 'action' parameter determines what action to take (abort, abortAndRestart, andRestart).
+// TODO: Test this function by replacing existing calls to abort, abortAndRestart, and andRestart with this function.
+function handleScript(action) {
+    // Check if the action is to abort or abort and restart the script.
+    if (action == "abort" || action == "abortAndRestart") {
+        updateLog("Aborting script!", "ERROR"); // Log an error indicating that the script is being aborted.
+        
+        // If the action is to abort and restart, log that the script will be restarted.
+        if (action == "abortAndRestart") {
+            updateLog("Restarting script!", "INFO");
+        } 
+    }
+    // If the action is "andRestart", log that the system will shut down and restart.
+    else if (action == "andRestart") {
+        updateLog("Shutting down and restarting!", "INFO");
+    }
 
-//     shutDown();
-//     while(Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
-//         Util.WaitForMilliseconds(5000);
-//         Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
-//     }
+    // Call the shutdown function to stop the telescope and other equipment.
+    shutDown();
 
-//     if (action == "abort" || action == "abortAndRestart") {
-//         if (Util.ScriptActive) {
-//             Console.PrintLine("Aborting...");
-//             Util.AbortScript();
-//         }
+    // Wait for the dome shutter to close and the telescope to park.
+    while(Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
+        Util.WaitForMilliseconds(5000); // Wait 5 seconds before checking the shutter and telescope status again.
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
+    }
 
-//         while (Util.ScriptActive) {
-//             Console.PrintLine("Waiting for script to finish...");
-//             Util.WaitForMilliseconds(1000);
-//         }
-//     }
+    // If the action is to abort the script or abort and restart:
+    if (action == "abort" || action == "abortAndRestart") {
+        // If a script is currently active, abort it.
+        if (Util.ScriptActive) {
+            Console.PrintLine("Aborting...");
+            Util.AbortScript(); // Call the method to abort the script.
+        }
 
-//     if (action == "abortAndRestart" || action == "andRestart") {
-//         main();
-//     }
-// }
+        // Wait until the script is fully aborted.
+        while (Util.ScriptActive) {
+            Console.PrintLine("Waiting for script to finish...");
+            Util.WaitForMilliseconds(5000); // Wait 5 seconds before checking again.
+        }
+    }
 
+    // If the action is to abort and restart or just restart, call the main function to restart the process.
+    if (action == "abortAndRestart" || action == "andRestart") {
+        main(); // Call the main function to restart the script.
+    }
+}
+
+// Collects reference image data (bias or dark frames) using the specified filters
+// Does the dirty work of collecting reference image data given a filter.
+// Combines functionality of biasCollection and darkCollection functions.
+function refCollection(filter, exposure, filePath) {
+    // Attempt to link the camera
+    try {
+        // Check if the camera is not linked
+        if (!ccdCamera.LinkEnabled) {
+            updateLog("Camera is not linked. Attempting to link...", "INFO");
+            // Enable the camera link
+            ccdCamera.LinkEnabled = true;
+
+            // Check if the camera was successfully linked.
+            if (ccdCamera.LinkEnabled) {
+                updateLog("Camera linked successfully.", "INFO");
+            } else {
+                // Log an error if the camera failed to link.
+                updateLog("Failed to link the camera." , "ERROR");
+                return; // Exit the function if the camera could not be linked.
+            }
+        } else {
+            // Log if the camera was already linked.
+            updateLog("Camera already linked.", "INFO");
+        }
+    } catch (e) {
+        // Log any errors that occurred during the linking process.
+        updateLog("An error occurred: " + e.message, "ERROR");
+    }
+
+    // Loop to capture 10 images
+    for (var i = 0; i < 10; i++) {
+        // Try to start the exposure for each image
+        try {
+            updateLog("Starting exposure...", "INFO");
+            
+            // Set binning values for the camera to 2x2
+            ccdCamera.BinX = 2;
+            ccdCamera.BinY = 2;
+
+            // Start the exposure with the specified filter and exposure time
+            ccdCamera.Expose(exposure, filter); // Exposure time is given in seconds.
+            
+            // Log that the exposure started successfully.
+            updateLog("Exposure started successfully");
+        } catch (e) {
+            // Log any errors encountered while starting the exposure.
+            updateLog("Error starting exposure: " + e.message);
+        }
+
+        // Initialize variables for waiting for the image to be ready
+        var maxWaitTime = exposure * 1000; // Maximum wait time (the exposure time), in milliseconds
+        var waitInterval = 500; // Interval to check if the image is ready (500ms)
+        var elapsedTime = 0; // Track the elapsed time.
+
+        // Wait for the image to be ready or until the max wait time is reached.
+        try {
+            // Continuously check if the image is ready within the allotted wait time.
+            while (!ccdCamera.ImageReady && elapsedTime < maxWaitTime) {
+                Util.WaitForMilliseconds(waitInterval); // Pause for the specified interval.
+                elapsedTime += waitInterval; // Increase the elapsed time.
+            }
+
+            // If the image is ready, save it to the specified file path.
+            if (ccdCamera.ImageReady) {
+                // Generate a unique file name for the image using the current timestamp and exposure time.
+                var newFilePath = filePath + "\\image_" + new Date().getTime() + "_" + exposure + "s.fits";
+                updateLog("Saving image to: " + newFilePath, "INFO");
+                
+                // Save the image to the generated file path.
+                ccdCamera.SaveImage(newFilePath);
+                
+                // Log that the image was saved successfully.
+                updateLog("Image saved successfully to: " + newFilePath);
+            } else {
+                // Log an error if the image was not ready within the max wait time.
+                updateLog("Image not ready after waiting.", "ERROR");
+            }
+        } catch (e) {
+            // Log any errors that occurred while saving the image
+            updateLog("Error saving image: " + e.message);
+        }
+    }
+
+    // After capturing all images, attempt to disconnect the camera.
+    try {
+        // Set LinkEnabled to false to disconnect the camera.
+        ccdCameraCamera.LinkEnabled = false;
+
+        // Log that the camera was disconnected suggessfully.
+        updateLog("Camera disconnected.", "INFO");
+    } catch (e) {
+        // Log any errors encountered during the disconnection process.
+        updateLog("An error occurred: " + e.message, "ERROR");
+    }
+}
+
+// RunColibri Functions
 var SUP;
 
-String.prototype.trim = function()
-{
+String.prototype.trim = function() {
     return this.replace(/(^\s*)|(\s*$)/g, "");
 }
 
@@ -391,376 +537,174 @@ String.prototype.trim = function()
 // Aborts script
 // MJM - 2021-06-24
 /////////////////////
-function abort(){
-    Console.PrintLine("Aborting script!")
-    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!")
+function abort() {
+    Console.PrintLine("Aborting script!");
+    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script!");
     shutDown();
-    while (Dome.ShutterStatus !=1 || Telescope.AtPark != true)
-        {
-            Util.WaitForMilliseconds(5000);
-            Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
-        }
-    if (Util.ScriptActive)
-    {
-        Console.PrintLine("Aborting...")
-        Util.AbortScript();
-    }
-
-    while (Util.ScriptActive)
-    {
-        Console.PrintLine("Waiting for script to finish...")
-        // Util.WaitForMilliseconds(1000);
+    while (Dome.ShutterStatus !=1 || Telescope.AtPark != true) {
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
     }
     
-}
-
-function abortAndRestart(){
-    Console.PrintLine("Aborting script!");
-    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script! Restarting script!")
-    shutDown();
-    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
-    {
-        Util.WaitForMilliseconds(5000)
-        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
-    }
-
-    if (Util.ScriptActive)
-    {
-        Console.PrintLine("Aborting...")
+    if (Util.ScriptActive) {
+        Console.PrintLine("Aborting...");
         Util.AbortScript();
     }
 
-    while (Util.ScriptActive)
-    {
-        Console.PrintLine("Waiting for script to finish...")
-        // Util.WaitForMilliseconds(1000);
-    }    // WScript.Quit
-    main();
+    while (Util.ScriptActive) {
+        Console.PrintLine("Waiting for script to finish...");
+    }
+}
 
+function abortAndRestart() {
+    Console.PrintLine("Aborting script!");
+    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script! Restarting script!");
+    shutDown();
+    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
+    }
+
+    if (Util.ScriptActive) {
+        Console.PrintLine("Aborting...");
+        Util.AbortScript();
+    }
+
+    while (Util.ScriptActive) {
+        Console.PrintLine("Waiting for script to finish...");
+    }
+
+    main();
 }
 
 function andRestart(){
     Console.PrintLine("Shutting down and restarting!");
     shutDown();
-    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
-    {
-        Util.WaitForMilliseconds(5000)
-        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+
+    while (Dome.ShutterStatus != 1 || Telescope.AtPark != true) {
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
     }
 
-    // if (Util.ScriptActive)
-    // {
-    //     Console.PrintLine("Aborting...")
-    //     Util.AbortScript();
-    // }
-
-    // while (Util.ScriptActive)
-    // {
-    //     Console.PrintLine("Waiting for script to finish...")
-    //     // Util.WaitForMilliseconds(1000);
-    // }    // WScript.Quit
-
     main();
-
 }
 
 //////////////////////////////////////////////////
 // Function called when Alert button is pressed
 //////////////////////////////////////////////////
 function alert(){
-    Console.alert(consIconWarning, "Quiting script!")
-    shutDown()
-    abort()
+    Console.alert(consIconWarning, "Quiting script!");
+    shutDown();
+    abort();
 }
-
-////////////////////////////////////////////////////
-// Does the dirty work of collecting bias data.
-// RG
-// MJM - Added naming of directory to today's date
-////////////////////////////////////////////////////
-function biasCollection(today) {
-    // Get the user's home directory and construct the path to ColibriGrab.exe in Github!
-    var wshShell = new ActiveXObject("WScript.Shell");
-    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-
-    // var tid;
-    // var today = getDate();
-    // Console.Printline(today.toString());
-
-    Console.PrintLine("Starting bias frame collection...");
-    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
-
-    var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" + -n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias";
-    Console.PrintLine("Executing command: " + command);
-
-    // Run ColibriGrab.exe
-    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
-
-    // tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
-    // while (Util.IsTaskActive(tid))
-    // {
-    //     Util.WaitForMilliseconds(500)
-    //     // Console.PrintLine("Collecting bias frames...")
-    // }
-
-    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
-    Util.WaitForMilliseconds(100)
-    Console.PrintLine("Finished collecting bias frames...");
-
-    // Append and delete ColibriGrab log to ACP log after collecting bias frames
-    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-}
-
-////////////////////////////////////////////////////
-// Does the dirty work of collecting dark data.
-// RG
-// MJM - Added naming of directory to today's date
-////////////////////////////////////////////////////
-function darkCollection(today) {
-    var wshShell = new ActiveXObject("WScript.Shell");
-    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-
-    // var tid;
-    // var today = getDate();
-    // Console.Printline(today.toString());
-
-    Console.PrintLine("Starting dark frame collection...");
-    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Dark");
-
-    var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark";
-
-    // Run ColibriGrab.exe
-    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
-
-    // tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
-    // while (Util.IsTaskActive(tid))
-    // {
-    //     Util.WaitForMilliseconds(500)
-    //     // Console.PrintLine("Collecting dark frames...")
-    // }
-
-    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
-    Util.WaitForMilliseconds(100)
-    Console.PrintLine("Finished collecting dark frames...");
-
-    // Append and delete ColibriGrab log to ACP log after collectin dark frames
-    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-}
-
-
-// Does the dirty work of collecting image data given a filter.
-// Combines functionality of biasCollection and darkCollection functions.
-function imgCollection(today, filter, exposure, filePath) {
-    // var wshShell = new ActiveXObject("WScript.Shell");
-    // var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-    // var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-
-    // Console.PrintLine("Starting " + filter + " frame collection...");
-    // Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\" + filter);
-
-    // var command = "\"" + colibriGrabPath + "\" -n 10 -p " + filter + "_" + exposure + "ms -e " + exposure + " -t 0 -f " + filter + " -w D:\\ColibriData\\" + today.toString() + "\\" + filter;
-    
-    // wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
-
-    // Util.WaitForMilliseconds(100);
-    // Console.PrintLine("Finished collecting " + filter + " frames...");
-
-    // // Append and delete ColibriGrab log to ACP log after collecting filter frames
-    // appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-
-    // Try linking the camera
-    try {
-        if (!ccdCamera.LinkEnabled) {
-            updateLog("Camera is not linked. Attempting to link...", "INFO");
-            ccdCamera.LinkEnabled = true; // Try to link the camera
-
-            if (ccdCamera.LinkEnabled) {
-                updateLog("Camera linked successfully.", "INFO");
-            } else {
-                updateLog("Failed to link the camera." , "ERROR");
-                return;
-            }
-        } else {
-            updateLog("Camera already linked.", "INFO");
-        }
-    } catch (e) {
-        updateLog("An error occurred: " + e.message, "ERROR");
-    }
-
-    // Capture 10 images
-    for (var i = 0; i < 10; i++) {
-        // Try starting an exposure
-        try {
-            updateLog("Starting exposure...", "INFO");
-            ccdCamera.BinX = 2;
-            ccdCamera.BinY = 2;
-            ccdCamera.Expose(exposure, filter); // Exposure Time needs to be in seconds!!
-            updateLog("Exposure started successfully");
-        } catch (e) {
-            updateLog("Error starting exposure: " + e.message);
-        }
-
-        // Wait for the image to become ready;
-        var maxWaitTime = exposure * 1000; // Maximum wait time (twice the exposure time), in milliseconds
-        var waitInterval = 500; // Check every 500ms
-        var elapsedTime = 0;
-
-        try {
-            while (!ccdCamera.ImageReady && elapsedTime < maxWaitTime) {
-                updateLog("Waiting for image to be ready...", "INFO");
-                Util.WaitForMilliseconds(waitInterval);
-                elapsedTime += waitInterval;
-            }
-
-            if (ccdCamera.ImageReady) {
-                // var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName + "\\image_" + new Date().getTime() + ".fits";
-                var newFilePath = filePath + "\\image_" + new Date().getTime() + "_" + exposure + "s.fits";
-                updateLog("Saving image to: " + newFilePath, "INFO");
-                ccdCamera.SaveImage(newFilePath); // Save the image
-                updateLog("Image saved successfully to: " + newFilePath);
-            } else {
-                updateLog("Image not ready after waiting.", "ERROR");
-            }
-        } catch (e) {
-            updateLog("Error saving image: " + e.message);
-        }
-    }
-
-    // Try disconnecting from camera
-    try {
-        ccdCameraCamera.LinkEnabled = false;
-        updateLog("Camera disconnected.", "INFO");
-    } catch (e) {
-        updateLog("An error occurred: " + e.message, "ERROR");
-    }
-}
-
 
 ///////////////////////////
 // Function to connect the telescope
 // MJM -
 ///////////////////////////
-
-function connectScope()
-{
+function connectScope() {
     // Check to see if telescope is connected. If not, try to connect to it.
     if (Telescope.Connected) {
-        Console.PrintLine("Telescope is connected!")
-        trkOn()
+        Console.PrintLine("Telescope is connected!");
+        trkOn();
     } else {
-        Console.PrintLine("Telescope is not connected. Attempting to connect...")
-        Telescope.Connected = "True"
-        trkOn()
+        Console.PrintLine("Telescope is not connected. Attempting to connect...");
+        Telescope.Connected = "True";
+        trkOn();
         
-        if (Telescope.Connected)
-        {
-            Console.PrintLine("Telescope is now connected!")
-            trkOn()
-        } 
-        else
-        {
-            Console.PrintLine("Telescope is still not connected. There must be a problem. :-(")
-            abort()
+        if (Telescope.Connected) {
+            Console.PrintLine("Telescope is now connected!");
+            trkOn();
+        } else {
+            Console.PrintLine("Telescope is still not connected. There must be a problem. :-(");
+            abort();
         }
     }
-        
-    Console.PrintLine(" ")
+    Console.PrintLine(" ");
 }
-
 
 ///////////////////////////
 // Function to close dome
 // MJM -
 ///////////////////////////
-function domeClose()
-{
-    switch (Dome.ShutterStatus)
-    {
+function domeClose() {
+    switch (Dome.ShutterStatus) {
         //////////////////
         // Dome is open //
         //////////////////
         case 0:
-        Console.PrintLine("--> Dome shutter is open.");
-        Dome.CloseShutter();
-        Util.WaitForMilliseconds(4000);
+            Console.PrintLine("--> Dome shutter is open.");
+            Dome.CloseShutter();
+            Util.WaitForMilliseconds(4000);
 
-        while (Dome.ShutterStatus == 3)
-        {
-            Console.PrintLine("*** Dome shutter is closing...");
-            Util.WaitForMilliseconds(2000);
-        }
+            while (Dome.ShutterStatus == 3) {
+                Console.PrintLine("*** Dome shutter is closing...");
+                Util.WaitForMilliseconds(2000);
+            }
 
-        if (Dome.ShutterStatus == 0)
-        {
-            Console.PrintLine("--> Dome shutter is open...");
-            
-        }
-        else
-        {
-            Console.PrintLine("--> Dome is NOT open.");
-        }
-        break;
+            if (Dome.ShutterStatus == 0) {
+                Console.PrintLine("--> Dome shutter is open...");
+                
+            } else {
+                Console.PrintLine("--> Dome is NOT open.");
+            }
+
+            break;
 
         ////////////////////
         // Dome is closed //
         ////////////////////
         case 1:
-        Console.PrintLine("--> Dome shutter is already closed :-P");
-        break;
+            Console.PrintLine("--> Dome shutter is already closed :-P");
+            break;
 
         ////////////////////////
         // Shutter is opening //
         ////////////////////////
         case 2:
-        while (Dome.ShutterStatus == 2)
-        {
-            Console.PrintLine("*** Dome shutter is opening...");
-            Util.WaitForMilliseconds(2000);
-        }
-        Console.PrintLine("--> Dome shutter is opened...");
-        Util.WaitForMilliseconds(500);
+            while (Dome.ShutterStatus == 2) {
+                Console.PrintLine("*** Dome shutter is opening...");
+                Util.WaitForMilliseconds(2000);
+            }
 
-        Dome.CloseShutter();
-        Util.WaitForMilliseconds(4000);
+            Console.PrintLine("--> Dome shutter is opened...");
+            Util.WaitForMilliseconds(500);
 
-        while (Dome.ShutterStatus == 3)
-        {
-            Console.PrintLine("*** Dome shutter is closing...");
-            Util.WaitForMilliseconds(2000);
-        }
-        break;
+            Dome.CloseShutter();
+            Util.WaitForMilliseconds(4000);
+
+            while (Dome.ShutterStatus == 3) {
+                Console.PrintLine("*** Dome shutter is closing...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            break;
 
         ////////////////////////////////////
         // Dome is closing. Let it close. //
         ////////////////////////////////////
         case 3:
-        while (Dome.ShutterStatus == 3)
-        {
-            Console.PrintLine("*** Dome shutter is closing. Waiting for it close...");
-            Util.WaitForMilliseconds(2000);
-        }
-        Console.PrintLine("--> Dome shutter is closed...");
-        break;
+            while (Dome.ShutterStatus == 3) {
+                Console.PrintLine("*** Dome shutter is closing. Waiting for it close...");
+                Util.WaitForMilliseconds(2000);
+            }
+            
+            Console.PrintLine("--> Dome shutter is closed...");
+            break;
 
         /////////////////////////////////
         // Houston, we have a problem. //
         /////////////////////////////////
         case 4:
-        Console.PrintLine("There was a problem with the shutter control...")
-        return;
-        break;
+            Console.PrintLine("There was a problem with the shutter control...");
+            return;
     }
 
     // Check to see if the dome is closed or in error
-    if (Dome.ShutterStatus != 1)
-    {
-        Console.PrintLine("Dome is not closed. Trying again...")
-        Util.WaitForMilliseconds(1000)
-        domeClose()
+    if (Dome.ShutterStatus != 1) {
+        Console.PrintLine("Dome is not closed. Trying again...");
+        Util.WaitForMilliseconds(1000);
+        domeClose();
     }
 }
 
@@ -768,106 +712,93 @@ function domeClose()
 // Function to home dome.
 // MJM -
 ///////////////////////////
-function domeHome()
-{
+function domeHome(){
     ////////////////////////////////////////
     // Home the dome if not already done. //
     ////////////////////////////////////////
-    if (!Dome.AtHome)
-    {
+    if (!Dome.AtHome) {
         Util.WaitForMilliseconds(2000);
 
         Dome.FindHome();
 
-        while (!Dome.AtHome)
-        {
+        while (!Dome.AtHome) {
             Console.PrintLine("*** Homing dome...");
             Util.WaitForMilliseconds(2000);
         }
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
-    Dome.UnparkHome()
+    Dome.UnparkHome();
 }
 
 ///////////////////////////
 // Function to open dome.
 // MJM
 ///////////////////////////
-function domeOpen()
-{
-    switch (Dome.ShutterStatus)
-    {
+function domeOpen() {
+    switch (Dome.ShutterStatus) {
         // Dome is open
         case 0:
-        Console.PrintLine("--> Dome shutter is already open :-P");
-        break;
+            Console.PrintLine("--> Dome shutter is already open :-P");
+            break;
 
         // Dome is closed
         case 1:
-        Console.PrintLine("--> Dome shutter is closed.");
-        Dome.OpenShutter();
-        Util.WaitForMilliseconds(500);
+            Console.PrintLine("--> Dome shutter is closed.");
+            Dome.OpenShutter();
+            Util.WaitForMilliseconds(500);
 
-        while (Dome.ShutterStatus == 2)
-        {
-            Console.PrintLine("*** Dome shutter is opening...");
-            Util.WaitForMilliseconds(2000);
-        }
+            while (Dome.ShutterStatus == 2) {
+                Console.PrintLine("*** Dome shutter is opening...");
+                Util.WaitForMilliseconds(2000);
+            }
 
-        if (Dome.ShutterStatus == 0)
-        {
-            Console.PrintLine("--> Dome shutter is open...");
-        }
-        else
-            Console.PrintLine("--> Dome is NOT open.");
-        break;
+            if (Dome.ShutterStatus == 0) {
+                Console.PrintLine("--> Dome shutter is open...");
+            } else { Console.PrintLine("--> Dome is NOT open."); }
+                
+            break;
 
         case 2:
-        while (Dome.ShutterStatus == 2)
-        {
-            Console.PrintLine("*** Dome shutter is open...");
-            Util.WaitForMilliseconds(2000);
-        }
-        Console.PrintLine("--> Dome shutter is opened...");
-        break;
+            while (Dome.ShutterStatus == 2) {
+                Console.PrintLine("*** Dome shutter is open...");
+                Util.WaitForMilliseconds(2000);
+            }
+            Console.PrintLine("--> Dome shutter is opened...");
+            break;
 
         // Dome is closing. Let it close and then open it.
         case 3:
-        while (Dome.ShutterStatus ==3)
-        {
-            Console.PrintLine("*** Dome shutter is closing. Waiting for it close...");
-            Util.WaitForMilliseconds(2000);
-        }
-        
-        Dome.OpenShutter();
-        Util.WaitForMilliseconds(500);
+            while (Dome.ShutterStatus == 3) {
+                Console.PrintLine("*** Dome shutter is closing. Waiting for it close...");
+                Util.WaitForMilliseconds(2000);
+            }
+            
+            Dome.OpenShutter();
+            Util.WaitForMilliseconds(500);
 
-        while (Dome.ShutterStatus == 2)
-        {
-            Console.PrintLine("*** Dome Shutter is opening.");
-            Util.WaitForMilliseconds(60000);
-        }
-        Console.PrintLine("--> Dome shutter is open...");
-        break;
+            while (Dome.ShutterStatus == 2) {
+                Console.PrintLine("*** Dome Shutter is opening.");
+                Util.WaitForMilliseconds(60000);
+            }
+
+            Console.PrintLine("--> Dome shutter is open...");
+            break;
 
         // Houston, we have a problem.
         case 4:
-        Console.PrintLine("There was a problem with the shutter control...")
-        break;
+            Console.PrintLine("There was a problem with the shutter control...")
+            break;
     }
 
     // Home the dome if not already done.
-    if (!Dome.AtHome)
-    {
+    if (!Dome.AtHome) {
         Dome.FindHome();
-        while (!Dome.AtHome)
-        {
+        while (!Dome.AtHome) {
             Console.PrintLine("*** Homing dome...");
             Util.WaitForMilliseconds(2000);
         }
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
-    
 }
 
 /////////////////////////////////////////////////////
@@ -877,8 +808,7 @@ function domeOpen()
 // as ACP.exe (c:\ProgramFiles(x86)\ACP) Obs Control
 // MJM - Oct. 2022
 /////////////////////////////////////////////////////
-function freeDiskSpace()
-{
+function freeDiskSpace() {
     var AX = new ActiveXObject("WScript.Shell");
     var SE = AX.Exec(ACPApp.Path + "\\freespace.bat");
 
@@ -887,73 +817,55 @@ function freeDiskSpace()
     size = SE.StdOut.Read(25);   // size in bytes
     size = size / 1000000000000; // size in TB
 
-    return(size)
+    return(size);
 }
 
 //////////////////////////////
 // Returns date as yyyymmdd
 // MJM - June 2021
 //////////////////////////////
-function getDate()
-{
-	var d, s, month, day;
+function getDate() {
+	var d = new Date();
+	var s = d.getUTCFullYear();
 	
-	d = new Date();
-	s = d.getUTCFullYear();
-	
-	month = (d.getUTCMonth()+1).toString()
-	day   = (d.getUTCDate()).toString()
+	var month = (d.getUTCMonth()+1).toString();
+	var day = (d.getUTCDate()).toString();
 
-	if (month.length == 1)
-	{
+	if (month.length == 1) {
 		s += "0" + month;
-	}
-	else
-	{
+	} else {
 		s += month;
 	}
 
-	if (day.toString().length == 1)
-	{
+	if (day.toString().length == 1) {
 		s += "0" + day;
-	}
-	else
-	{
+	} else {
 		s += day;
 	}
-	return(s)
+	return(s);
 }
 
-function JDtoUTC(JulianDate)
-{
-	var s, month, day;
-
-	var millis = (JulianDate - 2440587.5) * 86400000
-	var toUTC = new Date(millis)
+function JDtoUTC(JulianDate) {
+	var millis = (JulianDate - 2440587.5) * 86400000;
+	var toUTC = new Date(millis);
 	
-	s = toUTC.getUTCFullYear();
+	var s = toUTC.getUTCFullYear();
 	
-	month = (toUTC.getUTCMonth()+1).toString()
-	day   = (toUTC.getUTCDate()).toString()
+	var month = (toUTC.getUTCMonth()+1).toString();
+	var day   = (toUTC.getUTCDate()).toString();
 
-	if (month.length == 1)
-	{
+	if (month.length == 1) {
 		s += "0" + month;
-	}
-	else
-	{
+	} else {
 		s += month;
 	}
 
-	if (day.toString().length == 1)
-	{
+	if (day.toString().length == 1) {
 		s += "0" + day;
-	}
-	else
-	{
+	} else {
 		s += day;
 	}
-	return(s)
+	return(s);
 }
 
 
@@ -961,21 +873,17 @@ function JDtoUTC(JulianDate)
 // Return the coordinates of the moon in RA and Dec
 // MJM - 2021/06/24
 /////////////////////////////////////////////////////
-function getMoon()
-{
+function getMoon() {
 	// finding moon elevation and azimuth
     Util.Console.PrintLine("== Moon Coordinates ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
     var SH = new ActiveXObject("WScript.Shell");
     Console.PrintLine(ACPApp.Path);
     var BS = SH.Exec(ACPApp.Path + "\\aa.exe -moon");
-    // var BS = SH.Exec()
     var coords = "";
 
-    while(BS.Status != 1)
-    {
-        while(!BS.StdOut.AtEndOfStream)
-        {
+    while(BS.Status != 1) {
+        while(!BS.StdOut.AtEndOfStream) {
             coords += BS.StdOut.Read(1);
         }
         Util.WaitForMilliseconds(100);
@@ -986,24 +894,22 @@ function getMoon()
 
     var bits = coords.split(" ");
 
-    ct = Util.NewCThereAndNow();
+    var ct = Util.NewCThereAndNow();
     ct.RightAscension = bits[0];
     ct.Declination = bits[1];
 
-    return ct
+    return ct;
 }
 
-function getRADEC()
-{
+function getRADEC() {
     var ras, des;
-    if(Prefs.DoLocalTopo)                               // Get scope J2000 RA/Dec
-    {
+    
+    // Get scope J2000 RA/Dec
+    if(Prefs.DoLocalTopo) {
         SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declnation);
         ras = SUP.J2000RA;
         des = SUP.J2000Dec;
-    }
-    else
-    {
+    } else {
         ras = Telescope.RightAscension;
         des = Telescope.Declination;
     }
@@ -1015,11 +921,8 @@ function getRADEC()
 // Sends scope to a particular Alt and Az
 // MJM
 ///////////////////////////////////////////
-function gotoAltAz(alt, az)
-{
-
-    breakme: if (ct.Elevation < elevationLimit)
-    {
+function gotoAltAz(alt, az) {
+    breakme: if (ct.Elevation < elevationLimit) {
         Console.PrintLine("Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Closing up shop!");
@@ -1029,13 +932,11 @@ function gotoAltAz(alt, az)
         break breakme;
     }
 
-    if (Telescope.tracking)
-    {
+    if (Telescope.tracking) {
         Telescope.SlewToAltAz(alt, az);
         Util.WaitForMilliseconds(100);
 
-        while (Telescope.Slewing)
-        {
+        while (Telescope.Slewing) {
             Console.PrintLine("Going to...");
             Util.WaitForMilliseconds(2000);
         }
@@ -1047,20 +948,18 @@ function gotoAltAz(alt, az)
 // Sends scope to a particular RA and DEC
 // MJM
 ///////////////////////////////////////////
-function gotoRADec(ra, dec)
-{
+function gotoRADec(ra, dec) {
     Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
     Console.Printline("Dec in gotoRADec function " + dec);
 
-    targetCt = Util.NewCThereAndNow()
-    targetCt.RightAscension = ra
-    targetCt.Declination = dec
+    var targetCt = Util.NewCThereAndNow();
+    targetCt.RightAscension = ra;
+    targetCt.Declination = dec;
 
     // Print target elevation to screen
     Console.Printline("Elevation of field " + targetCt.Elevation.toFixed(4));
 
-    breakme: if (targetCt.Elevation < elevationLimit)
-    {
+    breakme: if (targetCt.Elevation < elevationLimit) {
         Console.PrintLine("Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Tried to move to an unsave elevation of " + targetCt.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " INFO: Closing up shop!");
@@ -1069,8 +968,7 @@ function gotoRADec(ra, dec)
         break breakme;
     }
 
-    if (Telescope.tracking)
-    {   
+    if (Telescope.tracking) {   
         Console.Printline("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
 
@@ -1079,28 +977,20 @@ function gotoRADec(ra, dec)
         // script after error or just repeating this function on error return, if possible. Try/catch/finally
         // statement.
 
-        try
-        {
+        try {
             Telescope.SlewToCoordinates(ra.toFixed(4), dec.toFixed(4));
-        }
-        catch(e)
-        {
-            if (slewAttempt < 10)
-            {
+        } catch(e) {
+            if (slewAttempt < 10) {
                 Console.PrintLine("Error on attempt" + slewAttempt + "to slew. Waiting 5 seconds and trying again.");
                 ts.WriteLine("Error on attempt" + slewAttempt + "to slew. Waiting 5 seconds and trying again.");
                 Util.WaitForMilliseconds(5000);
                 gotoRADec(ra, dec);
                 slewAttempt += 1;
-            }
-            else
-            {
+            } else {
                 Console.PrintLine("Reached maximum number of tries to slew");
                 ts.WriteLine("ERROR: Reached maximum number of slew attempts");
             }
-            
         }
-        
         Console.PrintLine("Done slewing.");
     }
 }
@@ -1110,8 +1000,7 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(ra, dec) 
-{
+function adjustPointing(ra, dec) {
     // Convert RA to decimal degrees
     ra = ra * 15;
 
@@ -1120,7 +1009,6 @@ function adjustPointing(ra, dec)
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
     var BS = SH.Exec("python C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
-    // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
 
@@ -1188,7 +1076,7 @@ function adjustPointing(ra, dec)
     }
 
     // Check that new pointing is safe
-    targetCt = Util.NewCThereAndNow();
+    var targetCt = Util.NewCThereAndNow();
     targetCt.RightAscension = new_ra;
     targetCt.Declination = new_dec;
     if (targetCt.Elevation < elevationLimit) {
@@ -1202,332 +1090,259 @@ function adjustPointing(ra, dec)
 }
 
 ///////////////////////////////////////////////////////////////
-// Function to shut down telescope at end of the night
+// Shuts down the telescope and dome after boservations are complete.
+// Turns off tracking, parks the telescope, and closes the dome.
+// Also handles updating the schedule for incomplete observations (currently a placeholder)
 // MJM - June 23, 2022
+// Edited SMS - August 2024
 ///////////////////////////////////////////////////////////////
-// function shutDown()
-// {
-//     trkOff()
-//     Console.PrintLine("Tracking turned off. Parking telescope now...")
-//     ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
-//     Telescope.Park()
-//     trkOff();
-//     Console.PrintLine("Telescope parked. Closing dome now...")
-//     ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
-//     domeClose()
-//     Console.PrintLine("Dome closed. Good night/morning.")
-//     ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
-// }
-
 function shutDown() {
+    // Turn off tracking of the telescope.
     trkOff();
-    Console.PrintLine("Tracking turned off. Parking telescope now...");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.");
+    updateLog("Tracking turned off. Parking telescope now.", "INFO");
+
+    // Park the telescope safely.
     Telescope.Park();
+
+    // Ensure tracking is off again after parking.
     trkOff();
-    Console.PrintLine("Telescope parked. Closing dome now...");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+    updateLog("Telescope parked. Closing dome now.", "INFO");
+
+    // Close the observatory dome.
     domeClose();
-    Console.PrintLine("Dome closed. Good night/morning.");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.");
+    updateLog("Dome closed. Good night/morning.", "INFO");
 
-    // Handle the case when requested observations are not completed
+    // TODO: Handkle incomplete observations (functionality not working yet)
+    // Retrieve the list of requested observations; index[1] assumes it returns the lines of CSV data.
     var lines = getRequests()[1];
-    for (var i = 0; i < lines.length; i++) {
-        var data = lines[i].split(",");
-        if (data[10] == 0) {
-            Console.PrintLine("Observation " + line[0] + " was not completed.");
-            ts.WriteLine(Util.SysUTCDate + " Observation " + line[0] + " was not completed.");
-            Console.PrintLine("Updating date and priority to be observed tomorrow.");
-            ts.WriteLine(Util.SysUTCDate + " Updating date and priority to be observed tomorrow.");
 
-            data[4] = updateDay(data[4]);
-            data[5] = updateDay(data[5]);
+    // Loop through each observation line in the request data.
+    for (var i = 0; i < lines.length; i++) {
+        // Split the line by commas to parse the observation data.
+        var data = lines[i].split(",");
+
+        // Check if the observation was not completed.
+        if (data[10] == 0) {
+            // Log that the observation was not completed.
+            updateLog("Observation " + line[0] + " was not completed.", "INFO");
+            // Update the log indicating the observation is rescheduled for tomorrow.
+            updateLog("Updating date and priority to be observed tomorrow.", "INFO");
+
+            // Update the observation's start and end times by moving them to the next day.
+            data[4] = updateDay(data[4]); // Update start date.
+            data[5] = updateDay(data[5]); // Update end date.
+
+            // Increase the priority.
             data[1] = parseInt(data[1]) + 1;
         }
     }
     
+    // Save the updated observation schedule back to the CSV file.
     updateCSV(lines);
 }
 
 ///////////////////////////////////////////////////////////////
 // Function to turn tracking off. Liberated from BJD scripts.
-// 
 ///////////////////////////////////////////////////////////////
-function trkOff()
-{
-    if (Telescope.CanSetTracking)
-    {
+function trkOff() {
+    if (Telescope.CanSetTracking) {
         Telescope.Tracking = false;
         Console.PrintLine("--> Tracking is turned off.");
-    }
-    else if (Telescope.Tracking && !Telescope.CanSetTracking)
-    {
-        Console.PrintLine("Failed to disable tracking")
-        ts.WriteLine(" WARNING: Failed to disable telescope tracking")
+    } else if (Telescope.Tracking && !Telescope.CanSetTracking) {
+        Console.PrintLine("Failed to disable tracking");
+        ts.WriteLine(" WARNING: Failed to disable telescope tracking");
     }
 }
 
 //////////////////////////////////////////////////////////////
 // Function to turn tracking on. Liberated from BJD scripts.
-//
 //////////////////////////////////////////////////////////////
-function trkOn()
-{
-    if (Telescope.CanSetTracking)
-    {
-        Telescope.Unpark()
+function trkOn() {
+    if (Telescope.CanSetTracking) {
+        Telescope.Unpark();
         Telescope.Tracking = true;
         Console.PrintLine("--> Tracking is turned on :-)");
-    }
-    else if (Telescope.Tracking && !Telescope.CanSetTracking)
-    {
-        Console.PrintLine("Failed to enable tracking")
-        ts.WriteLine(" WARNING: Failed to enable telescope tracking")
+    } else if (Telescope.Tracking && !Telescope.CanSetTracking) {
+        Console.PrintLine("Failed to enable tracking");
+        ts.WriteLine(" WARNING: Failed to enable telescope tracking");
     }
 }
 
 /////////////////////////////////////////////////////
-// Returns JD of sunrise and sunset for current day
+// Returns astronomical twilight end (sunrise) and start (sunset) times of the current day as JD
 // See: https://en.wikipedia.org/wiki/Sunrise_equation
 // MJM - 2021/06
 /////////////////////////////////////////////////////
-function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and start (sunset) times as JD
-{
-	lat = Telescope.SiteLatitude
-	lon = Telescope.SiteLongitude
-	n = Math.floor(jDate - 2451545.0 + 0.0008)
-	Jstar = n - (lon/360.0)
-	M = (357.5291 + 0.98560028 * Jstar) % 360
-	C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M))
-	lam = (M + C + 180 + 102.9372) % 360
-	Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam))
-	sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44))
-	cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)))
-	Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360
-	Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360
+function twilightTimes(jDate) {
+	var lat = Telescope.SiteLatitude;
+	var lon = Telescope.SiteLongitude;
+	var n = Math.floor(jDate - 2451545.0 + 0.0008);
+	var Jstar = n - (lon/360.0);
+	var M = (357.5291 + 0.98560028 * Jstar) % 360;
+	var C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M));
+	var lam = (M + C + 180 + 102.9372) % 360;
+	var Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam));
+	var sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
+	var cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)));
+	var Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360;
+	var set = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
 
-	return [Jrise, Jset]
+	return [Jrise, Jset];
 }
 
 ////////////////////////////////////////
 // Causes program to wait until sunset
 // MJM - 2021/06/24
 ////////////////////////////////////////
-function waitUntilSunset(updatetime)
-{
-	var currentJD = Util.SysJulianDate
-	while (currentJD < sunset)
-	{
-		Console.Clear()
-		if (currentJD > sunrise && currentJD < sunset)
-		{
-			Console.PrintLine("Sun is up")
-			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
-			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
-			Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.")
-			Util.WaitForMilliseconds(updatetime)
-			currentJD = Util.SysJulianDate
+function waitUntilSunset(updatetime) {
+	var currentJD = Util.SysJulianDate;
+	while (currentJD < sunset) {
+		Console.Clear();
+		if (currentJD > sunrise && currentJD < sunset) {
+			Console.PrintLine("Sun is up");
+			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"));
+			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"));
+			Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.");
+			Util.WaitForMilliseconds(updatetime);
+			currentJD = Util.SysJulianDate;
 		}
 	}
 }
-
-// This function appends the ColibriGrab log file to the ACP log file and then deletes it afterwards.
-// Function to append the ColibriGrab data each time it runs to the end of the log to allow better diagnostics where problems might be happening
-function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile) {
-    try{
-        if (fso.FileExists(colibriLogFile)) {
-            var colibriLog = fso.OpenTextFile(colibriLogFile, ForReading, false);
-
-            while (!colibriLog.AtEndOfStream) {
-                var logLine = colibriLog.ReadLine();
-                ts.WriteLine(Util.SysUTCDate + " " + logLine);
-            }
-
-            colibriLog.close();
-
-            // Delete the ColibriGrab log file after appending its contents
-            fso.DeleteFile(colibriLogFile);
-            Console.PrintLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
-            ts.WriteLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
-        } else {
-            Console.PrintLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
-            ts.WriteLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
-        }
-    } catch (e) {
-        Console.PrintLine("ERROR: " + e.message);
-        ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
-    }
-}
-
 // END OF FUNCTIONS
 
-// Global variables:
-// ACP Variables
-// try{
-//     SUP = new ActiveXObject("ACP.AcquireSupport");
-// } catch(e) {
-//     if(e.description.indexOf("can't create object") != -1) {
-//         updateLog("It appears that AcquireSupport is not registered with Windows.", "ERROR");
-//         updateLog("Find AcquireSupport.wsc in the ACP install folder, right click.", "ERROR");
-//         updateLog("on it, and select Register. Then try running the script again.", "ERROR");
-//     } else {
-//         updateLog("There is a problem with the script support library:", "ERROR");
-//         updateLog("    [" + e.description + "]", "ERROR");
-//         updateLog("If the above error message is not an obvious clue, contact", "ERROR");
-//         updateLog("DC-3 Dreams customer support on the Comm Center", "ERROR");
-//     }
+// Global variables and configurations
+// Variables used for logging and system state checks.
+var logconsole = true; // Enable or disable logging the console output.
+var firstRun = true; // Tracks whether the script is running for the first time.
+var fso, f1, ts; // FileSystemObject and file variables for logging and file handling.
+var currentDate = getDate(); // Store the current date.
+var pierside = "E"; // Tracks which side the pier the telescope is on ("E" for East, "W" for West).
+var maximDL; // Object for controlling MaxIM DL software.
+var ccdCamera; // Object representing the CCD camera controlled by MaxIM DL.
 
-//     SUP = null;
-//     return;
-// }
+// Magic numbers for astronomical limits
+var elevationLimit = 10; // Minimum elevation angle for telescope pointing (degrees).
+var minMoonOffset = 15; // Minimum allowed angular distance from the Moon (degrees).
 
-var logconsole = true;
-var firstRun = true;
-var isAfterSunset = false;
-var fso, f1, ts;
-var Mode = 8;
-var currentDate = getDate();
-var pierside = "E";
-
+// File handling constants for different file modes.
 var ForReading = 1;
 var ForAppending = 8;
+var ForWriting = 2;
 
-// Magic numbers
-var curTarget = null;
-var elevationLimit = 10; // minimum elevation of field in degrees
-var minMoonOffset = 15; // angular seperation from moon in degrees
-var numExposures = 2400; // exposures/min
-var timestep = 1.0; // time between fields in hours
-var minDiff = 2; // minimum difference between fields to justify a switch
-var magnitudeLimit = 12; // dimmest visible star
-var extScale = 0.4; // extinction scaling factor
-// var darkInterval = 15 // Number of minutes between dark series collection
-
-var maximDL;
-var ccdCamera;
-
-// Iterables
+// A variable to track the number of telescope slew attempts.
 var slewAttempt = 0;
 
+// Log to console and file if logging is enabled.
 if (logconsole == true) {
+    // Create a log file with a timestamped name and enable logging.
     Console.LogFile = "d:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-ACPconsole.log";
     Console.Logging = true;
 }
-    
-sunset  = twilightTimes(Util.SysJulianDate)[1]
-LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
+
+// Retrieve the sunset time from astronomical twilight data.
+sunset  = twilightTimes(Util.SysJulianDate)[1]; // Sunset in Julian Date (JD)
+LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"; // Log file path based on sunset time.
+
+// Create an ActiveX FileSystemObject for file handling
 fso = new ActiveXObject("Scripting.FileSystemObject");
     
+// Check if the log file already exists.
 if (fso.FileExists(LogFile)) {
     Console.PrintLine("Log file exists. Appending to existing log file.");
 } else {
+    // If the log file does not exist, create it.
     fso.CreateTextFile(LogFile);
 }
 
+// Open the log file for appending
 f1 = fso.GetFile(LogFile);
-// Check to see if f1 open. If not, do the following...
-ts = f1.OpenAsTextStream(Mode, true);
+ts = f1.OpenAsTextStream(ForAppending, true);
 Console.PrintLine("Log file ready.")
 
+// Main execution function.
 function main() {
     try{
         updateLog("Attempting to create ActiveX object for MaxIM DL", "INFO");
-        // Create ActiveX object for MaxIM DL
+        
+        // Create ActiveX object for controlling MaxIM DL software
         maximDL = new ActiveXObject("MaxIm.Application");
         updateLog("MaxIM DL ActiveX object created successfully.", "INFO");
     
+        // Access the CCD camera object from MaxIM DL.
         ccdCamera = maximDL.CCDCamera;
         updateLog("Accessing the CCD camera object", "INFO");
     } catch (e) {
+        // Handle any errors during object creation or access.
         updateLog("An error occurred " + e.message, "ERROR");
     }
 
-    // Get times of sunrise and sunset
+    // Calculate astronomical sunrise and sunset times (technically 12 degree twilight times) based on Julian Date.
     // twilightTimes: [0] - JD of sunrise, [1] - JD of sunset
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
-    sunset  = twilightTimes(Util.SysJulianDate)[1]
-    sunrise = twilightTimes(Util.SysJulianDate + 1)[0]
-    sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude/15).toFixed(1)
-    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude/15).toFixed(1)
+    sunset  = twilightTimes(Util.SysJulianDate)[1];
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
+    sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude/15).toFixed(1);
+    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude/15).toFixed(1);
 
+    // Get the current position of the Moon
     var moonCT = getMoon();
 
-    // Length of night
-    darkHours = (sunrise - sunset)*24
-    timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
-    timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
+    // Calculate the total hours of darkness between sunset and sunrise.
+    var darkHours = (sunrise - sunset)*24; // Length of night in hours.
+    var timeUntilSunset = (sunset - Util.SysJulianDate)*24; // Hours until sunset.
+    var timeUntilSunrise = (sunrise - Util.SysJulianDate)*24; // Hours until sunrise.
 
-    // Dark hours left
-    if (darkHours > timeUntilSunrise)
-        {darkHoursLeft = timeUntilSunrise}
-    else
-        {darkHoursLeft = darkHours}
+    // Calculate remaining dark hours.
+    if (darkHours > timeUntilSunrise){
+        darkHoursLeft = timeUntilSunrise;
+    } else{
+        darkHoursLeft = darkHours;
+    }
 
-    // Print today's time of nautical sunrise and sunset.
+    // Log astronomical times for today.
     updateLog("Sunrise GMST: " + Util.Julian_GMST(sunrise), "INFO");
-    // Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
     updateLog("Sunset GMST: " + Util.Julian_GMST(sunset), "INFO");
-    // Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset))
     updateLog("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate), "INFO");
-    // Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
     updateLog("Sunrise UTC: " + Util.Julian_Date(sunrise), "INFO");
-    // Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise))
     updateLog("Sunset UTC: " + Util.Julian_Date(sunset), "INFO");
-    // Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
     updateLog("Sunset JD: " + sunset, "INFO");
-    // Console.PrintLine("Sunset JD: " + sunset)
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset)
     updateLog("Sunrise JD: " + sunrise, "INFO");
-    // Console.PrintLine("Sunrise JD: " + sunrise)
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise)
     updateLog("Current JD: " + Util.SysJulianDate, "INFO");
-    // Console.PrintLine("Current JD: " + Util.SysJulianDate)
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate)
-
     updateLog("Length of the Night: " + darkHours + " hours", "INFO");
-    // Console.PrintLine("Length of the Night: " + darkHours + "hours")
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
     updateLog("Time until sunset: " + timeUntilSunset + " hours", "INFO");
     updateLog("Time until sunrise: " + timeUntilSunrise + " hours");
     updateLog("Dark hours left: " + darkHoursLeft + " hours", "INFO");
-    // Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
-    // Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
-    // ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours")
 
-    // Prestart checks
-    // Check to see if the weather server is connected. If it isn't ask for
-	// permission to continue.
+    // Prestart checks for weather conditions
+    // Check to see if the weather server is connected. If it isn't ask for permission to continue.
 	if (Weather.Available) {
-            Console.PrintLine("Weather server is connected. Continuing with operations.");
-            ts.WriteLine(Util.SysUTCDate + " INFO: Weather server is connected. Continuing with operations.");
+        // If weather server is connected, log success and wait for 3 seconds.
+            updateLog("Weather server is connected. Contining with operations.", "INFO");
             Util.WaitForMilliseconds(3000);
     } else {
+        // If no weather server, ask for user confirmation to proceed.
         if (Util.Confirm("No weather server! Do you want to continue? Choose wisely...")) {
-            Console.PrintLine("Ok, you've chosen to proceed with no weather server. 8-O")
-            ts.WriteLine(Util.SysUTCDate + " WARNING: No weather server. You've chosen to proceed without. 8-O")
-            ignoreWeather = true
-            Util.WaitForMilliseconds(3000)
+            updateLog("No weather server. You've chosen to proceed without.", "WARNING");
+            ignoreWeather = true;
+            Util.WaitForMilliseconds(3000);
         } else {
+            // Abort if the user chooses not to continue without weather data.
             abort();
         }
     }
     
-    // If the weather server is connected and the weather is not safe, wait
-    // until it becomes safe.
+    // Handle unsafe weather conditions by waiting until conditions improve.
     if (Weather.Available && !Weather.safe) {
-        ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.")
+        updateLog("Weather unsafe! Waiting until it's looking a bit better out.", "INFO");
     }
 
     while (Weather.Available && !Weather.safe) {
+        // If a new day starts, update the log file.
         if (getDate() != currentDate) {
-            currentDate = getDate()
-            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
+            currentDate = getDate();
+
+            // Define the log file path using the current sunset time in UTC format.
+            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 
             if (fso.FileExists(LogFile)) {
                 Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
@@ -1537,109 +1352,106 @@ function main() {
 
             f1 = fso.GetFile(LogFile);
             try {
-                ts = f1.OpenAsTextStream(Mode, true);
+                ts = f1.OpenAsTextStream(ForAppending, true);
             } catch(err) {
                 ts.WriteLine(Util.SysUTCDate + " WARNING: Log file is already open.");
             }
-            // Console.Logging = false
-            // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
-            // Console.Logging = true
         }
-        Console.PrintLine("Unsafe weather conditions. Waiting for 5 minutes.")
-        // abort()
+
+        // Log and wait for 5 minutes before checking weather conditions again.
+        updateLog("Unsafe weather conditions. Waiting for 5 minutes.", "INFO");
         Util.WaitForMilliseconds(300000)
     }
     
-    // Update currentDate variable to be correct
+    // Ensure the currentDate variable is up to date.
     if (getDate() != currentDate) {
-        currentDate = getDate()
+        // Update currentDate to today's date.
+        currentDate = getDate();
+
+        // Define the log file path using the current sunset time in UTC format.
         LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
 
+        // Check if the log file already exists.
         if (fso.FileExists(LogFile)) {
+            // Inform the user that the log file exists and will be appended.
             Console.PrintLine("Log file exists. Appending to existing log file.");
         } else {
+            // Create a new log file if it doesn't exist.
             fso.CreateTextFile(LogFile);
         }
 
+        // Get a reference to the log file.
         f1 = fso.GetFile(LogFile);
+
+        // Confirm the file exists again (possibly redundant check)
         if (fso.FileExists(LogFile)){
             Console.PrintLine("Log file exists. Appending to existing log file.");
 
         } else {
-            ts = f1.OpenAsTextStream(Mode, true);
+            // Open the log file in append mode for further logging
+            ts = f1.OpenAsTextStream(ForAppending, true);
         }
     }
 
-    // Observing Plan
-    // Create directory for tonight's data and collect dark frames
+    // Observing Plan - Prepare for the first run
+    // Create directory for tonight's data and collect dark frames if this is the first run.
 	if (firstRun = true) {
-        var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
-        // Console.Logging = false
-        // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
-        // Console.Logging = true
+        // Convert sunset time to UTC to define the data directory.
+        var today = JDtoUTC(sunset);
+
+        // Create the data directory for today's observations, including a subdirectory for dark frames.
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\")
-        updateLog("Created today's data directory at d:\\ColibriData\\" + today.toString, "INFO");
-        // Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
-        //Console.PrintLine("Collecting dark frames...")
+        
+        // Log the creation of the directory.
+        updateLog("Created today's data directory at d:\\ColibriData\\" + today.toString(), "INFO");
+        
+        // Mark that the first run is completed.
         firstRun = false
     }
 
+    // Retrieve observation requests and their corresponding CSV lines.
     var csvData = getRequests();
-    Console.PrintLine(csvData);
-    var requests = csvData[0];
-    var lines = csvData[1];
+    var requests = csvData[0]; // Observation requests
+    var lines = csvData[1]; // Lines from the CSV file
 
-    for (var i = 0; i < requests.length; i++) {
-        var request = requests[i];
-        Console.PrintLine(request.directoryName);
-    }
-
-    Console.PrintLine("")
-
-    // Begin Operations
+    // Begin the main observation loop.
     do {
+        // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
         Console.PrintLine(bestObs)
 
-        // Safeguard against opening before the start of the observing plan
-        // COMMENT OUT FOR SIMULATED DOME TESTING DURING THE DAY
+        // Safeguard: Prevent observing before sunset
+        // (This can be commented out for simulated testing during the day)
         while (Util.SysJulianDate < sunset) {
-            Console.PrintLine("")
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
-            Util.WaitForMilliseconds(5000)
+            updateLog("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.", "INFO");
+            Util.WaitForMilliseconds(5000); // Wait for 5 seconds before checking again.
         }
 
-        // Safeguard against opening after the end of the observing plan/sunrise
+        // Safeguard: Stop observing if it's past sunrise
         if (Util.SysJulianDate > sunrise) {
-            Console.PrintLine("")
             updateLog("Too late. Nothing left to observe.", "INFO");
-            // Console.PrintLine("Too late. Nothing left to observe.")
-            // ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.")
-            // if (Util.IsTaskActive(tid))
-                //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
-            // abortAndRestart()
-            andRestart()
+            andRestart(); // Restart the system
         }
 
-        // Monitor the weather status, if the weather script is active
-        // TODO: Add Goto and all that stuff.
+        // Monitor the weather and check if it is safe to observe.
         if ((Weather.Available && Weather.safe) || (ignoreWeather == true)) {
-            Console.PrintLine("Checking Weather")
-            connectScope()
-            domeOpen()
-            trkOn()
+            Console.PrintLine("Checking Weather");
+            connectScope(); // Connect to the telescope.
+            domeOpen(); // Open the dome.
+            trkOn(); // Turn on telescope tracking.
         }
 
+        // If no suitable observation is found, wait for 5 minutes and retry.
+        // TODO: Instead of waiting idly for 5 minutes when no suitable observations are found, add RunColibri KBO observation functionality.
         if (bestObs == "None") {
             Console.PrintLine("No suitable observation found in current conditions.")
             Console.PrintLine("Wait for 5 minutes and try again.")
-            Util.WaitForMilliseconds(300000);
-            continue; // This might not work correctly --> Change it to break?
+            Util.WaitForMilliseconds(300000); // Wait for 5 minutes
+            continue; // Continue to the next iteration of the loop.
         }
 
-        // Log output of selectBestObservation
-        // selectBestObservation returns a Request with properties: directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, numExposures, exposureTime, filter, binning, altitude, moonAngle, score, and csvIndex
+        // Log the selected observation details.
+        // selectBestObservation returns a Request with properties: directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, exposureTime, filter, binning, altitude, moonAngle, score, and csvIndex
         updateLog("Requested Observation Info", "INFO");
         updateLog("Directory Name: " + bestObs.directoryName, "INFO");
         updateLog("Priority: " + bestObs.priority, "INFO");
@@ -1649,7 +1461,6 @@ function main() {
         updateLog("Start JD: " + bestObs.startJD, "INFO");
         updateLog("End UTC: " + bestObs.endUTC, "INFO");
         updateLog("End JD: " + bestObs.endJD, "INFO");
-        updateLog("Number of Exposures: " + bestObs.numExposures, "INFO");
         updateLog("Exposure Time: " + bestObs.exposureTime, "INFO");
         updateLog("Filter: " + bestObs.filter, "INFO");
         updateLog("Binning: " + bestObs.binning, "INFO");
@@ -1658,139 +1469,48 @@ function main() {
         updateLog("Score: " + bestObs.score, "INFO");
         updateLog("CSV Index: " + bestObs.csvIndex, "INFO");
 
-        // Console.PrintLine("")
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Requested observation Info")
-        // Console.PrintLine("Directory Name: " + bestObs.directoryName)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Directory Name: " + bestObs.directoryName)
-        // Console.PrintLine("Priority: " + bestObs.priority)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Priority: " + bestObs.priority)
-        // Console.PrintLine("RA: " + bestObs.ra)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + bestObs.ra)
-        // Console.PrintLine("Dec: " + bestObs.dec)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + bestObs.dec)
-        // Console.PrintLine("Start UTC: " + bestObs.startUTC)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Start UTC: " + bestObs.startUTC)
-        // Console.PrintLine("Start JD: " + bestObs.startJD)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Start JD: " + bestObs.startJD)
-        // Console.PrintLine("End UTC: " + bestObs.endUTC)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: End UTC: " + bestObs.endUTC)
-        // Console.PrintLine("End JD: " + bestObs.endJD)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: End JD: " + bestObs.endJD)
-        // Console.PrintLine("Number of Exposure: " + bestObs.numExposures)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Number of Exposures: " + bestObs.numExposures)
-        // Console.PrintLine("Exposure Time: " + bestObs.exposureTime)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Exposure Time: " + bestObs.exposureTime)
-        // Console.PrintLine("Filter: " + bestObs.filter)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Filter: " + bestObs.filter)
-        // Console.PrintLine("Binning: " + bestObs.binning)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Binning: " + bestObs.binning)
-        // Console.PrintLine("Altitude: " + bestObs.altitude)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Altitude: " + bestObs.altitude)
-        // Console.PrintLine("Moon Angle: " + bestObs.moonAngle)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Moon Angle: " + bestObs.moonAngle)
-        // Console.PrintLine("Score: " + bestObs.score)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: Score: " + bestObs.score)
-        // Console.PrintLine("CSV Index: " + bestObs.csvIndex)
-        // ts.WriteLine(Util.SysUTCDate + "INFO: CSV Index: " + bestObs.csvIndex)
-        
-
         // Create coordinate transform for the current request
-        currentFieldCt = Util.NewCThereAndNow()
-        currentFieldCt.RightAscension = bestObs.ra / 15
-        currentFieldCt.Declination = bestObs.dec
+        var currentFieldCt = Util.NewCThereAndNow();
+        currentFieldCt.RightAscension = bestObs.ra / 15; // Convert RA from degrees to hours.
+        currentFieldCt.Declination = bestObs.dec;
 
-        // Monitor and log the coordinates which the telescope slews to
-        Console.PrintLine("")
+        // Log the coordinates to which the telescope will slew
         updateLog("Slewing to...", "INFO");
         updateLog("RA: " + currentFieldCt.RightAscension, "INFO");
         updateLog("Dec: " + currentFieldCt.Declination, "INFO");
         updateLog("Alt: " + currentFieldCt.Elevation, "INFO");
         updateLog("Az: " + currentFieldCt.Azimuth, "INFO");
 
-        // Console.PrintLine("Slewing to...")
-        // Console.PrintLine("RA: " + currentFieldCt.RightAscension)
-        // Console.PrintLine("Dec: " + currentFieldCt.Declination)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
-        // ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
+        // Command the telescope to slew to the target field.
+        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-        // Slew to the current field
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination)
-
-        // Slave the dome to the telescope and wait until they are both in
-        // the correct position to begin observing
-        while (Telescope.Slewing == true)
-        {
-            Console.PrintLine("Huh. Still Slewing...")
-            Util.WaitForMilliseconds(500)
+        // Wait for the telescope and dome to finish slewing
+        while (Telescope.Slewing == true) {
+            Console.PrintLine("Huh. Still Slewing...");
+            Util.WaitForMilliseconds(500); // Wait for 0.5 seconds between checks.
         }
 
-        Dome.UnparkHome()
-        if (Dome.slave == false)
-        {
-            Dome.slave = true
+        Dome.UnparkHome(); // Unpark the dome and move it to the home position.
+        if (Dome.slave == false) { Dome.slave = true; } // Ensure the dome is slaved to the telescope.
+
+        // Wait for the dome to finish slewing.
+        while (Dome.Slewing == true) {
+            Console.PrintLine("Dome is still slewing. Give me a minute...");
+            Util.WaitForMilliseconds(500); // Wait for 0.5 seconds between checks
         }
 
-        while (Dome.Slewing == true)
-        {
-            Console.PrintLine("Dome is still slewing. Give me a minute...")
-            Util.WaitForMilliseconds(500)
-        }
-
+        // Update the log when the telescope and dome have reached the target coordinates.
         updateLog("At target.", "INFO");
-        updateLog("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2), "INFO");
+        updateLog("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az. = " + currentFieldCt.Azimuth.toFixed(2), "INFO");
 
-        // Console.PrintLine("At target.");
-        // Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
-        // ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
-
-        // Readjust the telescope pointing using child script
-        // adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
-        // while (Telescope.Slewing == true)
-        // {
-        //     Console.PrintLine("Huh. Still Slewing...")
-        //     Util.WaitForMilliseconds(500)
-        // }
-
-        // Dome.UnparkHome()
-        // if (Dome.slave == false)
-        // {
-        //     Dome.slave = true
-        // }
-
-        // while (Dome.Slewing == true)
-        // {
-        //     Console.PrintLine("Dome is still slewing. Give me a minute...")
-        //     Util.WaitForMilliseconds(500)
-        // }
-
-        // // Check pier side
-        // if (Telescope.SideOfPier == 0)
-        // {
-        //     pierside = "E"
-        //     Console.PrintLine("Pier side: " + pierside)
-        // }
-        // else
-        // {
-        //     pierside = "W"
-        //     Console.PrintLine("Pier side: " + pierside)
-        // }
-
-        // Data Collection
-        Console.PrintLine("")
-        // Console.Printline("Starting data collection...")
-        // Console.PrintLine("Running from " + Util.SysJulianDate + " until " + endJD)
-        // ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
+        // Start collecting data for the observation
         updateLog("Starting data collection...", "INFO");
 
-        // Try linking the camera
+        // Attempt to link the camera for image capturing.
         try {
             if (!ccdCamera.LinkEnabled) {
                 updateLog("Camera is not linked. Attempting to link...", "INFO");
-                ccdCamera.LinkEnabled = true; // Try to link the camera
+                ccdCamera.LinkEnabled = true; // Enable the camera link.
 
                 if (ccdCamera.LinkEnabled) {
                     updateLog("Camera linked successfully.", "INFO");
@@ -1805,239 +1525,162 @@ function main() {
             updateLog("An error occurred: " + e.message, "ERROR");
         }
 
-        // Create directory for requested observation images
+        // Create directories for storing the captured images.
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName)
         Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName)
 
-        // Iterables
-        var darkInterval = 30 / (bestObs.exposureTime / 60); // Number of iterations of exposures per 30 minutes, given the exposure time
-        var darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
-        runCounter = 1
+        // Iteration counters for exposures and dark frames.
+        var darkInterval = 30 / (bestObs.exposureTime / 60); // Calculate how many exposures fit into 30 minutes.
+        var darkCounter = darkInterval; // Initialize the dark frame counter. Set equal to interval so that dark set is collected on first run.
+        var runCounter = 1;
 
-        var endJD = Util.SysJulianDate + (bestObs.obsDuration / 1440);
+        var endJD = Util.SysJulianDate + (bestObs.obsDuration / 1440); // Calculate when the observation should end (in Julian Date)
 
-        // Initialize time tracking variables
-        // var startTime = Util.SysJulianDate;
-        // var timeSinceLastPointingUpdate = 0; // In minutes
-        // var pointingUpdateInterval = 30; // 30 minutes for updating pointing
-        // var imageChunkTime = 30; // 30 minutes in total per chunk
-        // var remainingObsTime = bestObs.obsDuration; // Observation duration in minutes
-        // var exposureTimeInSeconds = bestObs.exposureTime / 1000; // Convert exposure time from milliseconds to seconds
-        // var exposureTimeInMinutes = exposureTimeInSeconds / 60; // Convert exposure time from seconds to minutes
-
-        // while (remainingObsTime > 0) {
-        //while (runCounter <= bestObs.obsDuration) {
+        // Start a loop that runs while the current Julian Date is less than or equal to the observation's end time.
         while (Util.SysJulianDate <= endJD) {
-            
-            // var currentTime = Util.SysJulianDate;
-            // var elapsedTime = (currentTime - startTime) * 1440; // Convert elapsed time from Julian Days to minutes
-
-            // Calculate the time for the current image chunk (either 30 minutes or the remaining observation time)
-            // var currentChunkDuration = Math.min(imageChunkTime, remainingObsTime); // In minutes
-
-            // Calculate the number of exposures for the current chunk
-            // var numExposuresForChunk = Math.floor(currentChunkDuration / exposureTimeInMinutes);
-
-            // Update pointing and take darks every 30 minutes or if the remaining observation time is less than 30 minutes
+            // Check if it's time to adjust the telescope pointing and take dark frames.
+            // This happens either every 30 minutes or if the remaining observation time is less than 30 minutes.
             if (darkCounter == darkInterval) {
-            // if (timeSinceLastPointingUpdate >= pointingUpdateInterval || remainingObsTime <= imageChunkTime) {
-                // Readjust the telescope pointing using child script
+                // Log the start of telescope pointing adjustment using a child script.
                 updateLog("Readjust the telescope pointing using child script.", "INFO");
-                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
-                while (Telescope.Slewing == true)
-                {
-                    Console.PrintLine("Huh. Still Slewing...")
-                    Util.WaitForMilliseconds(500)
-                }
-
-                Dome.UnparkHome()
-                if (Dome.slave == false)
-                {
-                    Dome.slave = true
-                }
-
-                while (Dome.Slewing == true)
-                {
-                    Console.PrintLine("Dome is still slewing. Give me a minute...")
-                    Util.WaitForMilliseconds(500)
-                }
-
-                // Check pier side
-                if (Telescope.SideOfPier == 0)
-                {
-                    pierside = "E"
-                    Console.PrintLine("Pier side: " + pierside)
-                }
-                else
-                {
-                    pierside = "W"
-                    Console.PrintLine("Pier side: " + pierside)
-                }
                 
-                // Check pier side
-                // if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
-                //     updateLog("Flipping sides of pier...", "INFO");
-                //     // Console.PrintLine("Flipping sides of pier...")
-                //     // ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
-                //     gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+                // Adjust the telescope pointing to the current target (Right Ascension and Declination).
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                
+                // Wait for the telescope to finish slewing (moving to the target coordinates)
+                while (Telescope.Slewing == true) {
+                    Console.PrintLine("Huh. Still Slewing..."); // Inform the user the telescope is still slewing.
+                    Util.WaitForMilliseconds(500); // Wait for 0.5 seconds before checking again.
+                }
 
-                //     // Readjust the telescope pointing using child script
-                //     adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
-                //     while (Telescope.Slewing == true) {
-                //         Console.PrintLine("Huh. Still Slewing...")
-                //         Util.WaitForMilliseconds(500)
-                //     }
+                // Unpark the dome and move it to its home position
+                Dome.UnparkHome();
 
-                //     Dome.UnparkHome()
-                //     if (Dome.slave == false) {
-                //         Dome.slave = true
-                //     }
+                // If the dome is not already slaved (automatically follows the telescope), enable slaving
+                if (Dome.slave == false) { Dome.slave = true; }
 
-                //     while (Dome.Slewing == true) {
-                //         Console.PrintLine("Dome is still slewing. Give me a minute...")
-                //         Util.WaitForMilliseconds(500)
-                //     }
+                // Wait for the dome to finish slewing (moving to align with the telescope)
+                while (Dome.Slewing == true) {
+                    Console.PrintLine("Dome is still slewing. Give me a minute..."); // Inform the user that the dome is still moving
+                    Util.WaitForMilliseconds(500); // Wait for 0.5 seconds before checking again
+                }
 
-                //     // Check pier side
-                //     if (Telescope.SideOfPier == 0) {
-                //         pierside = "E"
-                //         Console.PrintLine("Pier side: " + pierside)
-                //     } else {
-                //         pierside = "W"
-                //         Console.PrintLine("Pier side: " + pierside)
-                //     }
-                // } else { Console.PrintLine("Already on the right side of the pier"); }
-
+                // Check the current side of the pier the telescope is on (East or West) and log it
+                if (Telescope.SideOfPier == 0) {
+                    pierside = "E"; // Telescope is on the East side of the pier
+                } else {
+                    pierside = "W"; // Telescope is on the West side of the pier
+                }
+                updateLog("Pier side: " + pierside, "INFO");
+                
+                // Log that the telescope is about to take dark frames (calibration images with no light).
                 updateLog("Taking Darks.", "INFO");
-                imgCollection(today, 2, bestObs.exposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName);
 
-                // Reset pointing update timer
-                // timeSinceLastPointingUpdate = 0;
+                // Capture dark frames using the specified exposure time and save them to the designated directory.
+                refCollection(2, bestObs.exposureTime, "D:\\ColibriData\\" + today.toString() + "\\Dark\\" + bestObs.directoryName);
+
+                // Reset the dark frame counter to start counting again for the next interval.
                 darkCounter = 0;
             }
+
+            // Increment the dark frame counter to track when the next dark frame should be taken.
             darkCounter++;
-            updateLog("Dark counter = " + darkCounter.toString(), "INFO");
+            updateLog("Dark counter = " + darkCounter.toString(), "INFO"); // Log the updated dark frame counter value.
 
-            // // Collect darkes when darkInterval is reached
-            // if (darkCounter == darkInterval) {
-            //     // darkCollection(today) 
-            //     imgCollection(today, "dark", bestObs.exposureTime);
-            //     darkCounter = 0
-            // }
-            // darkCounter++
-            // Console.PrintLine("Dark counter = " + darkCounter.toString())
-
-            // Dynamicallly fetches the correct path to ColibriGrab.exe
-            // var wshShell = new ActiveXObject("WScript.Shell");
-            // var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
-            // var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
-
-            // // Commands to run ColibriGrabe.exe from the GitHub
-            // var wsh = new ActiveXObject("WScript.Shell");
-            // var command = "\"" + colibriGrabPath + "\" -n " + numExposuresForChunk.toString() + " -p " + bestObs.directoryName + "_" + bestObs.exposureTime + "ms-" + pierside + " -e " + bestObs.exposureTime + " -t 0 -f " + bestObs.filter + " -b " + bestObs.binning + " -w D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName;
-
-            // updateLog("Executing command: " + command, "INFO");
-            // Console.PrintLine("Executing command: " + command);
-            // ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
-
-            // Run ColibriGrab.exe
-            // wsh.Run(command, 1, true);
-
-            // Util.WaitForMilliseconds(50);
-
-            // Append and delete ColibriGrab log fo ACP log after each run
-            // appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-            // updateLog("Done exposing run # " + runCounter.toString(), "INFO");
-            // Console.PrintLine("Done exposing run # " + runCounter.toString());
-            // ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
-
-            // Try starting an exposure
+            // Attempt to start a new exposure for the observation.
             try {
                 updateLog("Starting exposure...", "INFO");
+
+                // Set the binning (resolution) of the camera based on the observation parameters.
                 ccdCamera.BinX = bestObs.binning;
                 ccdCamera.BinY = bestObs.binning;
-                ccdCamera.Expose(bestObs.exposureTime, bestObs.filter); // Exposure Time needs to be in seconds!!
-                updateLog("Exposure started successfully");
+
+                // Begin the exposure with the specified exposure time and filter.
+                // The exposure time is expected in seconds.
+                ccdCamera.Expose(bestObs.exposureTime, bestObs.filter);
+
+                // Log a successful start of the exposure.
+                updateLog("Exposure started successfully", "INFO");
             } catch (e) {
-                updateLog("Error starting exposure: " + e.message);
+                // Log an error if something goes wrong while starting the exposure.
+                updateLog("Error starting exposure: " + e.message, "ERROR");
             }
 
-            // Wait for the image to become ready;
-            var maxWaitTime = bestObs.exposureTime * 1000; // Maximum wait time (the exposure time), in milliseconds
-            var waitInterval = 1000; // Check every 1000ms
-            var elapsedTime = 0;
+            // Wait for the image to be ready after the exposure.
+            var maxWaitTime = bestObs.exposureTime * 1000; // Maximum wait time (the exposure time), in milliseconds.
+            var waitInterval = 1000; // Check every 1000ms (1 second).
+            var elapsedTime = 0; // Initialize the elapsed time counter.
 
             try {
+                // Wait for the camera to signal that the image is ready, or until the maximum wait time is reached.
                 while (!ccdCamera.ImageReady && elapsedTime < maxWaitTime) {
-                    updateLog("Waiting for image to be ready...", "INFO");
-                    Util.WaitForMilliseconds(waitInterval);
-                    elapsedTime += waitInterval;
+                    Util.WaitForMilliseconds(waitInterval); // Wait for the defined interval (1 second).
+                    elapsedTime += waitInterval; // Increment the elapsed time by the interval.
                 }
 
+                // If the image is ready, save it to the specified file path.
                 if (ccdCamera.ImageReady) {
                     var filePath = "D:\\ColibriData\\" + today.toString() + "\\" + bestObs.directoryName + "\\image_" + new Date().getTime() + "_" + bestObs.exposureTime + "s.fits"; 
-                    updateLog("Saving image to: " + filePath, "INFO");
-                    ccdCamera.SaveImage(filePath); // Save the image
-                    updateLog("Image saved successfully to: " + filePath);
+                    updateLog("Saving image to: " + filePath, "INFO");  // Log the file path where the image will be saved.
+                    ccdCamera.SaveImage(filePath); // Save the image to the specified path.
+                    updateLog("Image saved successfully to: " + filePath, "INFO");// Log the successful image save.
                 } else {
+                    // Log an error if the image is not ready after the maximum wait time.
                     updateLog("Image not ready after waiting.", "ERROR");
                 }
             } catch (e) {
-                updateLog("Error saving image: " + e.message);
+                // Log an error if something goes wrong during image saving.
+                updateLog("Error saving image: " + e.message, "ERROR");
             }
             
-
+            // Increment the run counter after each successful exposure.
             runCounter++;
-
-            // Increment the time since last pointing update
-            // timeSinceLastPointingUpdate += currentChunkDuration;
-
-            // Subtract the current chunk time from the remaining observation time
-            // remainingObsTime -= currentChunkDuration;
-
-            // Check if observation time has exceeded
-            // if (elapsedTime >= bestObs.obsDuration) {
-            //     break;
-            // }
         }
 
-        // Try disconnecting from camera
+        // Attempt to safely disconnect from the camera after all exposures are complete.
         try {
-            ccdCameraCamera.LinkEnabled = false;
-            updateLog("Camera disconnected.", "INFO");
+            ccdCameraCamera.LinkEnabled = false; // Disable the camera link (disconnect).
+            updateLog("Camera disconnected.", "INFO"); // Log the successful camera disconnection.
         } catch (e) {
+            // Log an error if something goes wrong while disconnecting the camera.
             updateLog("An error occurred: " + e.message, "ERROR");
         }
 
-        // Mark requested observation as completed in CSV file
+        // Mark requested observation as completed in the CSV file.
         try {
+            // Ensure the CSV index is valid and within the bounds of the observation requests array.
             if (bestObs.csvIndex >= 0 && bestObs.csvIndex < lines.length) {
-                var rowData = lines[bestObs.csvIndex].split(",");
+                var rowData = lines[bestObs.csvIndex].split(","); // Split the CSV row into an array of data.
 
-                // Modify data in rowData as needed
-                // var requestIndices = new RequestIndices();
+                // Modify the necessary column (e.g., column 10) to mark the observation as completed.
                 rowData[10] = 1;
 
-                // Join modified rowData back into a CSV line
+                // Join the array back into a CSV-formatted string
                 lines[bestObs.csvIndex] = rowData.join(",");
             } else {
-                Console.PrintLine("Index out of range or file is empty.");
-                Console.PrintLine("CSV Index: " + bestObs.csvIndex)
+                // Log an error if the CSV index is out of range or if the file is empty.
+                updateLog("Index out of range or file is empty.", "ERROR");
+                updateLog("CSV Index: " + bestObs.csvIndex, "INFO");
             }
 
+            // Update the CSV file with the modified data.
             updateCSV(lines);
         } catch (e) {
+            // Log an error if something goes wrong while updating the CSV file.
             updateLog("Error: " + e.message, "ERROR");
-            // Console.PrintLine("Error: " + e.message);
         }
 
-        // requests.shift();
+        // Fetch the next set of observation requests.
         requests = getRequests()[0];
+
+        // Log the remaining observation requests and print the updated observation plan.
         updateLog("Remaining requests: " + requests.length, "INFO");
-        // Console.PrintLine("Remaining requests: " + requests.length);
-        Console.PrintLine("Updated Plan:");
+        updateLog("Updated Plan:", "INFO");
         printPlan(requests);
+
+    // Continue the loop if there are still observation requests remaining.
     } while (requests.length > 0);
 
+    // Safely shut down the system after all observation requests have been processed.
     shutDown();
 }
