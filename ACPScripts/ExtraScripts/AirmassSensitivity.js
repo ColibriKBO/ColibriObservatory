@@ -628,7 +628,7 @@ function main()
     //Waints until a determined time is reached to start. This should syncronize the telescopes.
 
 
-    startTime = 2460601.5868055555;
+    startTime = 2460582.5694444445;
 
     timeUntilStart = (startTime - Util.SysJulianDate) * 24;
     while (timeUntilStart > 0)

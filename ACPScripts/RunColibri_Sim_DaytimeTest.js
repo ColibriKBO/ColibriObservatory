@@ -1109,7 +1109,7 @@ function main()
             Console.PrintLine(Util.SysUTCDate + " INFO: Executing command: " + command);
             wsh.Run(command, 1, true);
             Util.WaitForMilliseconds(1000);
-            appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
             Console.PrintLine("Done exposing run # " + runCounter.toString());
             runCounter++;
         }
