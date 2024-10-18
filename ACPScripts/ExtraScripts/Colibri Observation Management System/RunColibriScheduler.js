@@ -321,7 +321,6 @@ function selectTopObservation(requests) {
 
 // Auxiliary functions
 // Updates the day in a time string.
-// TODO: This function doesn't work yet.
 function updateDay(timeString) {
     var parts = timeString.split(":"); // Split the time string into parts.
     var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
