@@ -65,7 +65,9 @@ verboseprint = lambda *a, **k: None
 
 def windows_to_wsl_path(windows_path):
     """Convert a Windows path to a Unix-style path for WSL."""
-    windows_path = windows_path.replace('\\', '/')
+    print("Path before replace: ", windows_path)
+    windows_path = str(windows_path).replace("\\", "/")
+    print("Path after replace: ", windows_path)
     
     # If the path starts with a drive letter (e.g., "D:") handle it
     if windows_path[1] == ':':
@@ -337,7 +339,9 @@ def getLocalSolution(image_file, save_file, order):
     print(f"Save file: {save_file_wsl}")
 
     cwd = os.getcwd()
-    os.chdir('d:\\')
+    os.chdir('d:')
+    print(os.getcwd())
+
 
     command = f'wsl time solve-field --no-plots -D {save_file_base_wsl} -N {save_file_base_wsl}/{save_file_wsl} -t {order} --scale-units arcsecperpix --scale-low 2.2 --overwrite --scale-high 2.6 {image_file_wsl}'
 
