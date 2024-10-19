@@ -351,6 +351,7 @@ def getLocalSolution(image_file, save_file, order):
     # Load the WCS header
     wcs_header_path = f'{save_file_base}\\{save_file}'
     wcs_header = Header.fromfile(wcs_header_path)
+    print("Header: ", wcs_header)
 
     # except Exception as e:
     #     print(f"An error occurred: {e}")
@@ -567,7 +568,6 @@ if __name__ == '__main__':
             print("0.0 0.0")
             raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
 
-
 ###########################
 ## Astrometry
 ###########################
@@ -579,7 +579,7 @@ if __name__ == '__main__':
         ref_hdict, ref_data = readRCD(ref_image)
 
         # Save the header and data as a fits file
-        FITS_path = BASE_PATH / 'tmp' / ('astr_corr.fits')
+        FITS_path = BASE_PATH / 'tmp' / ('astr_corr_unsolved.fits')
         if FITS_path.exists():
             FITS_path.unlink()
         writeToFITS(FITS_path, ref_hdict, ref_data)
@@ -609,10 +609,12 @@ if __name__ == '__main__':
 
     # Convert the central pixel of the reference image to RA/Dec
     verboseprint("Converting central pixel of reference image to RA/Dec...")
-    ref_ra,ref_dec = getRADEC_Single(ref_wcs, IMG_WIDTH/2, IMG_WIDTH/2)
+    transform = wcs.WCS(ref_wcs)
+    ref_ra,ref_dec = getRADEC_Single(transform, IMG_WIDTH/2, IMG_WIDTH/2)
     verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
     # Calculate the offset between the reference image and the target
     print(f"Calculating offset between reference image and target...")
+    print("Reference RA and dec: ", ref_ra, ref_dec)
     ra_offset = ra - ref_ra
     dec_offset = dec - ref_dec
     
