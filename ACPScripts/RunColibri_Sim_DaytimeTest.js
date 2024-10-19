@@ -723,8 +723,9 @@ function calculateLST(gmst, longitude) {
 // Call to initialize the log file at the start of the script
 // Main function
 function main()
-{
-    var offSetHours = 8;
+{   
+    LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
+    var offSetHours = 4;
     var simulation = getSimulatedJulianDateAndLST(offSetHours);  // Offset by 8 hours
     var currentJD = simulation.simulatedJD;
     var simulatedLST = simulation.simulatedLST;
@@ -1093,7 +1094,9 @@ function main()
             }
 
             if (darkCounter == darkInterval) {
+                darkCollection(today, LogFile);
                 darkCounter = 0;
+
             }
             darkCounter++;
             Console.PrintLine("Dark counter = " + darkCounter.toString());

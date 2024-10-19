@@ -684,13 +684,13 @@ for (i = 0; i < airmassList.length; i++) {
             Console.PrintLine("Process ID = " + pid.toString());
             wsh.Run(pid, 1, true); // 1: normal window, true: wait for completion
             
-            /*Util.WaitForMilliseconds(2000);
+            Util.WaitForMilliseconds(250);
 
             var wsh1 = new ActiveXObject("WScript.Shell");
-            Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\")
-            var pid1 = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\";
+            Console.PrintLine("ColibriGrab.exe " + "-n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\Dark")
+            var pid1 = "\"" + colibriGrabPath + "\" -n 10" + " -p " + "Dark_" + "Alt" + elevation.toFixed(1) + "_" + exposureList[j] + "ms-" + " -e " + exposureList[j] + " -t 0 -f dark -w D:\\tmp\\AirmassSensitivity\\Dark";
             wsh1.Run(pid1, 1, true); // 1: normal window, true: wait for completion
-            Console.PrintLine("Done exposing run # " + j.toString());*/
+            Console.PrintLine("Done exposing run # " + j.toString());
             Util.WaitForMilliseconds(250);
 
         }
