@@ -1184,7 +1184,7 @@ function twilightTimes(jDate) {
 	var sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
 	var cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)));
 	var Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360;
-	var set = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
+	var Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
 
 	return [Jrise, Jset];
 }
