@@ -1007,7 +1007,8 @@ function adjustPointing(ra, dec) {
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+    // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python C:\\Users\\RedBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\astrometry_correction.py " + ra " " + dec);
     var python_output = "";
     var python_error = "";
 
