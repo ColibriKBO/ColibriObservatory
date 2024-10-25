@@ -703,95 +703,107 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(ra, dec) 
-{
+function adjustPointing(ra, dec) {
     // Convert RA to decimal degrees
     ra = ra * 15;
 
-    // Call astrometry_correction.py to get pointing offset
-    Console.PrintLine("== Pointing Correction ==");
-    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
-    var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
-    var python_output = "";
-    var python_error = "";
+    var tolerance = 10 / 3600; // 10 arcseconds converted to degrees
+    var max_iterations = 10;   // Maximum number of iterations to avoid infinite loops
+    var iterations = 0;
+    var ra_offset = tolerance + 1; // Start with large offsets to begin loop
+    var dec_offset = tolerance + 1;
 
-    var start = new Date().getTime();
-    var timeout = 300000; // Timeout in milliseconds (5 minutes)
-    
-    Console.PrintLine("Script started at: " + start);
-    ts.WriteLine(Util.SysUTCDate + " INFO: Script started at: " + start);
+    while ((Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) && iterations < max_iterations) {
+        // Call astrometry_correction.py to get pointing offset
+        Console.PrintLine("== Pointing Correction, Iteration " + (iterations + 1) + " ==");
+        ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction, Iteration " + (iterations + 1) + " ==");
 
-    // Added an escape here in case the Python script hangs.
-    while (BS.Status == 0) { 
-        while (!BS.StdOut.AtEndOfStream) {
-            python_output += BS.StdOut.Read(1);
+        var SH = new ActiveXObject("WScript.Shell");
+        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+        var python_output = "";
+        var python_error = "";
+
+        var start = new Date().getTime();
+        var timeout = 300000; // Timeout in milliseconds (5 minutes)
+
+        // Read Python output
+        while (BS.Status == 0) { 
+            while (!BS.StdOut.AtEndOfStream) {
+                python_output += BS.StdOut.Read(1);
+            }
+            while (!BS.StdErr.AtEndOfStream) {
+                python_error += BS.StdErr.Read(1);
+            }
+            Util.WaitForMilliseconds(100);
+            
+            // Timeout check
+            var currentTime = new Date().getTime();
+            if (currentTime - start > timeout) {
+                Console.PrintLine("Python script timed out.");
+                ts.WriteLine(Util.SysUTCDate + " ERROR: Python script timed out.");
+                BS.Terminate();
+                return;
+            }
         }
-        while (!BS.StdErr.AtEndOfStream) {
-            python_error += BS.StdErr.Read(1);
-        }
-        Util.WaitForMilliseconds(100);
 
-        var currentTime = new Date().getTime();
-        Console.PrintLine("Current Time: " + currentTime);
-        ts.WriteLine(Util.SysUTCDate + " INFO: Current Time: " + currentTime);
-
-        if (currentTime - start > timeout) {
-            Console.PrintLine("Python script timed out.");
-            ts.WriteLine(Util.SysUTCDate + " ERROR: Python script timed out.");
-            BS.Terminate();
+        if (python_error) {
+            Console.PrintLine("Python script error output: " + python_error);
+            ts.WriteLine(Util.SysUTCDate + " ERROR: Python script error output: " + python_error);
             return;
         }
+
+        // Parse output from astrometry_correction.py
+        var py_lines = python_output.split("\n");
+        var radec_offset = py_lines[py_lines.length - 2].split(" ");
+
+        // Calculate new RA and Dec pointing adjustments
+        ra_offset = parseFloat(radec_offset[0]);
+        dec_offset = parseFloat(radec_offset[1]);
+
+        // Update RA and Dec using the offsets
+        ra += ra_offset;
+        dec += dec_offset;
+
+        // Print new pointing
+        var corrected_ra = ra / 15; // Convert RA back to hours for output
+        Console.PrintLine("New RA: " + corrected_ra.toString() + " New Dec: " + dec.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + corrected_ra.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + dec.toString());
+        Console.PrintLine("RA Offset: " + ra_offset.toFixed(6) + " Dec Offset: " + dec_offset.toFixed(6));
+        ts.WriteLine(Util.SysUTCDate + " INFO: RA Offset: " + ra_offset.toFixed(6));
+        ts.WriteLine(Util.SysUTCDate + " INFO: Dec Offset: " + dec_offset.toFixed(6));
+
+        if (isNaN(ra) || isNaN(dec)) {
+            Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            return;
+        } else if ((ra / 15 > 24 || ra / 15 < 0) || (dec > 90 || dec < -90)) {
+            Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
+            return;
+        }
+
+        // Increment iteration counter
+        iterations++;
     }
 
-    var end = new Date().getTime();
-    Console.PrintLine("Script ended at: " + end);
-    ts.WriteLine(Util.SysUTCDate + " INFO: Script ended at: " + end);
-    Console.PrintLine("Script duration: " + (end - start) + " ms");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Script duration: " + (end - start) + " ms");
-
-    if (python_error) {
-        Console.PrintLine("Python script error output: " + python_error);
-        ts.WriteLine(Util.SysUTCDate + " ERROR: Python script error output: " + python_error);
-    }
-
-    // Parse output from astrometry_correction.py
-    var py_lines = python_output.split("\n");
-    var radec_offset = py_lines[py_lines.length - 2].split(" ");
-
-    // Calculate new RA and Dec pointing
-    var new_ra = (ra + parseFloat(radec_offset[0])) / 15;
-    var new_dec = dec + parseFloat(radec_offset[1]);
-
-    // Print new pointing
-    Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
-    ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
-    ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
-
-    // Check that new pointing is reasonable
-    if (isNaN(new_ra) || isNaN(new_dec)) {
-        Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
-        return;
-    } else if ((new_ra > 24 || new_ra < 0) || (new_dec > 90 || new_dec < -90)) {
-        Console.PrintLine("New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not reasonable. Ignoring new pointing and continuing with current pointing.");
-        return;
-    }
-
-    // Check that new pointing is safe
-    targetCt = Util.NewCThereAndNow();
-    targetCt.RightAscension = new_ra;
-    targetCt.Declination = new_dec;
-    if (targetCt.Elevation < elevationLimit) {
-        Console.PrintLine("Tried to move to an unsafe elevation of " + targetCt.Elevation.toFixed(4));
-        Console.PrintLine("Ignoring new pointing and continuing with current pointing.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing and continuing with current pointing.");
+    if (iterations >= max_iterations) {
+        Console.PrintLine("Reached maximum iterations without achieving tolerance.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Reached maximum iterations without achieving tolerance.");
     } else {
-        // Call gotoRADec() to slew to new pointing
-        gotoRADec(new_ra, new_dec);
+        // Safe to move to the new pointing if error is within tolerance
+        targetCt = Util.NewCThereAndNow();
+        targetCt.RightAscension = ra / 15; // Convert RA back to hours
+        targetCt.Declination = dec;
+        if (targetCt.Elevation < elevationLimit) {
+            Console.PrintLine("Tried to move to an unsafe elevation of " + targetCt.Elevation.toFixed(4));
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Ignoring new pointing due to unsafe elevation.");
+        } else {
+            gotoRADec(ra / 15, dec); // Move to the new pointing
+        }
     }
 }
+
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
