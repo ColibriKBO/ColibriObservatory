@@ -644,35 +644,24 @@ function gotoRADec(ra, dec)
 }
 
 //////////////////////////////////////////////////////////////
-// Function to adjust telescope pointing. Calls the astrometry_correction.py
-// subprocess multiple times to obtain a more accurate pointing position.
+// Function to adjust telescope pointing. Calls astrometry_correction.py
+// subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
 function adjustPointing(ra, dec) {
-    
-    ra = ra * 15; // Initially convert RA to decimal degrees for astrometry_correction.py
+    // Convert RA to decimal degrees
+    ra = ra * 15;
 
-    var tolerance = 15 / 3600; // 15 arcseconds in degrees set as the tolerance limit
-    var max_iterations = 5;   // Maximum number of iterations to avoid infinite loops
-    var iterations = 0; 
+    var tolerance = 10 / 3600; // 10 arcseconds in degrees
+    var max_iterations = 10;   // Maximum number of iterations to avoid infinite loops
+    var iterations = 0;
     var ra_offset = tolerance + 1; // Start with large initial offset
     var dec_offset = tolerance + 1;
-
-    // Variables to track the closest/best pointing position
-    var best_ra = ra;
-    var best_dec = dec;
-    var best_ra_offset = ra_offset;
-    var best_dec_offset = dec_offset;
 
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
 
-    // Conditions to rerun astrometry_correction to achieve a set tolerance on the RA and Dec pointing positions.
     while ((Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) && iterations < max_iterations) {
-        // Log the current iteration
-        Console.PrintLine("Pointing Correction Iteration: " + (iterations + 1));
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + (iterations + 1));
-
         // Call astrometry_correction.py to get pointing offset
         var SH = new ActiveXObject("WScript.Shell");
         var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
@@ -698,39 +687,31 @@ function adjustPointing(ra, dec) {
         ra += ra_offset;
         dec += dec_offset;
 
-        // Store the best RA/Dec if it’s the closest to target so far
-        if (Math.abs(ra_offset) < Math.abs(best_ra_offset) && Math.abs(dec_offset) < Math.abs(best_dec_offset)) {
-            best_ra = ra;
-            best_dec = dec;
-            best_ra_offset = ra_offset;
-            best_dec_offset = dec_offset;
-        }
-
-        // Convert RA back to hours for gotoRADec call
-        var new_ra_hours = ra / 15;
+        // Convert RA back to hours for display
+        var new_ra = ra / 15;
         var new_dec = dec;
 
         // Print the new pointing values
-        Console.PrintLine("New RA: " + new_ra_hours.toString() + " New Dec: " + new_dec.toString());
-        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra_hours.toString());
+        Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
         ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
         // Check that new RA and Dec are valid
-        if (isNaN(new_ra_hours) || isNaN(new_dec)) {
+        if (isNaN(new_ra) || isNaN(new_dec)) {
             Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
             ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
             return;
         }
 
-        if (new_ra_hours > 24 || new_ra_hours < 0 || new_dec > 90 || new_dec < -90) {
+        if (new_ra > 24 || new_ra < 0 || new_dec > 90 || new_dec < -90) {
             Console.PrintLine("New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
             ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
             return;
         }
 
         // Slew the telescope to the new RA and Dec
-        gotoRADec(new_ra_hours, new_dec);
-        Console.PrintLine("Slewing to declination " + new_dec.toString() + " and right ascension " + new_ra_hours.toString());
+        gotoRADec(new_ra, new_dec);
+        Console.PrintLine("Slewing to declination " + new_dec.toString() + " and right ascension " + new_ra.toString());
 
         // Wait for the telescope to complete slewing
         while (Telescope.Slewing) {
@@ -742,24 +723,16 @@ function adjustPointing(ra, dec) {
         iterations++;
     }
 
-    // Use the best RA/Dec found previously if tolerance was not achieved after max # of iterations
     if (iterations >= max_iterations) {
-        
-        Console.PrintLine("Max iterations reached without achieving tolerance. Using closest position.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Max iterations reached. Using closest position found.");
-
-        // Convert best RA back to hours for display and for gotoRADec
-        var fallback_ra_hours = best_ra / 15;
-        var fallback_dec = best_dec;
-
-        gotoRADec(fallback_ra_hours, fallback_dec);
-        Console.PrintLine("Slewing to closest declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
-    } 
-    else {
-        Console.PrintLine("Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
+        Console.PrintLine("Max iterations reached without achieving tolerance.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Max iterations reached without achieving tolerance.");
+    } else {
+        Console.PrintLine("Pointing correction achieved within tolerance.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance.");
     }
 }
+
+
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
