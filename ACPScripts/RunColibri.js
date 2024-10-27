@@ -18,12 +18,12 @@
 // Date      Who    Description
 // --------- ---    --------------------------------------------------
 // 15/04/20  mjm    Creation of script. Basic functions (trkOff, trkOn, domeOpen,
-//					domeClose, domeHome, getRADEC)
-// ???-???   rg 	Nautical twilight, field determination, moon offset
-//					Functions: gotoRADec, gotoAltAz, biasCollection
-// ??/??/??  mjm 	Running aa.exe and extracting output, add String.prototype.trim
+//                  domeClose, domeHome, getRADEC)
+// ???-???   rg     Nautical twilight, field determination, moon offset
+//                  Functions: gotoRADec, gotoAltAz, biasCollection
+// ??/??/??  mjm    Running aa.exe and extracting output, add String.prototype.trim
 // 02/04/21  mjm    Auto directory creation and file naming
-// 24/06/21  mjm 	Added abort() function
+// 24/06/21  mjm    Added abort() function
 // 14/07/21  mjm    Added new moon check
 // 09/11/21  mjm    Added code to grab biases every n minutes
 // 11/11/21  mjm    Cleaned up print statements and checked for proper field selection
@@ -34,7 +34,9 @@
 // 31/10/22 mjm     Added free space check
 
 var SUP;
-
+var ForReading = 1;
+var ForAppending = 8;
+var finalFields = [];
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -69,7 +71,7 @@ function abort(){
 
 function abortAndRestart(){
     Console.PrintLine("Aborting script!");
-    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting script! Restarting script!")
+    ts.WriteLine(Util.SysUTCDate + "ERROR: Aborting and restarting script!")
     shutDown();
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
@@ -94,6 +96,7 @@ function abortAndRestart(){
 
 function andRestart(){
     Console.PrintLine("Shutting down and restarting!");
+    ts.WriteLine("Shutting down and restarting!");
     shutDown();
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
@@ -126,29 +129,64 @@ function alert(){
     abort()
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//This function appends the ColibriGrab log file to the ACP log file and then deletes it afterwards
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile) {
+    try {
+        if (fso.FileExists(colibriLogFile)) {
+            var colibriLog = fso.OpenTextFile(colibriLogFile, ForReading, false);
+            
+            while (!colibriLog.AtEndOfStream) {
+                var logLine = colibriLog.ReadLine();
+                ts.WriteLine(Util.SysUTCDate + " " + logLine);
+            }
+
+            colibriLog.Close();
+
+            // Delete the ColibriGrab log file after appending its contents
+            fso.DeleteFile(colibriLogFile);
+            Console.PrintLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+        } else {
+            Console.PrintLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
+            ts.WriteLine(Util.SysUTCDate + " ERROR: ColibriGrab log file does not exist.");
+        }
+    } catch (e) {
+        Console.PrintLine(Util.SysUTCDate + " ERROR: " + e.message);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: " + e.message);
+    }
+}
+
 ////////////////////////////////////////////////////
 // Does the dirty work of collecting bias data.
 // RG
 // MJM - Added naming of directory to today's date
 ////////////////////////////////////////////////////
-function biasCollection(today) {
-    var tid;
+function biasCollection(today, LogFile) {
+    // Get the user's home directory and construct the path to ColibriGrab.exe in Github!
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
     // var today = getDate();
     // Console.Printline(today.toString());
 
     Console.PrintLine("Starting bias frame collection...");
-    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Bias");
+    Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\Bias");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias");
-    while (Util.IsTaskActive(tid))
-    {
-        Util.WaitForMilliseconds(500)
-        // Console.PrintLine("Collecting bias frames...")
-    }
+    
 
-    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
+    var wsh = new ActiveXObject("WScript.Shell");
+    var command = "\"" + colibriGrabPath + "\" -n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias";
+    Console.PrintLine('Executing command: ' + command);       
+    // Run ColibriGrab.exe
+
+    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
+
     Util.WaitForMilliseconds(100)
     Console.PrintLine("Finished collecting bias frames...");
+    // Append and delete ColibriGrab log to ACP log after collecting bias frames
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
 ////////////////////////////////////////////////////
@@ -156,24 +194,27 @@ function biasCollection(today) {
 // RG
 // MJM - Added naming of directory to today's date
 ////////////////////////////////////////////////////
-function darkCollection(today) {
-    var tid;
+function darkCollection(today, LogFile) {
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
     // var today = getDate();
     // Console.Printline(today.toString());
 
     Console.PrintLine("Starting dark frame collection...");
-    Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Dark");
+    Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\Dark");
 
-    tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
-    while (Util.IsTaskActive(tid))
-    {
-        Util.WaitForMilliseconds(500)
-        // Console.PrintLine("Collecting dark frames...")
-    }
 
-    // Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f");
+    var wsh = new ActiveXObject("WScript.Shell");
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+
+    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
+
+
     Util.WaitForMilliseconds(100)
     Console.PrintLine("Finished collecting dark frames...");
+    // Append and delete ColibriGrab log to ACP log after collecting bias frames
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
 }
 
 ///////////////////////////
@@ -193,7 +234,7 @@ function connectScope()
     else
     {
         Console.PrintLine("Telescope is not connected. Attempting to connect...")
-        Telescope.Connected = "True"
+        Telescope.Connected = true;
         trkOn()
         
         if (Telescope.Connected)
@@ -201,6 +242,7 @@ function connectScope()
             Console.PrintLine("Telescope is now connected!")
             trkOn()
         } 
+
         else
         {
             Console.PrintLine("Telescope is still not connected. There must be a problem. :-(")
@@ -294,8 +336,9 @@ function domeClose()
         return;
         break;
     }
-
-    // Check to see if the dome is closed or in error
+    ////////////////////////////////////////////////////
+    // Check to see if the dome is closed or in error //
+    ////////////////////////////////////////////////////
     if (Dome.Status != 1)
     {
         Console.PrintLine("Dome is not closed. Trying again...")
@@ -336,13 +379,16 @@ function domeHome()
 function domeOpen()
 {
     switch (Dome.ShutterStatus)
-    {
-        // Dome is open
+    {   //////////////////
+        // Dome is open //
+        //////////////////
         case 0:
         Console.PrintLine("--> Dome shutter is already open :-P");
         break;
 
-        // Dome is closed
+        ////////////////////
+        // Dome is closed //
+        ////////////////////
         case 1:
         Console.PrintLine("--> Dome shutter is closed.");
         Dome.OpenShutter();
@@ -362,6 +408,9 @@ function domeOpen()
             Console.PrintLine("--> Dome is NOT open.");
         break;
 
+        ////////////////////////
+        // Shutter is opening //
+        ////////////////////////
         case 2:
         while (Dome.ShutterStatus == 2)
         {
@@ -371,7 +420,9 @@ function domeOpen()
         Console.PrintLine("--> Dome shutter is opened...");
         break;
 
-        // Dome is closing. Let it close and then open it.
+        /////////////////////////////////////////////////////
+        // Dome is closing. Let it close and then open it. //
+        /////////////////////////////////////////////////////
         case 3:
         while (Dome.ShutterStatus ==3)
         {
@@ -390,13 +441,16 @@ function domeOpen()
         Console.PrintLine("--> Dome shutter is open...");
         break;
 
-        // Houston, we have a problem.
+        /////////////////////////////////
+        // Houston, we have a problem. //
+        /////////////////////////////////
         case 4:
         Console.PrintLine("There was a problem with the shutter control...")
         break;
     }
-
-    // Home the dome if not already done.
+    ////////////////////////////////////////
+    // Home the dome if not already done. //
+    ////////////////////////////////////////
     if (!Dome.AtHome)
     {
         Dome.FindHome();
@@ -436,64 +490,60 @@ function freeDiskSpace()
 //////////////////////////////
 function getDate()
 {
-	var d, s, month, day;
-	
-	d = new Date();
-	s = d.getUTCFullYear();
-	
-	month = (d.getUTCMonth()+1).toString()
-	day   = (d.getUTCDate()).toString()
+    
+    var d = new Date();
+    var s = d.getUTCFullYear();
+    var month = (d.getUTCMonth() + 1).toString();
+    var day   = (d.getUTCDate()).toString();
 
-	if (month.length == 1)
-	{
-		s += "0" + month;
-	}
-	else
-	{
-		s += month;
-	}
+    if (month.length == 1)
+    {
+        s += "0" + month;
+    }
+    else
+    {
+        s += month;
+    }
 
-	if (day.toString().length == 1)
-	{
-		s += "0" + day;
-	}
-	else
-	{
-		s += day;
-	}
-	return(s)
+    if (day.toString().length == 1)
+    {
+        s += "0" + day;
+    }
+    else
+    {
+        s += day;
+    }
+    return s;
 }
 
 function JDtoUTC(JulianDate)
 {
-	var s, month, day;
 
-	var millis = (JulianDate - 2440587.5) * 86400000
-	var toUTC = new Date(millis)
-	
-	s = toUTC.getUTCFullYear();
-	
-	month = (toUTC.getUTCMonth()+1).toString()
-	day   = (toUTC.getUTCDate()).toString()
+    var millis = (JulianDate - 2440587.5) * 86400000
+    var toUTC = new Date(millis)
+    
+    var s = toUTC.getUTCFullYear();
+    var month = (toUTC.getUTCMonth() + 1).toString()
+    var day   = (toUTC.getUTCDate()).toString()
 
-	if (month.length == 1)
-	{
-		s += "0" + month;
-	}
-	else
-	{
-		s += month;
-	}
+    if (month.length == 1)
+    {
+        s += "0" + month;
+    }
+    else
+    {
+        s += month;
+    }
 
-	if (day.toString().length == 1)
-	{
-		s += "0" + day;
-	}
-	else
-	{
-		s += day;
-	}
-	return(s)
+    if (day.toString().length == 1)
+    {
+        s += "0" + day;
+    }
+    else
+    {
+        s += day;
+    }
+    return s;
 }
 
 
@@ -503,7 +553,7 @@ function JDtoUTC(JulianDate)
 /////////////////////////////////////////////////////
 function getMoon()
 {
-	// finding moon elevation and azimuth
+    // finding moon elevation and azimuth
     Util.Console.PrintLine("== Moon Coordinates ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Moon Coordinates ==");
     var SH = new ActiveXObject("WScript.Shell");
@@ -528,7 +578,7 @@ function getMoon()
     ct.RightAscension = bits[0];
     ct.Declination = bits[1];
 
-    return ct
+    return ct;
 }
 
 function getRADEC()
@@ -540,13 +590,14 @@ function getRADEC()
         ras = SUP.J2000RA;
         des = SUP.J2000Dec;
     }
+
     else
     {
         ras = Telescope.RightAscension;
         des = Telescope.Declination;
     }
 
-    return {ra: ras, dec: des};
+    return { ra: ras, dec: des };
 }
 
 ///////////////////////////////////////////
@@ -558,7 +609,7 @@ function gotoAltAz(alt, az)
 
     breakme: if (ct.Elevation < elevationLimit)
     {
-        Console.PrintLine("Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
+        Console.PrintLine("Tried to move to an unsafe elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Tried to move to an unsave elevation of " + ct.Elevation.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " WARNING: Closing up shop!");
         shutDown();
@@ -587,15 +638,18 @@ function gotoAltAz(alt, az)
 ///////////////////////////////////////////
 function gotoRADec(ra, dec)
 {
-    Console.Printline("RA in gotoRADec function " + ra.toFixed(4));
-    Console.Printline("Dec in gotoRADec function " + dec);
+    Console.PrintLine("RA in gotoRADec function " + ra.toFixed(4));
+    ts.WriteLine("RA in gotoRADec " + ra.toFixed(4));
+    Console.PrintLine("Dec in gotoRADec function " + dec);
+    ts.WriteLine("Dec in gotoRADec function " + dec);
 
-    targetCt = Util.NewCThereAndNow()
+    targetCt = Util.NewCThereAndNow();
     targetCt.RightAscension = ra
     targetCt.Declination = dec
 
     // Print target elevation to screen
-    Console.Printline("Elevation of field " + targetCt.Elevation.toFixed(4));
+    Console.PrintLine("Elevation of field " + targetCt.Elevation.toFixed(4));
+    ts.WriteLine("Elevation of field " + targetCt.Elevation.toFixed(4));
 
     breakme: if (targetCt.Elevation < elevationLimit)
     {
@@ -609,7 +663,7 @@ function gotoRADec(ra, dec)
 
     if (Telescope.tracking)
     {   
-        Console.Printline("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
+        Console.PrintLine("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
         ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
 
         // Need to put a check in for 'incomplete' coordinates. Not sure what this means as it doesn't
@@ -640,6 +694,7 @@ function gotoRADec(ra, dec)
         }
         
         Console.PrintLine("Done slewing.");
+        ts.WriteLine("Finished slewing.")
     }
 }
 
@@ -648,9 +703,9 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
+// Function to adjust telescope pointing
 function adjustPointing(ra, dec) {
-    // Convert RA to decimal degrees
-    ra = ra * 15;
+    ra = ra * 15; // Convert RA to degrees from hours
 
     var tolerance = 10 / 3600; // 10 arcseconds in degrees
     var max_iterations = 10;   // Maximum number of iterations to avoid infinite loops
@@ -659,27 +714,56 @@ function adjustPointing(ra, dec) {
     var dec_offset = tolerance + 1;
 
     Console.PrintLine("== Pointing Correction ==");
-    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    Console.PrintLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
 
     while ((Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) && iterations < max_iterations) {
         // Call astrometry_correction.py to get pointing offset
+        Console.PrintLine("Iteration: " + (iterations + 1) + ", Passing RA: " + ra + " degrees, Dec: " + dec + " degrees to astrometry_correction.py");
+
         var SH = new ActiveXObject("WScript.Shell");
         var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
         var python_output = "";
+        var python_error = "";
 
-        // Capture the output from astrometry_correction.py
-        while (BS.Status != 1) {
+        var start = new Date().getTime();
+        var timeout = 300000; // 5 minutes in milliseconds
+
+        // Capture Python output and error
+        while (BS.Status == 0) {
             while (!BS.StdOut.AtEndOfStream) {
                 python_output += BS.StdOut.Read(1);
             }
+            while (!BS.StdErr.AtEndOfStream) {
+                python_error += BS.StdErr.Read(1);
+            }
             Util.WaitForMilliseconds(100);
+
+            // Check for timeout
+            var currentTime = new Date().getTime();
+            if (currentTime - start > timeout) {
+                Console.PrintLine("Python script timed out.");
+                Console.PrintLine(Util.SysUTCDate + " ERROR: Python script timed out.");
+                BS.Terminate();
+                return;
+            }
+        }
+
+        // Log full Python output and check for errors
+        Console.PrintLine("Full Python output: " + python_output);
+        if (python_error) {
+            Console.PrintLine("Python script error output: " + python_error);
+            return;
         }
 
         // Parse output from astrometry_correction.py
         var py_lines = python_output.split("\n");
-        var radec_offset = py_lines[py_lines.length - 2].split(" ");
+        if (py_lines.length < 2) {
+            Console.PrintLine("Invalid Python output. No RA/Dec offsets returned.");
+            return;
+        }
 
-        // Calculate RA and Dec offsets
+        // Extract the RA/Dec offset from the last line of output
+        var radec_offset = py_lines[py_lines.length - 2].split(" ");
         ra_offset = parseFloat(radec_offset[0]);
         dec_offset = parseFloat(radec_offset[1]);
 
@@ -687,36 +771,18 @@ function adjustPointing(ra, dec) {
         ra += ra_offset;
         dec += dec_offset;
 
-        // Convert RA back to hours for display
-        var new_ra = ra / 15;
-        var new_dec = dec;
+        // Convert RA back to hours for output
+        var corrected_ra = ra / 15;
+        Console.PrintLine("New RA: " + corrected_ra.toString() + ", New Dec: " + dec.toString());
+        Console.PrintLine("RA Offset: " + ra_offset.toFixed(6) + ", Dec Offset: " + dec_offset.toFixed(6));
 
-        // Print the new pointing values
-        Console.PrintLine("New RA: " + new_ra.toString() + " New Dec: " + new_dec.toString());
-        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra.toString());
-        ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
-
-        // Check that new RA and Dec are valid
-        if (isNaN(new_ra) || isNaN(new_dec)) {
-            Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+        // Check if new RA/Dec is valid
+        if (isNaN(ra) || isNaN(dec)) {
+            Console.PrintLine("New pointing is invalid. Ignoring new pointing and continuing with current pointing.");
             return;
-        }
-
-        if (new_ra > 24 || new_ra < 0 || new_dec > 90 || new_dec < -90) {
+        } else if ((corrected_ra > 24 || corrected_ra < 0) || (dec > 90 || dec < -90)) {
             Console.PrintLine("New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
             return;
-        }
-
-        // Slew the telescope to the new RA and Dec
-        gotoRADec(new_ra, new_dec);
-        Console.PrintLine("Slewing to declination " + new_dec.toString() + " and right ascension " + new_ra.toString());
-
-        // Wait for the telescope to complete slewing
-        while (Telescope.Slewing) {
-            Console.PrintLine("Waiting for telescope to complete slewing...");
-            Util.WaitForMilliseconds(500);
         }
 
         // Increment iteration counter
@@ -725,13 +791,20 @@ function adjustPointing(ra, dec) {
 
     if (iterations >= max_iterations) {
         Console.PrintLine("Max iterations reached without achieving tolerance.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Max iterations reached without achieving tolerance.");
     } else {
-        Console.PrintLine("Pointing correction achieved within tolerance.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance.");
+        // Safe to move to new pointing if within tolerance
+        var targetCt = Util.NewCThereAndNow();
+        targetCt.RightAscension = ra / 15; // Convert RA back to hours
+        targetCt.Declination = dec;
+
+        // Check elevation before moving
+        if (targetCt.Elevation < elevationLimit) {
+            Console.PrintLine("Unsafe elevation: " + targetCt.Elevation.toFixed(4) + ". Ignoring new pointing.");
+        } else {
+            gotoRADec(targetCt.RightAscension, targetCt.Declination); // Move to new RA/Dec
+        }
     }
 }
-
 
 
 ///////////////////////////////////////////////////////////////
@@ -796,20 +869,24 @@ function trkOn()
 /////////////////////////////////////////////////////
 function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and start (sunset) times as JD
 {
-	lat = Telescope.SiteLatitude
-	lon = Telescope.SiteLongitude
-	n = Math.floor(jDate - 2451545.0 + 0.0008)
-	Jstar = n - (lon/360.0)
-	M = (357.5291 + 0.98560028 * Jstar) % 360
-	C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M))
-	lam = (M + C + 180 + 102.9372) % 360
-	Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam))
-	sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44))
-	cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)))
-	Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360
-	Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360
+    lat = Telescope.SiteLatitude;
+    lon = Telescope.SiteLongitude;
 
-	return [Jrise, Jset]
+    n = Math.floor(jDate - 2451545.0 + 0.0008);
+    Jstar = n - (lon / 360.0);
+    M = (357.5291 + 0.98560028 * Jstar) % 360;
+    C = 1.9148 * Math.sin(Util.Degrees_Radians(M)) + 0.02 * Math.sin(2 * Util.Degrees_Radians(M)) + 0.0003 * Math.sin(3 * Util.Degrees_Radians(M));
+    lam = (M + C + 180 + 102.9372) % 360;
+    Jtransit = 2451545.0 + Jstar + 0.0053 * Math.sin(Util.Degrees_Radians(M)) - 0.0069 * Math.sin(2 * Util.Degrees_Radians(lam));
+
+    sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
+
+    cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat)) * sindec)) / (Math.cos(Util.Degrees_Radians(lat)) * Math.cos(Math.asin(sindec)));
+
+    Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
+    Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
+
+    return [Jrise, Jset];
 }
 
 ////////////////////////////////////////
@@ -818,27 +895,26 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 ////////////////////////////////////////
 function waitUntilSunset(updatetime)
 {
-	var currentJD = Util.SysJulianDate
-	while (currentJD < sunset)
-	{
-		Console.Clear()
-		if (currentJD > sunrise && currentJD < sunset)
-		{
-			Console.PrintLine("Sun is up")
-			Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"))
-			Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"))
-			Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.")
-			Util.WaitForMilliseconds(updatetime)
-			currentJD = Util.SysJulianDate
-		}
-	}
+    var currentJD = Util.SysJulianDate
+    while (currentJD < sunset)
+    {
+        Console.Clear()
+        if (currentJD > sunrise && currentJD < sunset)
+        {
+            Console.PrintLine("Sun is up");
+            Console.PrintLine("It has been up for " + Util.Hours_HMS((currentJD - sunrise)*24,"h ","m ","s"));
+            Console.PrintLine("It will set in " + Util.Hours_HMS(-1*(currentJD - sunset)*24,"h ","m ","s"));
+            Console.PrintLine("Waiting " + -1*(currentJD - sunset)*24 + " hours to start operations.");
+            Util.WaitForMilliseconds(updatetime);
+            currentJD = Util.SysJulianDate;
+        }
+    }
 }
 
 function sortFields(fieldtosort)
 {
     // Sort available fields based on # of stars fieldInfo[i][10] 
-    sortedFields = []
-    sortedFields = fieldtosort.sort(function(a,b) {return b[10] - a[10]})
+    sortedFields = fieldtosort.sort(function(a,b) {return b[10] - a[10]});
 
     // Console.PrintLine(" ")
     // Console.PrintLine("=== Sorted Fields ===")
@@ -850,159 +926,161 @@ function sortFields(fieldtosort)
     // }
     // Console.PrintLine(" ")
 
-    return sortedFields
+    return sortedFields;
 }
 
 function whichField(timeJD)
 {
-    nextField = 0
+    nextField = 0;
     // Console.PrintLine(finalFields)
     // currField = 0
     // targetDur = finalFields[0][12]-time
-    Console.PrintLine("Called whichField function...")
-    Console.PrintLine("Number of fields in finalFields: " + finalFields.length)
+    Console.PrintLine("Called whichField function...");
+    Console.PrintLine("Number of fields in finalFields: " + finalFields.length);
     
     // Ensure observations take place during the dark
     if (timeJD < sunset)
     {
-        Console.PrintLine("\r\n  Earlier than first observation time.")
-        Console.PrintLine("************************************")
-        targetJD = finalFields[0][12]
+        Console.PrintLine("\r\n  Earlier than first observation time.");
+        Console.PrintLine("************************************");
+        targetJD = finalFields[0][12];
         // In this case, targetDur is the time to wait as a negative number
-        targetDur = timeJD - finalFields[0][12]
-        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-        targetRA  = finalFields[0][2][0]
-        targetDec = finalFields[0][2][1]
+        targetDur = timeJD - finalFields[0][12];
+        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures);
+        targetRA  = finalFields[0][2][0];
+        targetDec = finalFields[0][2][1];
 
-        Console.PrintLine("\r\nThe JD start time is " + targetJD.toFixed(4))
-        Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.")
-        Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.")
+        Console.PrintLine("\r\nThe JD start time is " + targetJD.toFixed(4));
+        Console.PrintLine("We'll run for " + targetLoops + " loops of " + numExposures + " exposures.");
+        Console.PrintLine("Which means that we're on target for " + targetDur.toFixed(3) + " hours.");
 
         // Console.PrintLine(time)
         // Console.PrintLine(finalFields[finalFields.length-2][12])
         // Console.PrintLine(finalFields[finalFields.length-1][12])
 
-        currField = -1
-        nextField = 0
-        fieldName = "TooEarly"
+        currField = -1;
+        nextField = 0;
+        fieldName = "TooEarly";
         
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
     }
     else if (timeJD > sunrise)
     {
         // Console.PrintLine(time)
         // Console.PrintLine(finalFields[finalFields.length-1][12])
-        Console.PrintLine("After last time.")
-        targetJD  = 999 //TODO: This is a hack. Need to fix this to work with JD.
-        targetDur = 999
-        targetLoops = 0
-        currField = 999
-        nextField = 999
+        Console.PrintLine("After last time.");
+        targetJD  = 999; //TODO: This is a hack. Need to fix this to work with JD.
+        targetDur = 999;
+        targetLoops = 0;
+        currField = 999;
+        nextField = 999;
         // Given Polaris to target by default to be safe
-        targetRA  = 37.75
-        targetDec = 89.15
-        fieldName = "TooLate"
+        targetRA  = 37.75;
+        targetDec = 89.15;
+        fieldName = "TooLate";
 
-        ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
-        Telescope.Park()
-        trkOff()
-        domeClose()
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+        ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.");
+        Telescope.Park();
+        trkOff();
+        domeClose();
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
     }
 
 
     if (finalFields.length == 1)
     {
-        Console.PrintLine("Only one field to observe!")
-        ts.WriteLine(Util.SysUTCDate + " INFO: (whichField) Only one field to observe!")
+        Console.PrintLine("Only one field to observe!");
+        ts.WriteLine(Util.SysUTCDate + " INFO: (whichField) Only one field to observe!");
         
-        targetJD  = sunrise
-        targetDur = sunrise - timeJD
-        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-        currField = 0
-        nextField = -999
+        targetJD  = sunrise;
+        targetDur = sunrise - timeJD;
+        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures);
+        currField = 0;
+        nextField = -999;
 
-        targetRA = finalFields[0][2][0]
-        targetDec = finalFields[0][2][1]
-        fieldName = finalFields[0][3].toString()
+        targetRA = finalFields[0][2][0];
+        targetDec = finalFields[0][2][1];
+        fieldName = finalFields[0][3].toString();
 
-        Console.PrintLine("target JD: " + targetJD)
-        Console.PrintLine("Number of loops: " + targetLoops)
-        Console.PrintLine("Target duration: " + targetDur)
-        Console.PrintLine("finalFields: " + finalFields[0][12])
+        Console.PrintLine("target JD: " + targetJD);
+        Console.PrintLine("Number of loops: " + targetLoops);
+        Console.PrintLine("Target duration: " + targetDur);
+        Console.PrintLine("finalFields: " + finalFields[0][12]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName);
 
 
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
     }
 
 
     // Scan the finalFields list to identify the current field
-    for (i=0; i<finalFields.length-1; i++)
+    for (i = 0; i < finalFields.length - 1; i++)
     {
-        if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i+1][12]))
+        if ((timeJD > finalFields[i][12]) && (timeJD < finalFields[i + 1][12]))
         {
-            targetJD  = finalFields[i+1][12]
-            targetDur = finalFields[i+1][12] - timeJD
-            targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-            currField = i
-            nextField = i + 1
-            targetRA = finalFields[i][2][0]
-            targetDec =finalFields[i][2][1]
-            fieldName = finalFields[i][3].toString()
+            targetJD  = finalFields[i + 1][12];
+            targetDur = finalFields[i + 1][12] - timeJD;
+            targetLoops = Math.ceil(targetDur * 86400 / 0.025 / numExposures);
+            currField = i;
+            nextField = i + 1;
+            targetRA = finalFields[i][2][0];
+            targetDec =finalFields[i][2][1];
+            fieldName = finalFields[i][3].toString();
 
-            //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
-            //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
-
-            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+            return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
         }
     }
     // Check final entry in finalFields list
-    if ((timeJD > finalFields[finalFields.length-1][12]) && (timeJD < sunrise))
+    if ((timeJD > finalFields[finalFields.length - 1][12]) && (timeJD < sunrise))
     {
-        Console.PrintLine("At last field")
-        ts.WriteLine(Util.SysUTCDate + " INFO: At last field")
+        Console.PrintLine("At last field");
+        ts.WriteLine(Util.SysUTCDate + " INFO: At last field");
 
-        targetJD  = sunrise
-        targetDur = sunrise - timeJD
-        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures)
-        currField = finalFields.length-1
-        nextField = 999
-        targetRA = finalFields[finalFields.length-1][2][0]
-        targetDec = finalFields[finalFields.length-1][2][1]
-        fieldName = finalFields[finalFields.length-1][3].toString()
+        targetJD  = sunrise;
+        targetDur = sunrise - timeJD;
+        targetLoops = Math.ceil(targetDur*86400 / 0.025 / numExposures);
+        currField = finalFields.length - 1;
+        nextField = 999;
+        targetRA = finalFields[finalFields.length - 1][2][0];
+        targetDec = finalFields[finalFields.length - 1][2][1];
+        fieldName = finalFields[finalFields.length - 1][3].toString();
 
 
         //ts.WriteLine(Util.SysUTCDate + " INFO: Target JD = " + targetJD + " Target Dur. = " + targetDur + " Target Loops: " + targetLoops + " Field Name: " + fieldName)
         //Console.PrintLine(fieldName + " Target JD = " + targetJD + " w/ a duration = " + targetDur + " for " + targetLoops + " loops ")
 
-        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+        return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
     }
 
 
     // Default if no valid fields are found (for any reason)
     // Given Polaris to target by default to be safe
-    Console.PrintLine("No valid fields")
-    ts.WriteLine(Util.SysUTCDate + " INFO: No valid fields")
-    targetJD  = 999 //TODO: This is a hack. Need to fix this to work with JD.
-    targetDur = 999
-    targetLoops = 0
-    currField = 999
-    nextField = 999
-    targetRA  = 37.75
-    targetDec = 89.15
-    fieldName = "NoFields"
+    Console.PrintLine("No valid fields");
+    ts.WriteLine(Util.SysUTCDate + " INFO: No valid fields");
+    targetJD  = 999; //TODO: This is a hack. Need to fix this to work with JD.
+    targetDur = 999;
+    targetLoops = 0;
+    currField = 999;
+    nextField = 999;
+    targetRA  = 37.75;
+    targetDec = 89.15;
+    fieldName = "NoFields";
 
-    ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.")
-    Telescope.Park()
-    trkOff()
-    domeClose()
-    return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
+    ts.WriteLine(Util.SysUTCDate + " WARNING: After last time. Closing up shop.");
+    Telescope.Park();
+    trkOff();
+    domeClose();
+    return [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD];
     
 }
 
+
+
+
 ///////////////////////////////////////////////////////////////////////////////////
 //
-// EEEE N   N DDD	   OO  FFFF   FFFF U   U N   N  CC  TTTTT I  OO  N   N  SSS
+// EEEE N   N DDD      OO  FFFF   FFFF U   U N   N  CC  TTTTT I  OO  N   N  SSS
 // E    NN  N D  D    O  O F      F    U   U NN  N C  C   T   I O  O NN  N S
 // EEE  N N N D   D   O  O FFF    FFF  U   U N N N C      T   I O  O N N N  SS
 // E    N  NN D  D    O  O F      F    U   U N  NN C  C   T   I O  O N  NN    S
@@ -1031,7 +1109,7 @@ var timestep = 1.0; // time between fields in hours
 var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
-var darkInterval = 15 // Number of minutes between dark series collection
+var darkInterval = 15; // Number of minutes between dark series collection
 
 
 // Iterables
@@ -1114,7 +1192,7 @@ if (logconsole == true)
     Console.Logging = true;
 }
 
-sunset  = twilightTimes(Util.SysJulianDate)[1]
+sunset  = twilightTimes(Util.SysJulianDate)[1];
 LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 fso = new ActiveXObject("Scripting.FileSystemObject");
 
@@ -1143,39 +1221,36 @@ function main()
     // Get times of sunrise and sunset
     // twilightTimes: [0] - JD of sunrise, [1] - JD of sunset
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
-    sunset  = twilightTimes(Util.SysJulianDate)[1]
-    sunrise = twilightTimes(Util.SysJulianDate + 1)[0]
-    sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude/15).toFixed(1)
-    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude/15).toFixed(1)
+    sunset  = twilightTimes(Util.SysJulianDate)[1];
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
+    sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude / 15).toFixed(1);
+    sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude / 15).toFixed(1);
 
     // Length of night
-    darkHours = (sunrise - sunset)*24
-    timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
-    timeUntilSunrise = (sunrise - Util.SysJulianDate)*24 // hours
+    var darkHours = (sunrise - sunset) * 24;
+    var timeUntilSunset = (sunset - Util.SysJulianDate) * 24; // hours
+    var timeUntilSunrise = (sunrise - Util.SysJulianDate) * 24; // hours
 
     // Dark hours left
-    if (darkHours > timeUntilSunrise)
-        {darkHoursLeft = timeUntilSunrise}
-    else
-        {darkHoursLeft = darkHours}
+    var darkHoursLeft = Math.min(darkHours, timeUntilSunrise);
 
     // Print today's time of nautical sunrise and sunset.
-    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise))
-    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset))
-    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate))
-    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise))
-    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset))
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset))
-    Console.PrintLine("Sunset JD: " + sunset)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset)
-    Console.PrintLine("Sunrise JD: " + sunrise)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise)
-    Console.PrintLine("Current JD: " + Util.SysJulianDate)
-    ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate)
+    Console.PrintLine("Sunrise GMST: " + Util.Julian_GMST(sunrise));
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise GMST: " + Util.Julian_GMST(sunrise));
+    Console.PrintLine("Sunset GMST: " + Util.Julian_GMST(sunset));
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset GMST: " + Util.Julian_GMST(sunset));
+    Console.PrintLine("Current GMST: " + Util.Julian_GMST(Util.SysJulianDate));
+    ts.WriteLine(Util.SysUTCDate + " INFO: Current GMST: " + Util.Julian_GMST(Util.SysJulianDate));
+    Console.PrintLine("Sunrise UTC: " + Util.Julian_Date(sunrise));
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise UTC: " + Util.Julian_Date(sunrise));
+    Console.PrintLine("Sunset UTC: " + Util.Julian_Date(sunset));
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset UTC: " + Util.Julian_Date(sunset));
+    Console.PrintLine("Sunset JD: " + sunset);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunset JD: " + sunset);
+    Console.PrintLine("Sunrise JD: " + sunrise);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Sunrise JD: " + sunrise);
+    Console.PrintLine("Current JD: " + Util.SysJulianDate);
+    ts.WriteLine(Util.SysUTCDate + " INFO: Current JD: " + Util.SysJulianDate);
 
     /* LST transformations
     Console.PrintLine("Sunset LST: " + sunsetLST)
@@ -1186,75 +1261,75 @@ function main()
     ts.WriteLine(Util.SysUTCDate + " INFO: Current LST: " + Util.NowLST())
     */
     
-    Console.PrintLine("Length of the Night: " + darkHours + "hours")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours")
-    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours")
-    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours")
+    Console.PrintLine("Length of the Night: " + darkHours + "hours");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Length of the Night: " + darkHours + " hours");
+    Console.PrintLine("Time until sunset: " + timeUntilSunset + " hours");
+    Console.PrintLine("Time until sunrise: " + timeUntilSunrise + " hours");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dark hours left: " + darkHoursLeft + " hours");
 
 
 /*-----------------------------Prestart Checks-------------------------------*/
 
     // Check if there is enough space for this to run
-    spaceneeded = darkHoursLeft*3600*40*12600000/1000000000000
-    freespace = freeDiskSpace()
+    var spaceneeded = darkHoursLeft * 3600 * 40 * 12600000 / 1000000000000;
+    var freespace = freeDiskSpace();
     if (freespace > spaceneeded)
     {
-        Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.")
-        Console.PrintLine("And we have " + freespace + " TB of free space available.")
-        Console.PrintLine("So, we're good to go!")
+        Console.PrintLine("We need " + spaceneeded + " TB of space to run tonight.");
+        Console.PrintLine("And we have " + freespace + " TB of free space available.");
+        Console.PrintLine("So, we're good to go!");
     }
     else
     {
         if (Util.Confirm("You need to free up " + (spaceneeded - freespace) + " TB of space. If you run out of space while this script is running, RunColibri will crash when d: is full. This will potentially damage the telescope! Do you want to continue anyway?"))
         {
-            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.")
+            ts.WriteLine(Util.SysUTCDate + " WARNING: You chose to continue operations without enough disk space. RunColibri will likely crash when you run out of space on d:.");
         }
         else
         {
-            abort()
+            abort();
         }
 
     }
 
-	// Check to see if the weather server is connected. If it isn't ask for
-	// permission to continue.
-	if (Weather.Available)
-	{
-		Console.PrintLine("Weather server is connected. Continuing with operations.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Weather server is connected. Continuing with operations.");
-		Util.WaitForMilliseconds(3000);
-	}
-	else
-	{
-		if (Util.Confirm("No weather server! Do you want to continue? Choose wisely..."))
-		{
-			Console.PrintLine("Ok, you've chosen to proceed with no weather server. 8-O")
-            ts.WriteLine(Util.SysUTCDate + " WARNING: No weather server. You've chosen to proceed without. 8-O")
-            ignoreWeather = true
-			Util.WaitForMilliseconds(3000)
-		}
-		else
-			abort()
-	}
-
-	// If the weather server is connected and the weather is not safe, wait
-	// until it becomes safe.
-    if (Weather.Available && !Weather.safe)
+    // Check to see if the weather server is connected. If it isn't ask for
+    // permission to continue.
+    if (Weather.Available)
     {
-        ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.")
+        Console.PrintLine("Weather server is connected. Continuing with operations.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Weather server is connected. Continuing with operations.");
+        Util.WaitForMilliseconds(3000);
+    }
+    else
+    {
+        if (Util.Confirm("No weather server! Do you want to continue? Choose wisely..."))
+        {
+            Console.PrintLine("Ok, you've chosen to proceed with no weather server. 8-O");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: No weather server. You've chosen to proceed without. 8-O");
+            ignoreWeather = true;
+            Util.WaitForMilliseconds(3000);
+        }
+        else
+            abort();
     }
 
-	while (Weather.Available && !Weather.safe)
-	{
+    // If the weather server is connected and the weather is not safe, wait
+    // until it becomes safe.
+    if (Weather.Available && !Weather.safe)
+    {
+        ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
+    }
+
+    while (Weather.Available && !Weather.safe)
+    {
         if (getDate() != currentDate)
         {
-            currentDate = getDate()
-            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
+            currentDate = getDate();
+            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 
             if (fso.FileExists(LogFile))
             {
-                Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
+                Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");;
             }
             else
             {
@@ -1272,16 +1347,16 @@ function main()
             // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
             // Console.Logging = true
         }
-		Console.PrintLine("Unsafe weather conditions. Waiting for 5 minutes.")
-		// abort()
-        Util.WaitForMilliseconds(300000)
-	}
+        Console.PrintLine("Unsafe weather conditions. Waiting for 5 minutes.");
+        // abort()
+        Util.WaitForMilliseconds(300000);
+    }
 
     // Update currentDate variable to be correct
     if (getDate() != currentDate)
     {
-        currentDate = getDate()
-        LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log"
+        currentDate = getDate();
+        LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
 
         if (fso.FileExists(LogFile))
         {
@@ -1293,7 +1368,8 @@ function main()
         }
 
         f1 = fso.GetFile(LogFile);
-        if (fso.FileExists(LogFile)){
+        if (fso.FileExists(LogFile))
+        {
             Console.PrintLine("Log file exists. Appending to existing log file.");
 
         }
@@ -1307,63 +1383,65 @@ function main()
     // Wait until sunset to begin operation
     while (timeUntilSunset > 0)
     {
-        Console.PrintLine("")
-        Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.")
+        Console.PrintLine("");
+        Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*24*3600).toFixed(0) + " seconds.");
         
-        Util.WaitForMilliseconds(5000)
-        timeUntilSunset = (sunset - Util.SysJulianDate)*24 // hours
+        Util.WaitForMilliseconds(5000);
+        timeUntilSunset = (sunset - Util.SysJulianDate) * 24; // hours
     }
     
     // Ready to go. Print alert that we will start observations now.
-    Console.PrintLine("")
-    Console.PrintLine("It is after sunset... Creating observation plan now.")
+    Console.PrintLine("");
+    Console.PrintLine("It is after sunset... Creating observation plan now.");
 
 
 /*-----------------------------Observing Plan--------------------------------*/
 
 
-	// Create directory for tonight's data and collect dark frames
-	if (firstRun = true)
+    // Create directory for tonight's data and collect dark frames
+    if (firstRun == true)
     {
         var today = JDtoUTC(sunset); // Today's UTC date to be used to define data directory
-        // Console.Logging = false
-        // Console.Logfile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log"
-        // Console.Logging = true
-        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark")
-        Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString())
-        ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString())
-        //Console.PrintLine("Collecting dark frames...")
-        firstRun = false
+
+        Util.ShellExec("cmd.exe", "/c mkdir -p d:\\ColibriData\\" + today.toString() + "\\Dark");
+
+        Console.PrintLine("Created today's data directory at d:\\ColibriData\\" + today.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: Created today's data directory at d:\\ColibriData\\" + today.toString());
+        
+
+        firstRun = false;
     }
 
     // Calculate field-moon angle for each field.
-    moonAngles = []
-    moonct = getMoon()
-    for (i=0; i<fieldInfo.length; i++)
+    var moonAngles = [];
+    var moonct = getMoon();
+    for (i = 0; i < fieldInfo.length; i++)
     {
-        b = (90-fieldInfo[i][2][1])*Math.PI/180
-        c = (90-moonct.Declination)*Math.PI/180
-        aa = Math.abs(fieldInfo[i][2][0]-moonct.RightAscension)*Math.PI/180
-        moonAngle = Math.acos((Math.cos(b)*Math.cos(c)) + (Math.sin(b)*Math.sin(c)*Math.cos(aa)))*180/Math.PI
-        moonAngles.push(moonAngle)
-        fieldInfo[i][4] = moonAngle
+        var b = (90 - fieldInfo[i][2][1]) * Math.PI / 180;
+        var c = (90 - moonct.Declination) * Math.PI / 180;
+
+        var aa = Math.abs(fieldInfo[i][2][0] - moonct.RightAscension) * Math.PI / 180;
+
+        var moonAngle = Math.acos((Math.cos(b) * Math.cos(c)) + (Math.sin(b) * Math.sin(c) * Math.cos(aa))) * 180 / Math.PI;
+        moonAngles.push(moonAngle);
+        fieldInfo[i][4] = moonAngle;
     }
 
-    fieldsToObserve = [] // Array containing best field info in 6 minute increments
+    var fieldsToObserve = []; // Array containing best field info in 6 minute increments
 
     // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
     // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], start JD [12]
     
     // n is the number of samples in one observing block (length = timestep)
     // that will be computed.
-    n = Math.round(darkHours.toFixed(2)/timestep)
-    Console.PrintLine("# of samples tonight: " + n)
+    var n = Math.round(darkHours.toFixed(2) / timestep);
+    Console.PrintLine("# of samples tonight: " + n);
 
 
     // Calcuate the local coordinates of each field at each timestep and the
     // number of visible stars in each field when accounting for extinction
-    prevField = ""
-    for (k=0; k<n; k++)
+    var prevField = "";
+    for (k = 0; k < n; k++)
     {
         // Assume that the moon angle is constant throughout the night
         // In reality, it will move about 0.5 deg per hour
@@ -1371,29 +1449,29 @@ function main()
         // fix this later
 
         // Create a new coordinate transform at intervals of timestep
-        newLST = parseFloat(sunsetLST) + k*timestep
-        newJD  = sunset + k*timestep/24
-        ct = Util.NewCT(Telescope.SiteLatitude, newLST)
+        var newLST = parseFloat(sunsetLST) + k * timestep;
+        var newJD  = sunset + k * timestep / 24;
+        var ct = Util.NewCT(Telescope.SiteLatitude, newLST);
 
         // Start a loop to calculate approximate number of stars in fields
-        for (j=0; j < fieldInfo.length; j++)
+        for (j = 0; j < fieldInfo.length; j++)
         {
             // Set RA and DEC to field 'j' coordinates  
             ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
-            ct.Declination = parseFloat(fieldInfo[j][2][1]);; // in degrees
+            ct.Declination = parseFloat(fieldInfo[j][2][1]); // in degrees
 
             // Field coordinate definitions
-            lat = ct.Latitude
-            alt = ct.Elevation
-            LST = ct.SiderealTime
-            HA = LST - ct.RightAscension
+            var lat = ct.Latitude;
+            var alt = ct.Elevation;
+            var LST = ct.SiderealTime;
+            var HA = LST - ct.RightAscension;
             
 
             // Set fieldInfo fields for spatial/temporal fields
-            fieldInfo[j][0] = ct.Elevation
-            fieldInfo[j][1] = ct.Azimuth
-            fieldInfo[j][5] = HA
-            fieldInfo[j][12] = newJD
+            fieldInfo[j][0] = ct.Elevation;
+            fieldInfo[j][1] = ct.Azimuth;
+            fieldInfo[j][5] = HA;
+            fieldInfo[j][12] = newJD;
 
             // Calculate approx. # of stars in field using airmass/extinction
             // Know limiting magnitude at zenith (say 12 in 25 ms)
@@ -1402,13 +1480,13 @@ function main()
             // With this new magnitude calculate approx. # of stars
 
             // Calculate airmass and extinction
-            airmass = 1 / Math.cos((90-alt)*Math.PI/180)
-            fieldInfo[j][6] = airmass
-            extinction = (airmass-1) * extScale
+            var airmass = 1 / Math.cos((90 - alt) * Math.PI / 180);
+            fieldInfo[j][6] = airmass;
+            var extinction = (airmass - 1) * extScale;
 
             // Calculate the true number of visible stars, accounting for extinction
-            numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9]*(magnitudeLimit-extinction)))
-            fieldInfo[j][10] = numVisibleStars
+            var numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9] * (magnitudeLimit - extinction)));
+            fieldInfo[j][10] = numVisibleStars;
             // Console.PrintLine("Airmass: " + airmass)
             // Console.PrintLine("Number of visible M" + (magnitudeLimit-extinction).toPrecision(3) + " stars: " + numVisibleStars)
 
@@ -1416,13 +1494,13 @@ function main()
 
         // Create goodFields array to hold fields that are above the horizon
         // and far enough from the moon
-        goodFields = []
+        var goodFields = [];
 
-        for (j=0; j < fieldInfo.length; j++)
+        for (j = 0; j < fieldInfo.length; j++)
         {
             if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset)
             {
-                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]])
+                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]]);
             }
         }
 
@@ -1432,21 +1510,22 @@ function main()
         // Require that any new field be better than the old field by at least
         // minDiff. Otherwise, continue observing the old field.
         // TODO: make this if/else more clever
-        sortFields(goodFields)
+        sortFields(goodFields);
         if (sortedFields.length == 1)
         {
             fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
-            prevField = sortedFields[0][3]
+            prevField = sortedFields[0][3];
         }
-        else if (sortedFields[0][3] != prevField && sortedFields[1][3] == prevField && sortedFields[0][10] - sortedFields[1][10] < minDiff)
+        else if ((sortedFields[0][3] != prevField) && (sortedFields[1][3] == prevField) && (sortedFields[0][10] - sortedFields[1][10] < minDiff))
         {
             fieldsToObserve.push([sortedFields[1][0],sortedFields[1][1],sortedFields[1][2],sortedFields[1][3],sortedFields[1][4],sortedFields[1][5],sortedFields[1][6],sortedFields[1][7],sortedFields[1][8],sortedFields[1][9],sortedFields[1][10],sortedFields[1][11],sortedFields[1][12]]);
-            prevField = sortedFields[1][3]
+
+            prevField = sortedFields[1][3];
         }
         else
         {
             fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
-            prevField = sortedFields[0][3]
+            prevField = sortedFields[0][3];
         }
         
 
@@ -1473,15 +1552,14 @@ function main()
     // Push first field, then check if the following field is the same. If it
     // is, move onto the next field. Repeat until the end of the list and
     // then push the final field
-    finalFields = []
-    finalFields.push([fieldsToObserve[0][0],fieldsToObserve[0][1],fieldsToObserve[0][2],fieldsToObserve[0][3],fieldsToObserve[0][4],fieldsToObserve[0][5],fieldsToObserve[0][6],fieldsToObserve[0][7],fieldsToObserve[0][8],fieldsToObserve[0][9],fieldsToObserve[0][10],fieldsToObserve[0][11],fieldsToObserve[0][12]])
-    for (i=0; i<fieldsToObserve.length-1; i++)
+    
+    finalFields.push(fieldsToObserve[0]);
+    for (i = 0; i<fieldsToObserve.length - 1; i++)
     {
-        if (fieldsToObserve[i][3] != fieldsToObserve[i+1][3])
+        if (fieldsToObserve[i][3] != fieldsToObserve[i + 1][3])
         {
             //finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
-            finalFields.push([fieldsToObserve[i+1][0],fieldsToObserve[i+1][1],fieldsToObserve[i+1][2],fieldsToObserve[i+1][3],fieldsToObserve[i+1][4],fieldsToObserve[i+1][5],fieldsToObserve[i+1][6],fieldsToObserve[i+1][7],fieldsToObserve[i+1][8],fieldsToObserve[i+1][9],fieldsToObserve[i+1][10],fieldsToObserve[i+1][11],fieldsToObserve[i+1][12]])
-
+            finalFields.push(fieldsToObserve[i+1]);
             // Console.PrintLine(i.toString())
         }
     }
@@ -1489,43 +1567,42 @@ function main()
 
     // Calculate the duration of each field and append it onto the end of its
     // finalFields object. The last element goes to sunrise
-    for (i=0; i<finalFields.length-1; i++)
+    for (i = 0; i < finalFields.length - 1; i++)
     {
-        finalFields[i].push(finalFields[i+1][12]-finalFields[i][12])
+        finalFields[i].push(finalFields[i + 1][12] - finalFields[i][12]);
         //finalFields[i+1].push(finalFields[i*2+1][12]-finalFields[i*2][12])
     }
-    finalFields[finalFields.length-1].push(sunrise - finalFields[finalFields.length-1][12])
+    finalFields[finalFields.length-1].push(sunrise - finalFields[finalFields.length - 1][12]);
 
 
     // Print table of raw finalFields array
-    Console.PrintLine("")
-    Console.PrintLine("=== finalFields ===")
-    ts.WriteLine(Util.SysUTCDate + " === finalFields ===")
-    for (k=0; k < finalFields.length; k++)
+    Console.PrintLine("");
+    Console.PrintLine("=== finalFields ===");
+    ts.WriteLine(Util.SysUTCDate + " === finalFields ===");
+    for (k = 0; k < finalFields.length; k++)
     {
-        ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k])
-        Console.PrintLine(finalFields[k])
+        ts.WriteLine(Util.SysUTCDate +  " " + finalFields[k]);
+        Console.PrintLine(finalFields[k]);
     }
 
     // Print table of formatted finalFields array
-    Console.PrintLine("")
-    Console.PrintLine("=== Final Field Short List ===")
-    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Short List ===")
+    Console.PrintLine("");
+    Console.PrintLine("=== Final Field Short List ===");
+    ts.WriteLine(Util.SysUTCDate + "=== Final Field Short List ===");
 
-    for (i=0; i<finalFields.length-1; i++)
+    for (i = 0; i < finalFields.length - 1; i++)
     {
-        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours")
-        Console.PrintLine("     with " + finalFields[i][10].toString() + " visible stars")
-        ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i+1][12].toFixed(3) + " for " + (finalFields[i][13]*24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars")
+        Console.PrintLine(finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i + 1][12].toFixed(3) + " for " + (finalFields[i][13] * 24).toFixed(2) + " hours");
+        Console.PrintLine(" with " + finalFields[i][10].toString() + " visible stars");
+        ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[i][3] + " starts " + finalFields[i][12].toFixed(3) + " ends " + finalFields[i + 1][12].toFixed(3) + " for " + (finalFields[i][13] * 24).toFixed(2) + " hours with " + finalFields[i][10].toString() + " visible stars");
     }
-    Console.PrintLine(finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours")
-    Console.PrintLine("     with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
-    ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length-1][3] + " starts " + finalFields[finalFields.length-1][12].toFixed(3) + " ends " + sunrise.toFixed(3) + " for " + (finalFields[finalFields.length-1][13]*24).toFixed(2) + " hours with " + finalFields[finalFields.length-1][10].toString() + " visible stars")
-    
-    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===")
-    for (i=0; i<finalFields.length; i++)
+    Console.PrintLine(finalFields[finalFields.length - 1][3] + " starts " + finalFields[finalFields.length - 1][12].toFixed(3) + " ends " + sunrise + " for " + (finalFields[finalFields.length - 1][13] * 24).toFixed(2) + " hours");
+    Console.PrintLine(" with " + finalFields[finalFields.length-1][10].toString() + " visible stars");
+    ts.WriteLine(Util.SysUTCDate + " INFO: " + finalFields[finalFields.length - 1][3] + " starts " + finalFields[finalFields.length - 1][12].toFixed(3) + " ends " + sunrise.toFixed(3) + " for " + (finalFields[finalFields.length - 1][13] * 24).toFixed(2) + " hours with " + finalFields[finalFields.length - 1][10].toString() + " visible stars");    
+    ts.WriteLine(Util.SysUTCDate + " INFO: === Final Field Coordinates ===");
+    for (i = 0; i < finalFields.length; i++)
     {
-        ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1])
+        ts.WriteLine(Util.SysUTCDate + "Field: " + finalFields[i][3] + "  Elev: " + finalFields[i][0] + "  Az: " + finalFields[i][1]);
     }
 
 
@@ -1540,144 +1617,145 @@ function main()
     // currentField [0] = field index for finalFields, 
     // [1] = time until end of field, [2] = number of loops, [3] = field RA, 
     // [4] = field DEC, [5] = field name, [6] = end JD
-    runNum = 0
-    currentField = [0,0,0,0,0,"None",0]
+    runNum = 0;
+    currentField = [0, 0, 0, 0, 0, "None", 0];
 
     while (currentField[0] > -1 && currentField[0] < 999)
     {
         // Identify the current field in the finalFields list based on the time
-        currentJD = Util.SysJulianDate
-        currentField = whichField(Util.SysJulianDate)
-        endJD = currentField[6]
+        currentJD = Util.SysJulianDate;
+        currentField = whichField(Util.SysJulianDate);
+        endJD = currentField[6];
 
         // Log outputs of whichField
         // whichField returns [currField, targetDur, targetLoops, targetRA, targetDec, fieldName, targetJD]
-        Console.PrintLine("")
-        ts.WriteLine(Util.SysUTCDate + " INFO: Field Info")
-        Console.PrintLine("Field index: " + currentField[0])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Field index: " + currentField[0])
-        Console.PrintLine("Time until end of field: " + currentField[1])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Time until end of field: " + currentField[1])
-        Console.PrintLine("Number of loops: " + currentField[2])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Number of loops: " + currentField[2])
-        Console.PrintLine("Field RA: " + currentField[3])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Field RA: " + currentField[3])
-        Console.PrintLine("Field Dec: " + currentField[4])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Field Dec: " + currentField[4])
-        Console.PrintLine("Field Name: " + currentField[5])
-        ts.WriteLine(Util.SysUTCDate + " INFO: Field Name: " + currentField[5])
+        Console.PrintLine("");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Field Info");
+        Console.PrintLine("Field index: " + currentField[0]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Field index: " + currentField[0]);
+        Console.PrintLine("Time until end of field: " + currentField[1]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Time until end of field: " + currentField[1]);
+        Console.PrintLine("Number of loops: " + currentField[2]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Number of loops: " + currentField[2]);
+        Console.PrintLine("Field RA: " + currentField[3]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Field RA: " + currentField[3]);
+        Console.PrintLine("Field Dec: " + currentField[4]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Field Dec: " + currentField[4]);
+        Console.PrintLine("Field Name: " + currentField[5]);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Field Name: " + currentField[5]);
 
         // Safeguard against opening before the start of the observing plan
         while (Util.SysJulianDate < sunset)
         {
-            Console.PrintLine("")
-            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.")
-            Util.WaitForMilliseconds(5000)
+            Console.PrintLine("");
+            Console.PrintLine("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate) * 86400).toFixed(0) + " seconds.");
+            Util.WaitForMilliseconds(5000);
         }
         
         // Safeguard against opening after the end of the observing plan/sunrise
         if (Util.SysJulianDate > sunrise)
         {
-            Console.PrintLine("")
-            Console.PrintLine("Too late. Nothing left to observe.")
-            ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.")
+            Console.PrintLine("");
+            Console.PrintLine("Too late. Nothing left to observe.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Too late... Nothing left to observe.");
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
             // abortAndRestart()
-            andRestart()
+            andRestart();
         }
         else if (currentField[2] < 0 && currField[0] != -1)
         {
-            Console.PrintLine("Negative loops remaining. Past last field. Closing up.")
-            ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.")
+            Console.PrintLine("Negative loops remaining. Past last field. Closing up.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.");
             // abortAndRestart()
-            andRestart()
+            andRestart();
         }
 
         // Monitor the weather status, if the weather script is active
         // TODO: Add Goto and all that stuff.
         if ((Weather.Available && Weather.safe) || (ignoreWeather == true))
         {
-            Console.PrintLine("Checking Weather")
-            connectScope()
-            domeOpen()
-            trkOn()
+            Console.PrintLine("Checking Weather");
+            connectScope();
+            domeOpen();
+            trkOn();
         }
 
         // Create coordinate transform for the current field
-        currentFieldCt = Util.NewCThereAndNow()
-        currentFieldCt.RightAscension = currentField[3]/15
-        currentFieldCt.Declination = currentField[4]
+        currentFieldCt = Util.NewCThereAndNow();
+        currentFieldCt.RightAscension = currentField[3] / 15;
+        currentFieldCt.Declination = currentField[4];
 
         // Monitor and log the coordinates which the telescope slews to
-        Console.PrintLine("")
-        Console.PrintLine("Slewing to...")
-        Console.PrintLine("RA: " + currentFieldCt.RightAscension)
-        Console.PrintLine("Dec: " + currentFieldCt.Declination)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...")
-        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
+        Console.PrintLine("");
+        Console.PrintLine("Slewing to...");
+        Console.PrintLine("RA: " + currentFieldCt.RightAscension);
+        Console.PrintLine("Dec: " + currentFieldCt.Declination);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to...");
+        ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + currentFieldCt.RightAscension);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
 
         // Slew to the current field
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination)
+        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
         // Slave the dome to the telescope and wait until they are both in
         // the correct position to begin observing
         while (Telescope.Slewing == true)
         {
-            Console.PrintLine("Huh. Still Slewing...")
-            Util.WaitForMilliseconds(500)
+            Console.PrintLine("Huh. Still Slewing...");
+            Util.WaitForMilliseconds(500);
         }
 
-        Dome.UnparkHome()
+        Dome.UnparkHome();
         if (Dome.slave == false)
         {
-            Dome.slave == true
+            Dome.slave = true;
         }
 
         while (Dome.Slewing == true)
         {
-            Console.PrintLine("Dome is still slewing. Give me a minute...")
-            Util.WaitForMilliseconds(500)
+            Console.PrintLine("Dome is still slewing. Give me a minute...");
+            Util.WaitForMilliseconds(500);
         }
 
         Console.PrintLine("At target.");
         Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
-        ts.WriteLine(Util.SysUTCDate + " INFO: At target.")
-        ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2))
+        ts.WriteLine(Util.SysUTCDate + " INFO: At target.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
 
         // Readjust the telescope pointing using child script
-        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
         while (Telescope.Slewing == true)
         {
-            Console.PrintLine("Huh. Still Slewing...")
-            Util.WaitForMilliseconds(500)
+            Console.PrintLine("Huh. Still Slewing...");
+            Util.WaitForMilliseconds(500);
         }
 
         Dome.UnparkHome()
         if (Dome.slave == false)
         {
-            Dome.slave == true
+            Dome.slave = true;
         }
 
         while (Dome.Slewing == true)
         {
-            Console.PrintLine("Dome is still slewing. Give me a minute...")
-            Util.WaitForMilliseconds(500)
+            Console.PrintLine("Dome is still slewing. Give me a minute...");
+            Util.WaitForMilliseconds(500);
         }
 
         // Check pier side
         if (Telescope.SideOfPier == 0)
         {
-            pierside = "E"
-            Console.PrintLine("Pier side: " + pierside)
+            pierside = "E";
+            Console.PrintLine("Pier side: " + pierside);
         }
         else
         {
             pierside = "W"
-            Console.PrintLine("Pier side: " + pierside)
+            Console.PrintLine("Pier side: " + pierside);
         }
 
         // if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination)) {
@@ -1697,14 +1775,14 @@ function main()
 
 /*-----------------------------Data Collection-------------------------------*/
 
-        Console.PrintLine("")
-        Console.Printline("Starting data collection...")
-        Console.PrintLine("Running from " + Util.SysJulianDate + " until " + endJD)
-        ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.")
+        Console.PrintLine("");
+        Console.PrintLine("Starting data collection...");
+        Console.PrintLine("Running from " + Util.SysJulianDate + " until " + endJD);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Starting data collection.");
 
         // Iterables
-        darkCounter = darkInterval // Set equal to interval so that dark set is collected on first run
-        runCounter = 1
+        var darkCounter = darkInterval; // Set equal to interval so that dark set is collected on first run
+        var runCounter = 1;
 
         while (Util.SysJulianDate < endJD)
         {
@@ -1712,79 +1790,108 @@ function main()
             // Check pier side
             if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
             {
-                Console.PrintLine("Flipping sides of pier...")
-                ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
+                Console.PrintLine("Flipping sides of pier...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
                 // Readjust the telescope pointing using child script
-                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination)
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
                 while (Telescope.Slewing == true)
                 {
-                    Console.PrintLine("Huh. Still Slewing...")
-                    Util.WaitForMilliseconds(500)
+                    Console.PrintLine("Huh. Still Slewing...");
+                    Util.WaitForMilliseconds(500);
                 }
 
                 Dome.UnparkHome()
                 if (Dome.slave == false)
                 {
-                    Dome.slave == true
+                    Dome.slave == true;
                 }
 
                 while (Dome.Slewing == true)
                 {
-                    Console.PrintLine("Dome is still slewing. Give me a minute...")
-                    Util.WaitForMilliseconds(500)
+                    Console.PrintLine("Dome is still slewing. Give me a minute...");
+                    Util.WaitForMilliseconds(500);
                 }
 
                 // Check pier side
                 if (Telescope.SideOfPier == 0)
                 {
-                    pierside = "E"
-                    Console.PrintLine("Pier side: " + pierside)
+                    pierside = "E";
+                    Console.PrintLine("Pier side: " + pierside);
                 }
                 else
                 {
-                    pierside = "W"
-                    Console.PrintLine("Pier side: " + pierside)
+                    pierside = "W";
+                    Console.PrintLine("Pier side: " + pierside);
                 }
             }
-            else { Console.PrintLine("Already on the right side of the pier"); }
+            else 
+            { 
+                Console.PrintLine("Already on the right side of the pier"); 
+            }
 
             // Collect darkes when darkInterval is reached
             if (darkCounter == darkInterval)
             {
-               darkCollection(today) 
-               darkCounter = 0
+               darkCollection(today, LogFile);
+               darkCounter = 0;
             }
-            darkCounter++
-            Console.PrintLine("Dark counter = " + darkCounter.toString())
+            darkCounter++;
+            Console.PrintLine("Dark counter = " + darkCounter.toString());
 
-            // Start grabbing images
-            pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
+            // Dynamically fetches the correct path to ColibriGrab.exe
+            var wshShell = new ActiveXObject("WScript.Shell");
+            var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+            var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+
+            // var today = getDate();
+            // Console.Printline(today.toString());
+
+            // Commands to run ColibriGrab.exe from the GitHub
+            var wsh = new ActiveXObject("WScript.Shell");
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString()
             
-            Console.PrintLine("Process ID = " + pid.toString())
-            Util.WaitForMilliseconds(1000)
+            Console.PrintLine('Executing command: ' + command);
+            ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
+    
+            // Run ColibriGrab.exe
+            wsh.Run(command, 1, true); 
 
-            try
-            {
-                while (Util.IsTaskActive(pid)){
-                    Util.WaitForMilliseconds(500)
-                }
-                Console.PrintLine("Done exposing run # " + runCounter.toString())
-            }
-            catch(err)
-            {
-                ts.WriteLine("ERROR: Process ID does not exist. ColibriGrab.exe is not running!")
-                ts.WriteLine("ERROR: " + err)
-                Console.PrintLine("Didn't expose properly on run # " + runCounter.toString() + " Process ID doesn't exist!")
-                Console.PrintLine(err)
-            }
-          
-            runCounter++
+            Util.WaitForMilliseconds(50);
+
+            // Append and delete ColibriGrab log to ACP log after each run
+            appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            Console.PrintLine("Done exposing run # " + runCounter.toString());
+            ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
+            runCounter++;
         }
-
     }
 
-    shutDown();
-
+    shutDown();       
 }
+            // Run ColibriGrab.exe
+            //wsh.Run(command, 1, true); 
+
+
+            // Start grabbing images
+            //pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
+            
+            //Console.PrintLine("Process ID = " + pid.toString())
+            //Util.WaitForMilliseconds(1000)
+
+            // Append and delete ColibriGrab log to ACP log after each run
+            //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            //Console.PrintLine("Done exposing run # " + runCounter.toString())
+          
+            //runCounter++
+//        }
+
+//    }
+
+//    shutDown();
+
+//}
