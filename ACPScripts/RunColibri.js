@@ -699,113 +699,125 @@ function gotoRADec(ra, dec)
 }
 
 //////////////////////////////////////////////////////////////
-// Function to adjust telescope pointing. Calls astrometry_correction.py
-// subprocess to get new pointing.
+// Function to adjust telescope pointing. Repeatedly calls the 
+// astrometry_correction.py subprocess to get a new pointing position.
 //////////////////////////////////////////////////////////////
 
-// Function to adjust telescope pointing
 function adjustPointing(ra, dec) {
-    ra = ra * 15; // Convert RA to degrees from hours
+    
+    ra = ra * 15; // Initially convert RA to decimal degrees for astrometry_correction.py
 
-    var tolerance = 10 / 3600; // 10 arcseconds in degrees
-    var max_iterations = 10;   // Maximum number of iterations to avoid infinite loops
-    var iterations = 0;
+    var tolerance = 10 / 3600; // 10 arcseconds in degrees set as the tolerance limit
+    var max_iterations = 5;   // Maximum number of iterations to avoid infinite loops
+    var iterations = 0; 
     var ra_offset = tolerance + 1; // Start with large initial offset
     var dec_offset = tolerance + 1;
 
-    Console.PrintLine("== Pointing Correction ==");
-    Console.PrintLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    // Variables to track the closest/best pointing position
+    var best_ra = ra;
+    var best_dec = dec;
+    var best_ra_offset = ra_offset;
+    var best_dec_offset = dec_offset;
 
+    Console.PrintLine(Util.SysUTCDate + " == Pointing Correction ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+
+    // Conditions to rerun astrometry_correction to achieve a set tolerance on the RA and Dec pointing positions.
     while ((Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) && iterations < max_iterations) {
-        // Call astrometry_correction.py to get pointing offset
-        Console.PrintLine("Iteration: " + (iterations + 1) + ", Passing RA: " + ra + " degrees, Dec: " + dec + " degrees to astrometry_correction.py");
+        // Log the current iteration
+        Console.PrintLine(Util.SysUTCDate + " Pointing Correction Iteration: " + (iterations + 1));
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + (iterations + 1));
 
+        // Use the best RA and Dec so far as inputs for astrometry_correction.py
         var SH = new ActiveXObject("WScript.Shell");
-        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + best_ra + " " + best_dec);
         var python_output = "";
-        var python_error = "";
 
-        var start = new Date().getTime();
-        var timeout = 300000; // 5 minutes in milliseconds
-
-        // Capture Python output and error
-        while (BS.Status == 0) {
+        // Capture the output from astrometry_correction.py
+        while (BS.Status != 1) {
             while (!BS.StdOut.AtEndOfStream) {
                 python_output += BS.StdOut.Read(1);
             }
-            while (!BS.StdErr.AtEndOfStream) {
-                python_error += BS.StdErr.Read(1);
-            }
             Util.WaitForMilliseconds(100);
-
-            // Check for timeout
-            var currentTime = new Date().getTime();
-            if (currentTime - start > timeout) {
-                Console.PrintLine("Python script timed out.");
-                Console.PrintLine(Util.SysUTCDate + " ERROR: Python script timed out.");
-                BS.Terminate();
-                return;
-            }
-        }
-
-        // Log full Python output and check for errors
-        Console.PrintLine("Full Python output: " + python_output);
-        if (python_error) {
-            Console.PrintLine("Python script error output: " + python_error);
-            return;
         }
 
         // Parse output from astrometry_correction.py
         var py_lines = python_output.split("\n");
-        if (py_lines.length < 2) {
-            Console.PrintLine("Invalid Python output. No RA/Dec offsets returned.");
-            return;
-        }
-
-        // Extract the RA/Dec offset from the last line of output
         var radec_offset = py_lines[py_lines.length - 2].split(" ");
+
+        // Calculate RA and Dec offsets
         ra_offset = parseFloat(radec_offset[0]);
         dec_offset = parseFloat(radec_offset[1]);
 
         // Update RA and Dec using the offsets
-        ra += ra_offset;
-        dec += dec_offset;
+        best_ra += ra_offset;
+        best_dec += dec_offset;
 
-        // Convert RA back to hours for output
-        var corrected_ra = ra / 15;
-        Console.PrintLine("New RA: " + corrected_ra.toString() + ", New Dec: " + dec.toString());
-        Console.PrintLine("RA Offset: " + ra_offset.toFixed(6) + ", Dec Offset: " + dec_offset.toFixed(6));
+        // Store the best RA/Dec if it’s the closest to target so far
+        if (Math.abs(ra_offset) < Math.abs(best_ra_offset) || Math.abs(dec_offset) < Math.abs(best_dec_offset)) {
+            best_ra = best_ra; // Using the new closest values
+            best_dec = best_dec;
+            best_ra_offset = ra_offset;
+            best_dec_offset = dec_offset;
+        }
 
-        // Check if new RA/Dec is valid
-        if (isNaN(ra) || isNaN(dec)) {
-            Console.PrintLine("New pointing is invalid. Ignoring new pointing and continuing with current pointing.");
+        // Convert RA back to hours for gotoRADec call
+        var new_ra_hours = best_ra / 15;
+        var new_dec = best_dec;
+
+        // Print the new pointing values
+        Console.PrintLine("New RA: " + new_ra_hours.toString() + " New Dec: " + new_dec.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra_hours.toString());
+        ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
+
+        // Check that new RA and Dec are valid
+        if (isNaN(new_ra_hours) || isNaN(new_dec)) {
+            Console.PrintLine("New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
             return;
-        } else if ((corrected_ra > 24 || corrected_ra < 0) || (dec > 90 || dec < -90)) {
+        }
+
+        if (new_ra_hours > 24 || new_ra_hours < 0 || new_dec > 90 || new_dec < -90) {
             Console.PrintLine("New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: New pointing is out of bounds. Ignoring new pointing and continuing with current pointing.");
             return;
+        }
+
+        // Slew the telescope to the new RA and Dec
+        gotoRADec(new_ra_hours, new_dec);
+        Console.PrintLine("Slewing to declination " + new_dec.toString() + " and right ascension " + new_ra_hours.toString());
+        ts.WriteLine("Slewing to declination " + new_dec.toString() + " and right ascension " + new_ra_hours.toString());
+
+        // Wait for the telescope to complete slewing
+        while (Telescope.Slewing) {
+            Console.PrintLine("Waiting for telescope to complete slewing...");
+            ts.WriteLine("Waiting for telescope to complete slewing...")
+            Util.WaitForMilliseconds(500);
         }
 
         // Increment iteration counter
         iterations++;
     }
 
+    // Use the best RA/Dec found previously if tolerance was not achieved after max # of iterations
     if (iterations >= max_iterations) {
-        Console.PrintLine("Max iterations reached without achieving tolerance.");
-    } else {
-        // Safe to move to new pointing if within tolerance
-        var targetCt = Util.NewCThereAndNow();
-        targetCt.RightAscension = ra / 15; // Convert RA back to hours
-        targetCt.Declination = dec;
+        
+        Console.PrintLine("Max iterations reached without achieving tolerance. Using closest position.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Max iterations reached. Using closest position found.");
 
-        // Check elevation before moving
-        if (targetCt.Elevation < elevationLimit) {
-            Console.PrintLine("Unsafe elevation: " + targetCt.Elevation.toFixed(4) + ". Ignoring new pointing.");
-        } else {
-            gotoRADec(targetCt.RightAscension, targetCt.Declination); // Move to new RA/Dec
-        }
+        // Convert best RA back to hours for display and for gotoRADec
+        var fallback_ra_hours = best_ra / 15;
+        var fallback_dec = best_dec;
+
+        gotoRADec(fallback_ra_hours, fallback_dec);
+        Console.PrintLine("Slewing to closest declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
+        ts.WriteLine("Slewing to closest declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
+    } 
+    else {
+        Console.PrintLine("Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
     }
 }
-
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
@@ -840,6 +852,7 @@ function trkOff()
     {
         Console.PrintLine("Failed to disable tracking")
         ts.WriteLine(" WARNING: Failed to disable telescope tracking")
+
     }
 }
 
@@ -1854,7 +1867,7 @@ function main()
             var wsh = new ActiveXObject("WScript.Shell");
             var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString()
             
-            Console.PrintLine('Executing command: ' + command);
+            Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
     
             // Run ColibriGrab.exe
