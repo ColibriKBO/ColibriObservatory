@@ -703,27 +703,26 @@ function gotoRADec(ra, dec)
 // astrometry_correction.py subprocess to get a new pointing position.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(ra, dec) {
-    
-    ra = ra * 15; // Initially convert RA to decimal degrees for astrometry_correction.py
+function adjustPointing(target_ra, target_dec) {
 
-    var tolerance = 10 / 3600; // 10 arcseconds in degrees set as the tolerance limit
+    target_ra = target_ra * 15; // Convert RA target to decimal degrees
+
+    var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
     var max_iterations = 5;   // Maximum number of iterations to avoid infinite loops
     var iterations = 0; 
     var ra_offset = tolerance + 1; // Start with large initial offset
     var dec_offset = tolerance + 1;
 
     // Variables to track the closest/best pointing position
-    var best_ra = ra;
-    var best_dec = dec;
-    var best_ra_offset = ra_offset;
-    var best_dec_offset = dec_offset;
+    var best_ra = target_ra;
+    var best_dec = target_dec;
 
     Console.PrintLine(Util.SysUTCDate + " == Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
 
-    // Conditions to rerun astrometry_correction to achieve a set tolerance on the RA and Dec pointing positions.
-    while ((Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) && iterations < max_iterations) {
+    // Conditions to rerun astrometry_correction to achieve a set tolerance on the total angular offset.
+    var total_offset = tolerance + 1; // Start with a value larger than tolerance to enter loop
+    while (total_offset > tolerance && iterations < max_iterations) {
         // Log the current iteration
         Console.PrintLine(Util.SysUTCDate + " Pointing Correction Iteration: " + (iterations + 1));
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + (iterations + 1));
@@ -753,20 +752,17 @@ function adjustPointing(ra, dec) {
         best_ra += ra_offset;
         best_dec += dec_offset;
 
-        // Store the best RA/Dec if it’s the closest to target so far
-        if (Math.abs(ra_offset) < Math.abs(best_ra_offset) || Math.abs(dec_offset) < Math.abs(best_dec_offset)) {
-            best_ra = best_ra; // Using the new closest values
-            best_dec = best_dec;
-            best_ra_offset = ra_offset;
-            best_dec_offset = dec_offset;
-        }
+        //
+        // Calculate the total angular offset from the target
+        //
+        total_offset = Math.sqrt(Math.pow(target_ra - best_ra, 2) + Math.pow(target_dec - best_dec, 2));
 
         // Convert RA back to hours for gotoRADec call
         var new_ra_hours = best_ra / 15;
         var new_dec = best_dec;
 
         // Print the new pointing values
-        Console.PrintLine("New RA: " + new_ra_hours.toString() + " New Dec: " + new_dec.toString());
+        Console.PrintLine(Util.SysUTCDate + " New RA: " + new_ra_hours.toString() + " New Dec: " + new_dec.toString());
         ts.WriteLine(Util.SysUTCDate + " INFO: New RA: " + new_ra_hours.toString());
         ts.WriteLine(Util.SysUTCDate + " INFO: New Dec: " + new_dec.toString());
 
@@ -810,14 +806,15 @@ function adjustPointing(ra, dec) {
         var fallback_dec = best_dec;
 
         gotoRADec(fallback_ra_hours, fallback_dec);
-        Console.PrintLine("Slewing to closest declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
-        ts.WriteLine("Slewing to closest declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
+        Console.PrintLine("Slewing to closest fallback declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
+        ts.WriteLine("Slewing to closest fallback declination " + fallback_dec.toString() + " and right ascension " + fallback_ra_hours.toString());
     } 
     else {
         Console.PrintLine("Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + (iterations) + " iterations.");
     }
 }
+
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
