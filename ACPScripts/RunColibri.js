@@ -706,17 +706,18 @@ function gotoRADec(ra, dec)
 function adjustPointing(target_ra, target_dec) {
 
     var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
-    var max_iterations = 5;
-    var iterations = 0;
+    var tolerance = tolerance.toFixed(3) // Should be 0.003 degrees; ~5 pixels with our 2x2 binning
+    var max_iterations = 5; // Maximum number of iterations to attempt pointing correction
+    var iterations = 0; // Current number of iterations 
 
     // Convert target RA to degrees and store initial values in degrees for astrometry correction
-    var target_ra_deg = target_ra * 15; 
-    var best_ra_deg = target_ra_deg;
-    var best_dec = target_dec;
+    var target_ra_deg = target_ra * 15; // Target_ra is given in decimal hours
+    // var best_ra_deg = target_ra_deg; delete
+   //  var best_dec = target_dec; delete
 
     // Track the closest position
-    var closest_ra_deg = best_ra_deg;
-    var closest_dec = best_dec;
+    // var closest_ra_deg = best_ra_deg; delete 
+    // var closest_dec = best_dec; delete
     var min_total_offset = tolerance + 1;
 
     // Log target position
@@ -724,7 +725,7 @@ function adjustPointing(target_ra, target_dec) {
     Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
     ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
 
-    var total_offset = tolerance + 1;
+    var total_offset = tolerance + 1; // so we run it at least once
 
     // Start the correction loop
     while (total_offset > tolerance && iterations < max_iterations) {
@@ -734,7 +735,7 @@ function adjustPointing(target_ra, target_dec) {
 
         // Run astrometry_correction with current best coordinates in degrees
         var SH = new ActiveXObject("WScript.Shell");
-        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + best_ra_deg + " " + best_dec);
+        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + target_ra_deg + " " + target_dec); // Plug in where we WANT to point
         var python_output = "";
 
         while (BS.Status != 1) {
@@ -747,34 +748,47 @@ function adjustPointing(target_ra, target_dec) {
         // Parse RA and Dec offsets
         var py_lines = python_output.split("\n");
         var radec_offset = py_lines[py_lines.length - 2].split(" ");
-        var ra_offset = parseFloat(radec_offset[0]);
-        var dec_offset = parseFloat(radec_offset[1]);
+        var ra_offset = parseFloat(radec_offset[0]); // How far away the telescope is from the ref pointing in RA
+        var dec_offset = parseFloat(radec_offset[1]); // how far away the telescope is from the ref pointing in dec
 
-        // Update RA and Dec with offsets relative to the target position
-        best_ra_deg = target_ra_deg - ra_offset;
-        best_dec = target_dec - dec_offset;
+        // Update RA and Dec with offsets relative to the target position can delete all of this
+        // best_ra_deg = target_ra_deg - ra_offset;
+        // best_dec = target_dec - dec_offset;
 
         // Calculate the total angular offset in degrees (RA in degrees)
-        total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
+        total_offset = Math.sqrt(Math.pow(ra_offset, 2) + Math.pow(dec_offset, 2)); // calculate the total offset
 
-        // Update closest position if this iteration improves it
-        if (total_offset < min_total_offset) {
-            min_total_offset = total_offset;
-            closest_ra_deg = best_ra_deg;
-            closest_dec = best_dec;
-        }
+        // Where we are actually pointing, calculated for clarity but not needed for any calculations
+        var actual_ra_deg = target_ra + ra_offset;
+        var actual_dec = target_dec + dec_offset;    
 
         // Log current position and offset to target with rounding
-        var best_ra_hours = best_ra_deg / 15;
-        Console.PrintLine("Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
+        var actual_ra_hours = actual_ra_deg / 15;
+        Console.PrintLine("Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
         Console.PrintLine("Offset from Target: " + total_offset.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
         ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_offset.toFixed(3) + " degrees");
 
-        // Slew the telescope to the new RA and Dec
-        gotoRADec(best_ra_hours, best_dec);
-        Console.PrintLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
+
+        // Corrected slewing
+        var corrected_ra_deg = target_ra_deg - ra_offset;
+        var corrected_ra_hours = corrected_ra_deg / 15;
+        var corrected_dec = target_dec - dec_offset; 
+
+
+        // Update closest position if this iteration improves it;
+        if (total_offset < min_total_offset) {
+            min_total_offset = total_offset;
+            closest_ra_deg = corrected_ra_deg;
+            closest_dec = corrected_dec;
+        }
+
+
+
+        // Adjust the pointing of the telescope based on the offset 
+        gotoRADec(corrected_ra_hours, corrected_dec);
+        Console.PrintLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
+        ts.WriteLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
 
         // Wait for the telescope to complete slewing
         while (Telescope.Slewing) {
