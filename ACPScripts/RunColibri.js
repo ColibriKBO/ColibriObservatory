@@ -708,29 +708,25 @@ function adjustPointing(target_ra, target_dec) {
     var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
     var max_iterations = 5;
     var iterations = 0;
-    var ra_offset = tolerance + 1; // Start with a large initial offset
-    var dec_offset = tolerance + 1;
 
-    // Convert target RA to degrees for astrometry correction and store target coordinates in both units
-    target_ra = target_ra * 15; 
-    var target_ra_hours = target_ra / 15;
-
-    // Initialize best RA and Dec to target values
-    var best_ra_deg = target_ra; // Target RA in degrees for astrometry correction
+    // Convert target RA to degrees and store initial values in degrees for astrometry correction
+    var target_ra_deg = target_ra * 15; 
+    var best_ra_deg = target_ra_deg;
     var best_dec = target_dec;
 
-    // Variables to track the closest position to the target
+    // Track the closest position
     var closest_ra_deg = best_ra_deg;
     var closest_dec = best_dec;
     var min_total_offset = tolerance + 1;
 
     // Log target position
     Console.PrintLine("== Pointing Correction ==");
-    Console.PrintLine("Target Position -> RA: " + target_ra_hours.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra_hours.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+    Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+
+    var total_offset = tolerance + 1;
 
     // Start the correction loop
-    var total_offset = tolerance + 1;
     while (total_offset > tolerance && iterations < max_iterations) {
         iterations++;
         Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
@@ -751,16 +747,15 @@ function adjustPointing(target_ra, target_dec) {
         // Parse RA and Dec offsets
         var py_lines = python_output.split("\n");
         var radec_offset = py_lines[py_lines.length - 2].split(" ");
-        ra_offset = parseFloat(radec_offset[0]);
-        dec_offset = parseFloat(radec_offset[1]);
+        var ra_offset = parseFloat(radec_offset[0]);
+        var dec_offset = parseFloat(radec_offset[1]);
 
-        // Update RA and Dec with offsets and calculate new total offset
-        best_ra_deg += ra_offset;
-        best_dec += dec_offset;
-        var best_ra_hours = best_ra_deg / 15;
+        // Update RA and Dec with offsets relative to the target position
+        best_ra_deg = target_ra_deg - ra_offset;
+        best_dec = target_dec - dec_offset;
 
         // Calculate the total angular offset in degrees (RA in degrees)
-        total_offset = Math.sqrt(Math.pow(target_ra - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
+        total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
 
         // Update closest position if this iteration improves it
         if (total_offset < min_total_offset) {
@@ -770,6 +765,7 @@ function adjustPointing(target_ra, target_dec) {
         }
 
         // Log current position and offset to target with rounding
+        var best_ra_hours = best_ra_deg / 15;
         Console.PrintLine("Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
         Console.PrintLine("Offset from Target: " + total_offset.toFixed(3) + " degrees");
         ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
@@ -800,6 +796,7 @@ function adjustPointing(target_ra, target_dec) {
         ts.WriteLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
     }
 }
+       
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
