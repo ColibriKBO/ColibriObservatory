@@ -703,29 +703,21 @@ function gotoRADec(ra, dec)
 // astrometry_correction.py subprocess to get a new pointing position.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(target_ra, target_dec) {
-
-    var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
-    var tolerance = tolerance.toFixed(3) // Should be 0.003 degrees; ~5 pixels with our 2x2 binning
+function adjustPointing(target_ra, target_dec) 
+{
+    var tolerance = 0.003; // Should be 10" or 0.003 degrees; ~5 pixels with our 2x2 binning
     var max_iterations = 5; // Maximum number of iterations to attempt pointing correction
-    var iterations = 0; // Current number of iterations 
+    var iterations = 0; // Used to keep track of the current number of iterations
+    var target_ra_deg = target_ra * 15; // Target_ra is given in decimal hours in astrometry_correction.py
 
-    // Convert target RA to degrees and store initial values in degrees for astrometry correction
-    var target_ra_deg = target_ra * 15; // Target_ra is given in decimal hours
-    // var best_ra_deg = target_ra_deg; delete
-   //  var best_dec = target_dec; delete
-
-    // Track the closest position
-    // var closest_ra_deg = best_ra_deg; delete 
-    // var closest_dec = best_dec; delete
-    var min_total_offset = tolerance + 1;
-
-    // Log target position
+    // Log target positions
     Console.PrintLine("== Pointing Correction ==");
-    Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+    ts.WriteLine("== Pointing Correction ==");
+    Console.PrintLine(Util.SysUTCDate + " Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
     ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
 
-    var total_offset = tolerance + 1; // so we run it at least once
+    var min_total_offset = tolerance + 1; // Tracks the closest position
+    var total_offset = tolerance + 1; // Used to initialize the loops for repeated calls to astrometry_correction.py
 
     // Start the correction loop
     while (total_offset > tolerance && iterations < max_iterations) {
@@ -733,9 +725,9 @@ function adjustPointing(target_ra, target_dec) {
         Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
 
-        // Run astrometry_correction with current best coordinates in degrees
+        // Run astrometry_correction with target coordinates (RA and Dec) both in degrees.
         var SH = new ActiveXObject("WScript.Shell");
-        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + target_ra_deg + " " + target_dec); // Plug in where we WANT to point
+        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + target_ra_deg + " " + target_dec); // Plug in the coords where we WANT to point
         var python_output = "";
 
         while (BS.Status != 1) {
@@ -749,65 +741,62 @@ function adjustPointing(target_ra, target_dec) {
         var py_lines = python_output.split("\n");
         var radec_offset = py_lines[py_lines.length - 2].split(" ");
         var ra_offset = parseFloat(radec_offset[0]); // How far away the telescope is from the ref pointing in RA
-        var dec_offset = parseFloat(radec_offset[1]); // how far away the telescope is from the ref pointing in dec
+        var dec_offset = parseFloat(radec_offset[1]); // How far away the telescope is from the ref pointing in dec
 
-        // Update RA and Dec with offsets relative to the target position can delete all of this
-        // best_ra_deg = target_ra_deg - ra_offset;
-        // best_dec = target_dec - dec_offset;
+        // Confirm that the pointing offset is not a NaN value. If it is, continue with the initial pointing and exit the function.
+        if (isNaN(ra_offset) || isNaN(dec_offset)) {
+            Console.PrintLine(Util.SysUTCDate + "Warning: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            return;
+        }
 
-        // Calculate the total angular offset in degrees (RA in degrees)
-        total_offset = Math.sqrt(Math.pow(ra_offset, 2) + Math.pow(dec_offset, 2)); // calculate the total offset
+        // Total angular offset from the target field in degrees (RA in degrees)
+        total_offset = Math.sqrt(Math.pow(ra_offset, 2) + Math.pow(dec_offset, 2));
 
         // Where we are actually pointing, calculated for clarity but not needed for any calculations
         var actual_ra_deg = target_ra + ra_offset;
-        var actual_dec = target_dec + dec_offset;    
-
-        // Log current position and offset to target with rounding
+        var actual_dec = target_dec + dec_offset;
         var actual_ra_hours = actual_ra_deg / 15;
+        
+        // Logs the current position and offset to target with rounding
         Console.PrintLine("Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
         Console.PrintLine("Offset from Target: " + total_offset.toFixed(3) + " degrees");
         ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
         ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_offset.toFixed(3) + " degrees");
 
-
-        // Corrected slewing
-        var corrected_ra_deg = target_ra_deg - ra_offset;
-        var corrected_ra_hours = corrected_ra_deg / 15;
-        var corrected_dec = target_dec - dec_offset; 
-
-
-        // Update closest position if this iteration improves it;
+        // Slew to new target only if new coordinates minimize offset from target
         if (total_offset < min_total_offset) {
             min_total_offset = total_offset;
-            closest_ra_deg = corrected_ra_deg;
-            closest_dec = corrected_dec;
-        }
 
+            // Corrected coordinates used for slewing the telescope
+            var corrected_ra_deg = target_ra_deg - ra_offset;
+            var corrected_ra_hours = corrected_ra_deg / 15;
+            var corrected_dec = target_dec - dec_offset;
 
+            // Slew to the new RA and Dec coordinates calculated from astrometry_correction.py 
+            gotoRADec(corrected_ra_hours, corrected_dec);
+            Console.PrintLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
+            ts.WriteLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
 
-        // Adjust the pointing of the telescope based on the offset 
-        gotoRADec(corrected_ra_hours, corrected_dec);
-        Console.PrintLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Slewing to adjusted position -> RA: " + corrected_ra_hours.toFixed(3) + " hours, Dec: " + corrected_dec.toFixed(3) + " degrees");
-
-        // Wait for the telescope to complete slewing
-        while (Telescope.Slewing) {
-            Console.PrintLine("Waiting for telescope to complete slewing...");
-            ts.WriteLine("Waiting for telescope to complete slewing...");
-            Util.WaitForMilliseconds(500);
+            // Wait for the telescope to complete slewing
+            while (Telescope.Slewing) {
+                Console.PrintLine("Waiting for telescope to complete slewing...");
+                ts.WriteLine("Waiting for telescope to complete slewing...");
+                Util.WaitForMilliseconds(500);
+            }
+        } else {
+            Console.PrintLine(Util.SysUTCDate + " Warning: New pointing did not decrease offset from target -> Skipping telescope slew.");
+            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing did not decrease offset from target -> Skipping telescope slew.");
         }
     }
 
-    // Finalize with either tolerance achieved or fallback to closest position
+    // Finalize with either tolerance achieved or max iterations reached.
     if (total_offset <= tolerance) {
-        Console.PrintLine("Pointing correction achieved within tolerance after " + iterations + " iterations.");
+        Console.PrintLine(Util.SysUTCDate + " Pointing correction achieved within tolerance after " + iterations + " iterations.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
     } else {
-        // Convert closest RA in degrees to hours for fallback
-        var fallback_ra_hours = closest_ra_deg / 15;
-        gotoRADec(fallback_ra_hours, closest_dec);
-        Console.PrintLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
+        Console.PrintLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.")
+        ts.WriteLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
     }
 }
        
