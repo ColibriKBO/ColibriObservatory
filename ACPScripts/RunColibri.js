@@ -722,7 +722,7 @@ function adjustPointing(target_ra, target_dec)
     // Start the correction loop
     while (total_offset > tolerance && iterations < max_iterations) {
         iterations++;
-        Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
+        Console.PrintLine(Util.SysUTCDate + " Pointing Correction Iteration: " + iterations);
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
 
         // Run astrometry_correction with target coordinates (RA and Dec) both in degrees.
@@ -743,10 +743,10 @@ function adjustPointing(target_ra, target_dec)
         var ra_offset = parseFloat(radec_offset[0]); // How far away the telescope is from the ref pointing in RA
         var dec_offset = parseFloat(radec_offset[1]); // How far away the telescope is from the ref pointing in dec
 
-        ts.WriteLine("RA_offset: " + ra_offset)
-        ts.WriteLine("Dec_offset" + dec_offset)
-        Console.PrintLine("RA_offset: " + ra_offset)
-        Console.PrintLine("Dec_offset" + dec_offset)
+        ts.WriteLine("RA_offset from astrometry_correction: " + ra_offset)
+        ts.WriteLine("Dec_offset from astrometry_correction: " + dec_offset)
+        Console.PrintLine("RA_offset from astrometry_correction:: " + ra_offset)
+        Console.PrintLine("Dec_offset from astrometry_correction: " + dec_offset)
 
         // Confirm that the pointing offset is not a NaN value. If it is, continue with the initial pointing and exit the function.
         if (isNaN(ra_offset) || isNaN(dec_offset)) {
@@ -819,8 +819,8 @@ function adjustPointing(target_ra, target_dec)
 
     // Finalize with either tolerance achieved or max iterations reached.
     if (total_offset <= tolerance) {
-        Console.PrintLine(Util.SysUTCDate + " Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
+        Console.PrintLine(Util.SysUTCDate + " Success: Pointing correction achieved within tolerance after " + iterations + " iterations.");
+        ts.WriteLine(Util.SysUTCDate + " Success: Pointing correction achieved within tolerance after " + iterations + " iterations.");
     } else {
         Console.PrintLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.")
         ts.WriteLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
