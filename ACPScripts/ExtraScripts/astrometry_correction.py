@@ -614,7 +614,8 @@ if __name__ == '__main__':
     verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
     # Calculate the offset between the reference image and the target
     print(f"Calculating offset between reference image and target...")
-    print("Reference RA and dec: ", ref_ra, ref_dec)
+    print("Target RA and dec: ", ref_ra, ref_dec)
+    print("Current RA and dec", ra, dec)
     ra_offset = ra - ref_ra
     dec_offset = dec - ref_dec
     
