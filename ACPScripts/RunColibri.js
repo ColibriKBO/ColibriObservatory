@@ -743,10 +743,10 @@ function adjustPointing(target_ra, target_dec)
         var ra_offset = parseFloat(radec_offset[0]); // How far away the telescope is from the ref pointing in RA
         var dec_offset = parseFloat(radec_offset[1]); // How far away the telescope is from the ref pointing in dec
 
-        ts.WriteLine("RA offset from astrometry_correction: " + ra_offset)
-        ts.WriteLine("Dec offset from astrometry_correction: " + dec_offset)
-        Console.PrintLine("RA offset from astrometry_correction:: " + ra_offset)
-        Console.PrintLine("Dec offset from astrometry_correction: " + dec_offset)
+        ts.WriteLine("RA offset from astrometry_correction: " + ra_offset);
+        ts.WriteLine("Dec offset from astrometry_correction: " + dec_offset);
+        Console.PrintLine("RA offset from astrometry_correction:: " + ra_offset);
+        Console.PrintLine("Dec offset from astrometry_correction: " + dec_offset);
 
         // Confirm that the pointing offset is not a NaN value. If it is, continue with the initial pointing and exit the function.
         if (isNaN(ra_offset) || isNaN(dec_offset)) {
@@ -765,7 +765,7 @@ function adjustPointing(target_ra, target_dec)
 
         function calculateTotalOffset(ra_offset, dec_offset, target_dec) {
             
-            // Convert all inputs to radians for consistency
+            // First convert all inputs to radians for consistency
             var ra_offset = toRadians(ra_offset);
             var dec_offset = toRadians(dec_offset);
             var target_dec = toRadians(target_dec);
@@ -819,15 +819,15 @@ function adjustPointing(target_ra, target_dec)
             // Slew to the new RA and Dec coordinates calculated from astrometry_correction.py 
             gotoRADec(corrected_ra_hours, corrected_dec);
 
-            // Wait for the telescope to complete slewing
+            // Extra measure to wait for the telescope to complete slewing before continuing
             while (Telescope.Slewing) {
                 Console.PrintLine("Waiting for telescope to complete slewing...");
                 ts.WriteLine("Waiting for telescope to complete slewing...");
                 Util.WaitForMilliseconds(500);
             }
         } else {
-            Console.PrintLine(Util.SysUTCDate + " Warning: New pointing did not decrease offset from target -> Skipping telescope slew.");
-            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing did not decrease offset from target -> Skipping telescope slew.");
+            Console.PrintLine(Util.SysUTCDate + " Warning: New pointing would not decrease offset from target -> Skipping telescope slew.");
+            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing would not decrease offset from target -> Skipping telescope slew.");
         }
     }
 
@@ -836,12 +836,11 @@ function adjustPointing(target_ra, target_dec)
         Console.PrintLine(Util.SysUTCDate + " Success: Pointing correction achieved within tolerance after " + iterations + " iterations.");
         ts.WriteLine(Util.SysUTCDate + " Success: Pointing correction achieved within tolerance after " + iterations + " iterations.");
     } else {
-        Console.PrintLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.")
+        Console.PrintLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
     }
 }
        
-
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
