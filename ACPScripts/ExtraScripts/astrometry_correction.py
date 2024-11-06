@@ -614,10 +614,10 @@ if __name__ == '__main__':
     verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
     # Calculate the offset between the reference image and the target
     print(f"Calculating offset between reference image and target...")
-    print("Target RA and dec: ", ref_ra, ref_dec)
-    print("Current RA and dec", ra, dec)
-    ra_offset = ra - ref_ra
-    dec_offset = dec - ref_dec
+    print("Current RA and dec: ", ref_ra, ref_dec) # Current as in we took an image and this is where we are currently pointing
+    print("Target RA and dec", ra, dec) # the ra/dec we input in the func; i.e. where we WANT to point
+    ra_offset = ref_ra - ra  # how far away our pointing is from the target
+    dec_offset = ref_dec - dec
     
     # Print the offset
     print(f"{ra_offset} {dec_offset}")
