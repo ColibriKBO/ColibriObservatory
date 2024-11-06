@@ -767,10 +767,10 @@ function adjustPointing(target_ra, target_dec)
             
             // Convert all inputs to radians for consistency
             var ra_offset = toRadians(ra_offset);
-            var dec_offset = toRadians(dec_offset;
+            var dec_offset = toRadians(dec_offset);
             var target_dec = toRadians(target_dec);
             
-            // Calculate the adjusted RA offset with cos(target_dec)
+            // Calculate the adjusted RA offset with target declination set as the cosine angle
             var adjusted_ra_offset = ra_offset * Math.cos(target_dec);
 
             // Total offset from target
