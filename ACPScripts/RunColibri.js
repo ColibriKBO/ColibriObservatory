@@ -796,7 +796,7 @@ function adjustPointing(target_ra, target_dec)
 
         // Slew to new target only if new coordinates minimize offset from target
         //if (total_offset < din_total_offset) {
-        if total_angular_offset < min_total_offset { 
+        if (total_angular_offset < min_total_offset) { 
             min_total_offset = total_angular_offset;
 
             // Corrected coordinates used for slewing the telescope
