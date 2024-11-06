@@ -716,7 +716,7 @@ function adjustPointing(target_ra, target_dec)
     Console.PrintLine(Util.SysUTCDate + " Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
     ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
 
-    var min_total_offset = 1; // Tracks the closest position
+    var min_total_offset = 99999; // Tracks the closest position set arbritarily high initially
     var total_angular_offset = tolerance + 1; // Used to initialize the loops for repeated calls to astrometry_correction.py
 
     // Start the correction loop
@@ -796,7 +796,7 @@ function adjustPointing(target_ra, target_dec)
 
         // Slew to new target only if new coordinates minimize offset from target
         //if (total_offset < din_total_offset) {
-        if (Math.abs(ra_offset) > tolerance || Math.abs(dec_offset) > tolerance) { 
+        if total_angular_offset < min_total_offset { 
             min_total_offset = total_angular_offset;
 
             // Corrected coordinates used for slewing the telescope
