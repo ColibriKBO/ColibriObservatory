@@ -705,14 +705,14 @@ function gotoRADec(ra, dec)
 
 function adjustPointing(target_ra, target_dec) 
 {
-    var tolerance = 0.0042; // SET AS 15" --- Should be 10" or 0.003 degrees; ~5 pixels with our 2x2 binning
+    var tolerance = 0.0015; // SET AS 5" --- Should be 10" or 0.003 degrees; ~5 pixels with our 2x2 binning
     var max_iterations = 3; // Maximum number of iterations to attempt pointing correction
     var iterations = 0; // Used to keep track of the current number of iterations
     var target_ra_deg = target_ra * 15; // Target_ra is given in decimal hours in astrometry_correction.py
 
     // Log target positions
-    Console.PrintLine("== Pointing Correction ==");
-    ts.WriteLine("== Pointing Correction ==");
+    Console.PrintLine("========= Pointing Correction START =========");
+    ts.WriteLine("========= Pointing Correction START =========");
     Console.PrintLine(Util.SysUTCDate + " Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
     ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
 
@@ -750,8 +750,8 @@ function adjustPointing(target_ra, target_dec)
 
         // Confirm that the pointing offset is not a NaN value. If it is, continue with the initial pointing and exit the function.
         if (isNaN(ra_offset) || isNaN(dec_offset)) {
-            Console.PrintLine(Util.SysUTCDate + "Warning: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
-            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing is not a number. Ignoring new pointing and continuing with current pointing.");
+            Console.PrintLine(Util.SysUTCDate + "Warning: New pointing is not a number. Exiting pointing correction loop and continuing with current pointing.");
+            ts.WriteLine(Util.SysUTCDate + " Warning: New pointing is not a number. Exiting pointing correction loop and continuing with current pointing.");
             return;
         }
 
@@ -839,6 +839,8 @@ function adjustPointing(target_ra, target_dec)
         Console.PrintLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
         ts.WriteLine(Util.SysUTCDate + " Warning: Max iterations of pointing correction reached without achieving tolerance. Continuing with current pointing.");
     }
+    Console.PrintLine("========= Pointing Correction END =========");
+    ts.WriteLine("========= Pointing Correction END =========");
 }
        
 ///////////////////////////////////////////////////////////////
