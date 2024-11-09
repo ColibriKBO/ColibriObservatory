@@ -789,10 +789,10 @@ function adjustPointing(target_ra, target_dec)
         total_angular_offset = calculateTotalOffset(ra_offset, dec_offset, target_dec);
         
         // Logs the current position and offset to target with rounding
-        Console.PrintLine("Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
-        Console.PrintLine("Offset from Target: " + total_angular_offset.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + actual_ra_hours.toFixed(3) + " hours, Dec: " + actual_dec.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_angular_offset.toFixed(3) + " degrees");
+        Console.PrintLine("Current Position -> RA: " + actual_ra_hours.toFixed(4) + " hours, Dec: " + actual_dec.toFixed(4) + " degrees");
+        Console.PrintLine("Offset from Target: " + total_angular_offset.toFixed(4) + " degrees");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + actual_ra_hours.toFixed(4) + " hours, Dec: " + actual_dec.toFixed(4) + " degrees");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_angular_offset.toFixed(4) + " degrees");
 
         // Slew to new target only if new coordinates minimize offset from target
         //if (total_offset < din_total_offset) {
