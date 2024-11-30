@@ -42,7 +42,7 @@ function main()
 	var fso, f1, ts;
 	var Mode = 8;
 
-	LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP.log";
+	LogFile = "d:\\Logs\\ACP\\" + getDate() + "-ACP_WeatherSafety.log";
 
 	fso = new ActiveXObject("Scripting.FileSystemObject");
 
