@@ -516,9 +516,12 @@ if __name__ == '__main__':
     # If no reference image is provided, generate a test image
     # using ColibriGrab.exe
     if args.image is None:
-        # Generate a test image using ColibriGrab.exe
-        subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
-
+        colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab"
+        colibrigrab_path_home = colibrigrab_base_path_home / "ColibriGrab.exe"
+        colibrigrab_path = colibrigrab_path_home
+        # subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
+        command = f'"{colibrigrab_path}" -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\'
+        os.system(command)
         # Set the path to the reference image
         tmp_dir = BASE_PATH / 'tmp'
         tmp_dir_dirs = [d for d in tmp_dir.iterdir() if d.is_dir()]

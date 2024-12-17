@@ -321,7 +321,6 @@ function selectTopObservation(requests) {
 
 // Auxiliary functions
 // Updates the day in a time string.
-// TODO: This function doesn't work yet.
 function updateDay(timeString) {
     var parts = timeString.split(":"); // Split the time string into parts.
     var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
@@ -1008,7 +1007,8 @@ function adjustPointing(ra, dec) {
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
-    var BS = SH.Exec("python C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\ExtraScripts\\Scheduler\\astrometry_correction.py " + ra + " " + dec);
+    // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python ..\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
 
@@ -1185,7 +1185,7 @@ function twilightTimes(jDate) {
 	var sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
 	var cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)));
 	var Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360;
-	var set = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
+	var Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
 
 	return [Jrise, Jset];
 }
