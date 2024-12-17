@@ -1422,10 +1422,10 @@ function main() {
 
         // Safeguard: Prevent observing before sunset
         // (This can be commented out for simulated testing during the day)
-        while (Util.SysJulianDate < sunset) {
-            updateLog("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.", "INFO");
-            Util.WaitForMilliseconds(5000); // Wait for 5 seconds before checking again.
-        }
+        //while (Util.SysJulianDate < sunset) {
+        //    updateLog("It's still too early to begin... Waiting for " + ((sunset - Util.SysJulianDate)*86400).toFixed(0) + " seconds.", "INFO");
+        //    Util.WaitForMilliseconds(5000); // Wait for 5 seconds before checking again.
+        //}
 
         // Safeguard: Stop observing if it's past sunrise
         if (Util.SysJulianDate > sunrise) {
