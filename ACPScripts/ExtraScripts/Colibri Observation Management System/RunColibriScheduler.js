@@ -156,6 +156,21 @@ function getRequests() {
     return [requests, lines];
 }
 
+// function to limit the user assigned priority field in an observation request. Limits value between 2 and 6 inclusive
+function limitUserAssignedPriority(requests) {
+    updateLog("debug: in limitUserAssignedPriority()");
+
+    // Loop through each request and check the user assigned priority
+    for (var i = 0; i < requests.length; i++) {
+        if(requests[i].priority < 2){
+            requests[i].priority = 2;
+        }
+        if(requests[i].priority > 6){
+            requests[i].priority = 6;
+        }
+    }
+}
+
 // Selects the best observation from a list of requests, based on various filtering and ranking criteria.
 function selectBestObservation(requests, sunset, sunrise, moonCT) {
     updateLog("debug: in selectBestObservation()");
@@ -255,8 +270,7 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
     request.moonAngle = moonAngle;
 
     // Return true if the target's ltitude is above the elevation limit and if the moon's angle is greater than the minimum offset.
-    //return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
-    return true; // debug
+    return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
 }
 
 // Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
@@ -306,43 +320,16 @@ function rankObservations(requests) {
 // Calculates the overall score for an observation request based on its priority, timing, and astronomical conditions.
 function calculateScore(request) {
     updateLog("debug: in calculateScore()");
-    var score = request.priority * 50; // Give priority extra weight (multiplied by 50).
 
-    // Add the scores from time and astronomy conditions to the total score.
-    score += evaluateTimeScore(request);
-    score += evaluateAstronomyScore(request);
+    // Stan's idea for new scoring: user assigned priority^(duration/60mins)
 
-    request.score = score; // Assign the calcualted score to the request.
-}
-
-// Calculates score based on the observation's time window (how long the observation lasts).
-function evaluateTimeScore(request) {
-    updateLog("debug: in evaluateTimeScore()");
     // Convert the start and end times from Julian date to seconds since Unix Epoch.
     var startSec = (request.startJD - 2440587.5) * 86400;
     var endSec = (request.endJD - 2440587.5) * 86400;
+    // the observation's duration in minutes (with a minimum score of 0).
+    var obsDurationMins = Math.max(0, (endSec - startSec) / 60); // Duration in minutes
 
-    // Return the observation's duration in minutes (with a minimum score of 0).
-    return Math.max(0, (endSec - startSec) / 60); // Duration in minutes
-}
-
-// Calculates the score based on the observation's astronomical conditions (e.g., altitude and distance from the moon).
-function evaluateAstronomyScore(request) {
-    updateLog("debug: in evaluateAstronomyScore()");
-    // Calculate the score based on how much the altitude exceeds the elevation limit.
-    var altitudeScore = Math.max(0, request.altitude - elevationLimit);
-    var requestAltitudeString = "request.altitude: " + request.altitude;
-    updateLog(requestAltitudeString);
-    var elevationLimitString = "elevationLimit: " + elevationLimit;
-    updateLog(elevationLimitString);
-    // Calculate the score based on how much the moon angle exceeds the minimum moon offset.
-    var moonScore = Math.max(0, request.moonAngle - minMoonOffset);
-    var moonAngleString = "request.moonAngle: " + request.moonAngle;
-    updateLog(moonAngleString);
-    var minMoonOffsetString = "minMoonOffset: " + minMoonOffset;
-    updateLog(minMoonOffset);
-    // Return the sum of the altitude and moon angle scores.
-    return altitudeScore + moonScore;
+    request.score = request.priority ** (obsDurationMins / 60); // Assign the calcualted score to the request.
 }
 
 // Select the top observation from the ranked list of requests.
@@ -1459,6 +1446,9 @@ function main() {
 
     // Begin the main observation loop.
     do {
+        // limit user assigned priority for observations to be between 2 - 6 inclusive
+        limitUserAssignedPriority(requests)
+
         // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
         var bestObs = selectBestObservation(requests, sunset, sunrise, moonCT);
         Console.PrintLine(bestObs);
