@@ -117,7 +117,7 @@ function getRequests() {
                 var line = file.ReadLine(); // Read a line from the CSV file.
                 lines.push(line); // Add the raw line to the lines array.
                 rowData = line.split(","); // Split the line by commas to get individual fields.
-                updateLog("debug: in while loop inside getRequests(), rowData[0] is: " + rowData[0]);
+                
                 // Check if the observation request has not been completed (completion field is 0).
                 if (rowData[indices.completion] == 0) {
                     
@@ -151,45 +151,45 @@ function getRequests() {
         // Print an error message to the console if an exception occurs.
         Console.PrintLine("An error occurred: " + e.message);
     }
-    updateLog("debug: length of requests in getRequests() " + requests.length);
+    //updateLog("debug: length of requests in getRequests() " + requests.length);
     // Return the array of Request objects and the raw CSV lines.
     return [requests, lines];
 }
 
 // Selects the best observation from a list of requests, based on various filtering and ranking criteria.
 function selectBestObservation(requests, sunset, sunrise, moonCT) {
-    updateLog("debug: in selectBestObservation()");
-    updateLog("debug: length of requests in selectBestObservation() " + requests.length);
+    
     // Log and print the list of requests before filtering.
-    updateLog("Requests before filtering.", "INFO");
-    printPlan(requests);
+    //updateLog("Requests before filtering.", "INFO");
+    //printPlan(requests);
 
     // Filter out observations that don't fit within the time window or between sunset and sunrise.
     var suitableObs = filterByTime(requests, sunset, sunrise);
     // Log and print the list of requests after time filtering.
-    updateLog("Requests after time filtering.", "INFO");
-    printPlan(suitableObs);
+    //updateLog("Requests after time filtering.", "INFO");
+    //printPlan(suitableObs);
 
     // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
     suitableObs = filterByAstronomy(suitableObs, moonCT);
     // Log and print the list of requests after astronomy filtering.
-    updateLog("Requests after astronomy filtering.", "INFO");
-    printPlan(suitableObs);
+    //updateLog("Requests after astronomy filtering.", "INFO");
+    //printPlan(suitableObs);
 
     // Rank the remaining suitable observations based on priority, time, and astronomy scores.
     var rankedObs = rankObservations(suitableObs);
     // Log and print the list of requests after ranking.
-    updateLog("Requests after ranking.", "INFO");
-    printPlan(rankedObs);
+    //updateLog("Requests after ranking.", "INFO");
+    //printPlan(rankedObs);
     
     // Select the highest-ranked observation.
     var bestObs = selectTopObservation(rankedObs);
+    writeRequestsToCSV(rankedObs);
     return bestObs; // Return the best observation request.
 }
 
 // Filters the observation requests by checking if they fall within the allowed time window and between sunset and sunrise.
 function filterByTime(requests, sunset, sunrise) {
-    updateLog("debug: in filterByTime()");
+    
     var filteredObs = [];
     var currJD = Util.SysJulianDate; // Get the current Julian Date.
 
@@ -198,7 +198,7 @@ function filterByTime(requests, sunset, sunrise) {
         var request = requests[i];
         // Add to filteredObs if the request is within the time window.
         //if (withinTimeWindow(request, currJD, sunset, sunrise)) { filteredObs.push(request); }
-        updateLog("adding to filteredObs in filterByTime");
+        
         filteredObs.push(request);
     }
 
@@ -207,7 +207,7 @@ function filterByTime(requests, sunset, sunrise) {
 
 // Checks if an observation request fits within the allowed time window and between sunset and sunrise.
 function withinTimeWindow(request, currJD, sunset, sunrise) {
-    updateLog("debug: in withinTimeWindow()");
+    
     var startWindow = request.startJD;  // Start time of the observation request (in Julian Date).
     var endWindow = request.endJD;      // End time of the observation request (in Julian Date).
 
@@ -220,7 +220,7 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
 
 // Filters the observation requests by checking if they meet certain astronomical conditions (e.g., target altitude and distance from the moon).
 function filterByAstronomy(requests, moonCT) {
-    updateLog("debug: in filterByAstronomy()");
+    
     var filteredObs = [];
     var currLST = Util.NowLST(); // Get the current Local Sidereal Time.
 
@@ -229,7 +229,7 @@ function filterByAstronomy(requests, moonCT) {
         var request = requests[i];
         // Add to filteredObs if the request meets the astronomy conditions.
         if (meetsAstronomyConditions(request, moonCT, currLST)) { filteredObs.push(request); }
-        updateLog("adding to filteredObs in filterByAstronomy");
+        
         filteredObs.push(request);
     }
 
@@ -238,7 +238,7 @@ function filterByAstronomy(requests, moonCT) {
 
 // Checks if the observation request meets the required astronomical conditions (elevation above a limit and minimum moon angle).
 function meetsAstronomyConditions(request, moonCT, newLST) {
-    updateLog("debug: in meetsAstronomyConditions()");
+    
     var ra = request.ra;    // Right Ascension of the target.
     var dec = request.dec;  // Declination of the target.
     
@@ -246,10 +246,7 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
     var targetAltitude = calculateAltitude(ra, dec, newLST);
     // Calculate the angular distance between the target and the moon.
     var moonAngle = calculateMoonAngle(ra, dec, moonCT);
-    updateLog("debug: targetAltitude: " + targetAltitude);
-    updateLog("debug: moonAngle: " + moonAngle);
-    updateLog("debug: obs duration mins: " + request.obsDuration);
-
+    
     // Store the calculated values in the request object.
     request.altitude = targetAltitude;
     request.moonAngle = moonAngle;
@@ -261,7 +258,7 @@ function meetsAstronomyConditions(request, moonCT, newLST) {
 
 // Calculates the altitude of the target based on its RA, DEC, and the Local Sidereal Time (LST).
 function calculateAltitude(ra, dec, newLST) {
-    updateLog("debug: in calculateAltitude()");
+    
     var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
 
     ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
@@ -272,7 +269,7 @@ function calculateAltitude(ra, dec, newLST) {
 
 // Calculates the angular distance bbetween the target and the moon in degrees.
 function calculateMoonAngle(ra, dec, moonCT) {
-    updateLog("debug: in calculateMoonAngle()");
+    
     var b = (90 - dec) * Math.PI / 180; // Convert Declination to radians.
     var c = (90 - moonCT.Declination) * Math.PI / 180; // Convert Moon Declination to radians.
     var aa = Math.abs(ra - moonCT.RightAscension) * Math.PI / 180; // Convert RA difference to radians.
@@ -284,7 +281,7 @@ function calculateMoonAngle(ra, dec, moonCT) {
 
 // Ranks the observation requests by calculating a score for each one, and then sorts them in descending order based on that score.
 function rankObservations(requests) {
-    updateLog("debug: in rankObservations()");
+    
     var rankedObs = [];
 
     // Loop through each request and calculate its score.
@@ -305,7 +302,7 @@ function rankObservations(requests) {
 
 // Calculates the overall score for an observation request based on its priority, timing, and astronomical conditions.
 function calculateScore(request) {
-    updateLog("debug: in calculateScore()");
+    
     var score = request.priority * 50; // Give priority extra weight (multiplied by 50).
 
     // Add the scores from time and astronomy conditions to the total score.
@@ -317,7 +314,7 @@ function calculateScore(request) {
 
 // Calculates score based on the observation's time window (how long the observation lasts).
 function evaluateTimeScore(request) {
-    updateLog("debug: in evaluateTimeScore()");
+    
     // Convert the start and end times from Julian date to seconds since Unix Epoch.
     var startSec = (request.startJD - 2440587.5) * 86400;
     var endSec = (request.endJD - 2440587.5) * 86400;
@@ -328,19 +325,19 @@ function evaluateTimeScore(request) {
 
 // Calculates the score based on the observation's astronomical conditions (e.g., altitude and distance from the moon).
 function evaluateAstronomyScore(request) {
-    updateLog("debug: in evaluateAstronomyScore()");
+    
     // Calculate the score based on how much the altitude exceeds the elevation limit.
     var altitudeScore = Math.max(0, request.altitude - elevationLimit);
     var requestAltitudeString = "request.altitude: " + request.altitude;
-    updateLog(requestAltitudeString);
+    
     var elevationLimitString = "elevationLimit: " + elevationLimit;
-    updateLog(elevationLimitString);
+    
     // Calculate the score based on how much the moon angle exceeds the minimum moon offset.
     var moonScore = Math.max(0, request.moonAngle - minMoonOffset);
     var moonAngleString = "request.moonAngle: " + request.moonAngle;
-    updateLog(moonAngleString);
+    
     var minMoonOffsetString = "minMoonOffset: " + minMoonOffset;
-    updateLog(minMoonOffset);
+    
     // Return the sum of the altitude and moon angle scores.
     return altitudeScore + moonScore;
 }
@@ -366,6 +363,56 @@ function updateDay(timeString) {
     parts[2] = (day < 10 ? "0" : "") + day;
     // Recombine the parts into a single time string and return it.
     return parts.join(":");
+}
+
+function writeRequestsToCSV(requests) {
+    try {
+
+        // Open the CSV file for writing (overwriting the file)
+        var writeFile = fso.OpenTextFile("sorted_user_observations.csv", ForWriting, true);
+        updateLog("in writeRequestsToCSV function");
+        updateLog("attempting to write to csv file");
+
+        var header = "Directory Name,Priority,RA,Dec,Start Time,End Time,Obs Duration,Exposure Time,Filter,Binning"
+        writeFile.WriteLine(header); // Write header to the file
+        
+        // Write the new lines of data to the file
+        for (var i = 0; i < requests.length; i++) {
+            var obs = "";
+            obs += requests[i].directoryName;
+            obs += ",";
+            obs += requests[i].priority;
+            obs += ",";
+            obs += requests[i].ra;
+            obs += ",";
+            obs += requests[i].dec;
+            obs += ",";
+            obs += requests[i].startUTC;
+            obs += ",";
+            obs += requests[i].endUTC;
+            obs += ",";
+            obs += requests[i].obsDuration;
+            obs += ",";
+            obs += requests[i].exposureTime;
+            obs += ",";
+            obs += requests[i].filter;
+            obs += ",";
+            obs += requests[i].binning; 
+            // obs += ",";
+            // obs += requests[i].completion;   // not existing right now
+
+            writeFile.WriteLine(obs); // Write each line to the file
+        }
+        
+        writeFile.Close(); // Close the file after writing
+    } catch (e) {
+        // In case of an error (e.g., file access issues), log the error message
+        if (typeof updateLog === "function") {
+            updateLog(e.message, "ERROR");
+        } else {
+            console.error("Error: " + e.message);
+        }
+    }
 }
 
 // Updates the CSV file with new lines while preserving the header row.
