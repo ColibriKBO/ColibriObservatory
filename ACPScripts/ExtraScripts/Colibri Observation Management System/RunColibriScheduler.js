@@ -183,8 +183,53 @@ function selectBestObservation(requests, sunset, sunrise, moonCT) {
     
     // Select the highest-ranked observation.
     var bestObs = selectTopObservation(rankedObs);
+
+    // we need to calculate correct start and end times of the first and following observations
+    // start and end times are arranged end to end. and are calculated based off of top observation.
+    calculateStartEndWindows(rankedObs);
+
     writeRequestsToCSV(rankedObs);
     return bestObs; // Return the best observation request.
+}
+
+function calculateStartEndWindows(rankedObs){
+    // first observation is top observations, we start window cascading calculation based off that
+    for (var i = 0; i < rankedObs.length; i++) {
+        // for first observation, only update endUTC
+        if(i == 0){
+            var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
+            var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
+
+            var calculatedMins = mins + requests[i].obsDuration;
+            var hoursToIncrement = Math.floor(calculatedMins / 60);
+            var minsToIncrement = calculatedMins % 60;
+
+            // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
+            parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
+            parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
+
+            // Recombine the parts into a single time string and return it.
+            requests[i].endUTC = parts.join(":");
+        }
+        // else for the other observations, update startUTC and endUTC
+        else{
+            requests[i].startUTC = requests[i - 1].endUTC;
+
+            var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
+            var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
+
+            var calculatedMins = mins + requests[i].obsDuration;
+            var hoursToIncrement = Math.floor(calculatedMins / 60);
+            var minsToIncrement = calculatedMins % 60;
+
+            // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
+            parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
+            parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
+
+            // Recombine the parts into a single time string and return it.
+            requests[i].endUTC = parts.join(":");
+        }
+    }
 }
 
 // Filters the observation requests by checking if they fall within the allowed time window and between sunset and sunrise.
