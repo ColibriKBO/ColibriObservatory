@@ -197,13 +197,13 @@ function calculateStartEndWindows(rankedObs){
     for (var i = 0; i < rankedObs.length; i++) {
         // for first observation, only update endUTC
         if(i == 0){
-            var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
+            var parts = rankedObs[i].startUTC.split(":"); // Split the time string into parts.
             var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
             var hours = parseInt(parts[parts.length - 2]) // Parse the hours
             var days = parseInt(parts[parts.length - 3]) // Parse the days
 
             // update mins
-            var calculatedMins = mins + requests[i].obsDuration;
+            var calculatedMins = mins + rankedObs[i].obsDuration;
             var minsToIncrement = calculatedMins % 60;
 
             // update hours
@@ -218,24 +218,24 @@ function calculateStartEndWindows(rankedObs){
             //update days
             var daysToIncrement = Math.floor(calculatedHours / 24);
             if(daysToIncrement == 1){
-                requests[i].endUTC = updateDay(parts.join(":"));
+                rankedObs[i].endUTC = updateDay(parts.join(":"));
             }
             else{
                 // Recombine the parts into a single time string
-                requests[i].endUTC = parts.join(":");
+                rankedObs[i].endUTC = parts.join(":");
             }   
         }
         // else for the other observations, update startUTC and endUTC
         else{
-            requests[i].startUTC = requests[i - 1].endUTC;
+            rankedObs[i].startUTC = rankedObs[i - 1].endUTC;
 
-            var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
+            var parts = rankedObs[i].startUTC.split(":"); // Split the time string into parts.
             var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
             var hours = parseInt(parts[parts.length - 2]) // Parse the hours
             var days = parseInt(parts[parts.length - 3]) // Parse the days
 
             // update mins
-            var calculatedMins = mins + requests[i].obsDuration;
+            var calculatedMins = mins + rankedObs[i].obsDuration;
             var minsToIncrement = calculatedMins % 60;
 
             // update hours
@@ -250,11 +250,11 @@ function calculateStartEndWindows(rankedObs){
             //update days
             var daysToIncrement = Math.floor(calculatedHours / 24);
             if(daysToIncrement == 1){
-                requests[i].endUTC = updateDay(parts.join(":"));
+                rankedObs[i].endUTC = updateDay(parts.join(":"));
             }
             else{
                 // Recombine the parts into a single time string
-                requests[i].endUTC = parts.join(":");
+                rankedObs[i].endUTC = parts.join(":");
             }   
         }
     }
