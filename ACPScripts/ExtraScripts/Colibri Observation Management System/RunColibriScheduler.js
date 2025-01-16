@@ -211,19 +211,19 @@ function calculateStartEndWindows(rankedObs){
             var calculatedHours = hours +  hoursToIncrement;
             hoursToIncrement = calculatedHours % 24;
 
-            //update days
-            var daysToIncrement = Math.floor(calculatedHours / 24);
-            var calculatedDays = days + daysToIncrement;    
-
-            // flaw month rollover
-
             // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
             parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
             parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
-            parts[parts.length - 3] = (calculatedDays < 10 ? "0" : "") + calculatedDays;
 
-            // Recombine the parts into a single time string and return it.
-            requests[i].endUTC = parts.join(":");
+            //update days
+            var daysToIncrement = Math.floor(calculatedHours / 24);
+            if(daysToIncrement == 1){
+                requests[i].endUTC = updateDay(parts.join(":"));
+            }
+            else{
+                // Recombine the parts into a single time string
+                requests[i].endUTC = parts.join(":");
+            }   
         }
         // else for the other observations, update startUTC and endUTC
         else{
@@ -231,17 +231,31 @@ function calculateStartEndWindows(rankedObs){
 
             var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
             var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
+            var hours = parseInt(parts[parts.length - 2]) // Parse the hours
+            var days = parseInt(parts[parts.length - 3]) // Parse the days
 
+            // update mins
             var calculatedMins = mins + requests[i].obsDuration;
-            var hoursToIncrement = Math.floor(calculatedMins / 60);
             var minsToIncrement = calculatedMins % 60;
+
+            // update hours
+            var hoursToIncrement = Math.floor(calculatedMins / 60);
+            var calculatedHours = hours +  hoursToIncrement;
+            hoursToIncrement = calculatedHours % 24;
 
             // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
             parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
             parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
 
-            // Recombine the parts into a single time string and return it.
-            requests[i].endUTC = parts.join(":");
+            //update days
+            var daysToIncrement = Math.floor(calculatedHours / 24);
+            if(daysToIncrement == 1){
+                requests[i].endUTC = updateDay(parts.join(":"));
+            }
+            else{
+                // Recombine the parts into a single time string
+                requests[i].endUTC = parts.join(":");
+            }   
         }
     }
 }
@@ -414,15 +428,22 @@ function selectTopObservation(requests) {
 
 // Auxiliary functions
 // Updates the day in a time string.
+// Owen and Akshat fixed this function Nov 21, 2024
 function updateDay(timeString) {
-    updateLog("debug: in updateDay()");
-    var parts = timeString.split(":"); // Split the time string into parts.
-    var day = parseInt(parts[2]) + 1; // Parse the day and increment by 1.
-    // Ensure that the day part is formatted with a leading zero if necessary.
-    parts[2] = (day < 10 ? "0" : "") + day;
-    // Recombine the parts into a single time string and return it.
-    return parts.join(":");
+    // Parse the input time string into a Date object
+    var date = new Date(timeString);
+
+    if (isNaN(date)) {
+        throw new Error("Invalid time string format.");
+    }
+
+    // Add one day
+    date.setDate(date.getDate() + 1);
+
+    // Convert back to ISO 8601 string and return
+    return toISODateString(originalDate)
 }
+
 
 function writeRequestsToCSV(requests) {
     try {
