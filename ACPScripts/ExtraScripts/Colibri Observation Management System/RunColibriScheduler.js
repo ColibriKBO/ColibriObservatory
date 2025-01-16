@@ -199,14 +199,28 @@ function calculateStartEndWindows(rankedObs){
         if(i == 0){
             var parts = requests[i].startUTC.split(":"); // Split the time string into parts.
             var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
+            var hours = parseInt(parts[parts.length - 2]) // Parse the hours
+            var days = parseInt(parts[parts.length - 3]) // Parse the days
 
+            // update mins
             var calculatedMins = mins + requests[i].obsDuration;
-            var hoursToIncrement = Math.floor(calculatedMins / 60);
             var minsToIncrement = calculatedMins % 60;
+
+            // update hours
+            var hoursToIncrement = Math.floor(calculatedMins / 60);
+            var calculatedHours = hours +  hoursToIncrement;
+            hoursToIncrement = calculatedHours % 24;
+
+            //update days
+            var daysToIncrement = Math.floor(calculatedHours / 24);
+            var calculatedDays = days + daysToIncrement;    
+
+            // flaw month rollover
 
             // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
             parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
             parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
+            parts[parts.length - 3] = (calculatedDays < 10 ? "0" : "") + calculatedDays;
 
             // Recombine the parts into a single time string and return it.
             requests[i].endUTC = parts.join(":");
