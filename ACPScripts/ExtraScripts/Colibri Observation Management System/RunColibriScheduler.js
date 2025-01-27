@@ -195,68 +195,40 @@ function selectBestObservation(requests, sunset, sunrise, moonCT) {
 function calculateStartEndWindows(rankedObs){
     // first observation is top observations, we start window cascading calculation based off that
     for (var i = 0; i < rankedObs.length; i++) {
-        // for first observation, only update endUTC
-        if(i == 0){
-            var parts = rankedObs[i].startUTC.split(":"); // Split the time string into parts.
-            var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
-            var hours = parseInt(parts[parts.length - 2]) // Parse the hours
-            var days = parseInt(parts[parts.length - 3]) // Parse the days
-
-            // update mins
-            var calculatedMins = mins + rankedObs[i].obsDuration;
-            var minsToIncrement = calculatedMins % 60;
-
-            // update hours
-            var hoursToIncrement = Math.floor(calculatedMins / 60);
-            var calculatedHours = hours +  hoursToIncrement;
-            hoursToIncrement = calculatedHours % 24;
-
-            // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
-            parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
-            parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
-
-            //update days
-            var daysToIncrement = Math.floor(calculatedHours / 24);
-            if(daysToIncrement == 1){
-                rankedObs[i].endUTC = updateDay(parts.join(":"));
-            }
-            else{
-                // Recombine the parts into a single time string
-                rankedObs[i].endUTC = parts.join(":");
-            }   
-        }
-        // else for the other observations, update startUTC and endUTC
-        else{
+        if(i > 0){
             rankedObs[i].startUTC = rankedObs[i - 1].endUTC;
-
-            var parts = rankedObs[i].startUTC.split(":"); // Split the time string into parts.
-            var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
-            var hours = parseInt(parts[parts.length - 2]) // Parse the hours
-            var days = parseInt(parts[parts.length - 3]) // Parse the days
-
-            // update mins
-            var calculatedMins = mins + rankedObs[i].obsDuration;
-            var minsToIncrement = calculatedMins % 60;
-
-            // update hours
-            var hoursToIncrement = Math.floor(calculatedMins / 60);
-            var calculatedHours = hours +  hoursToIncrement;
-            hoursToIncrement = calculatedHours % 24;
-
-            // Ensure that the hours and mins parts are formatted with a leading zero if necessary.
-            parts[parts.length - 1] = (minsToIncrement < 10 ? "0" : "") + minsToIncrement;
-            parts[parts.length - 2] = (hoursToIncrement < 10 ? "0" : "") + hoursToIncrement;
-
-            //update days
-            var daysToIncrement = Math.floor(calculatedHours / 24);
-            if(daysToIncrement == 1){
-                rankedObs[i].endUTC = updateDay(parts.join(":"));
-            }
-            else{
-                // Recombine the parts into a single time string
-                rankedObs[i].endUTC = parts.join(":");
-            }   
         }
+        // for first observation, only update endUTC
+        var parts = rankedObs[i].startUTC.split(":"); // Split the time string into parts.
+        var mins = parseInt(parts[parts.length - 1]) // Parse the minutes
+        var hours = parseInt(parts[parts.length - 2]) // Parse the hours
+        var days = parseInt(parts[parts.length - 3]) // Parse the days
+
+        // update mins
+        var calculatedMins = mins + rankedObs[i].obsDuration;
+        var minsToIncrement = rankedObs[i].obsDuration % 60;
+
+        // update hours
+        var hoursToIncrement = Math.floor(calculatedMins / 60) % 24;
+        var calculatedHours = hours +  hoursToIncrement;
+
+        // increment hours and mins, rollover hours and mins if necessary
+        parts[parts.length - 1] = (mins + minsToIncrement) % 60;
+        parts[parts.length - 2] = (hours + hoursToIncrement) % 24;
+
+        // format fields with leading zero if only one digit long
+        parts[parts.length - 1] = (parts[parts.length - 1] < 10 ? "0" : "") + parts[parts.length - 1];
+        parts[parts.length - 2] = (parts[parts.length - 2] < 10 ? "0" : "") + parts[parts.length - 2];
+
+        //update days
+        var daysToIncrement = Math.floor(calculatedHours / 24);
+        if(daysToIncrement == 1){
+            rankedObs[i].endUTC = updateDay(parts.join(":"));
+        }
+        else{
+            // Recombine the parts into a single time string
+            rankedObs[i].endUTC = parts.join(":");
+        }   
     }
 }
 
@@ -429,21 +401,31 @@ function selectTopObservation(requests) {
 // Auxiliary functions
 // Updates the day in a time string.
 // Owen and Akshat fixed this function Nov 21, 2024
+// timeString should be in this format: YYYY-MM-DDTHH:mm
 function updateDay(timeString) {
+
+    timeString = timeString.replace(':', '-');
+    timeString = timeString.replace(':', '-');
+    timeString = timeString.replace(':', 'T');
+
     // Parse the input time string into a Date object
     var date = new Date(timeString);
-
     if (isNaN(date)) {
         throw new Error("Invalid time string format.");
     }
-
     // Add one day
     date.setDate(date.getDate() + 1);
-
+    date.setHours(date.getHours() - 5);
     // Convert back to ISO 8601 string and return
-    return toISODateString(originalDate)
-}
+    var returnVal = date.toISOString();
 
+    returnVal = returnVal.replace('-', ':');
+    returnVal = returnVal.replace('-', ':');
+    returnVal = returnVal.replace('T', ':');
+    returnVal = returnVal.replace(':00.000Z', '');
+
+    return returnVal;
+}
 
 function writeRequestsToCSV(requests) {
     try {
