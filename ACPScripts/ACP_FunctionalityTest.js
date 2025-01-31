@@ -18,6 +18,34 @@ function moveDomeToOtherSide() {
     Console.PrintLine("Dome movement completed.");
 }
 
+if (Dome.slave == false)
+    {
+        Console.PrintLine("Unparking dome and slaving to telescope...");
+        Dome.slave = true;
+    }
+
+///////////////////////////
+function domeHome()
+{
+    ////////////////////////////////////////
+    // Home the dome if not already done. //
+    ////////////////////////////////////////
+    if (!Dome.AtHome)
+    {
+        Util.WaitForMilliseconds(2000);
+
+        Dome.FindHome();
+
+        while (!Dome.AtHome)
+        {
+            Console.PrintLine("*** Homing dome...");
+            Util.WaitForMilliseconds(2000);
+        }
+        Console.PrintLine("--> Dome is homed... Bigly.");
+    }
+    Dome.UnparkHome()
+}
+
 function captureImage() {
     try {
         Console.PrintLine("Attempting to create ActiveX object for MaxIM DL...");
