@@ -1,4 +1,24 @@
-function main() {
+function moveDomeToOtherSide() {
+    var currentPierSide = Telescope.SideOfPier;
+    var pierside = (currentPierSide == 0) ? "E" : "W";
+    Console.PrintLine("Pier side: " + pierside);
+
+    // Determine the target azimuth based on the current pier side
+    var targetAzimuth = (currentPierSide == 0) ? 180 : 0; // 180° for West, 0° for East
+
+    // Move the dome to the opposite side
+    Console.PrintLine("Moving dome to azimuth: " + targetAzimuth + "°...");
+    Dome.SlewToAzimuth(targetAzimuth);
+
+    // Wait for the dome to finish moving
+    while (Dome.Slewing) {
+        Console.PrintLine("Dome is slewing...");
+        Util.WaitForMilliseconds(500); // Check every 500ms
+    }
+    Console.PrintLine("Dome movement completed.");
+}
+
+function captureImage() {
     try {
         Console.PrintLine("Attempting to create ActiveX object for MaxIM DL...");
         // Create ActiveX object for MaxIM DL
@@ -35,7 +55,7 @@ function main() {
         }
 
         // Wait for the image to become ready
-        var maxWaitTime = 10000;  // Maximum wait time of 10 seconds
+        var maxWaitTime = 20000;  // Maximum wait time of 10 seconds
         var waitInterval = 500;   // Check every 500ms
         var elapsedTime = 0;
 
@@ -65,4 +85,25 @@ function main() {
     } catch (e) {
         Console.PrintLine("An error occurred: " + e.message);
     }
+}
+
+function main() {
+    Console.PrintLine("Starting dome movement and image capture...");
+
+    // Ensure the telescope is connected before doing anything
+    if (!Telescope.Connected) {
+        Console.PrintLine("Telescope is not connected. Attempting to connect...");
+        Telescope.Connected = true;  // Attempt to connect to the telescope
+
+        if (!Telescope.Connected) {
+            Console.PrintLine("Failed to connect to the telescope.");
+            return;
+        }
+    }
+
+    // Move the dome and capture images
+    moveDomeToOtherSide();  // Start dome movement (blocking until done)
+    captureImage();         // Start capturing the image (independently)
+
+    // Optionally, you can check status or log while waiting
 }
