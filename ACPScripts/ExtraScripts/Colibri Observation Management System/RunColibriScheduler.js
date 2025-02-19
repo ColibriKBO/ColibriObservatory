@@ -451,16 +451,81 @@ function updateDay(timeString) {
     return returnVal;
 }
 
-function writeRequestsToCSV(requests) {
+function twilightTimes(jDate) {
+	var lat = Telescope.SiteLatitude;
+	var lon = Telescope.SiteLongitude;
+	var n = Math.floor(jDate - 2451545.0 + 0.0008);
+	var Jstar = n - (lon/360.0);
+	var M = (357.5291 + 0.98560028 * Jstar) % 360;
+	var C = 1.9148*Math.sin(Util.Degrees_Radians(M)) + 0.02*Math.sin(2*Util.Degrees_Radians(M)) + 0.0003*Math.sin(3*Util.Degrees_Radians(M));
+	var lam = (M + C + 180 + 102.9372) % 360;
+	var Jtransit = 2451545.0 + Jstar + 0.0053*Math.sin(Util.Degrees_Radians(M)) - 0.0069*Math.sin(2*Util.Degrees_Radians(lam));
+	var sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
+	var cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat))*sindec)) / (Math.cos(Util.Degrees_Radians(lat))*Math.cos(Math.asin(sindec)));
+	var Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA)))/360;
+	var Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA)))/360;
+
+	return [Jrise, Jset];
+}
+
+function writeRequestsToCSV(requests, sunrise, sunset) {
+
+    // Moved section from main to this function so sunrise and sunset can be accessed
+    const monthToNum = new Map();
+    monthToNum.set('Jan', '01');
+    monthToNum.set('Feb', '02');
+    monthToNum.set('Mar', '03');
+    monthToNum.set('Apr', '04');
+    monthToNum.set('May', '05');
+    monthToNum.set('Jun', '06');
+    monthToNum.set('Jul', '07');
+    monthToNum.set('Aug', '08');
+    monthToNum.set('Sep', '09');
+    monthToNum.set('Oct', '10');
+    monthToNum.set('Nov', '11');
+    monthToNum.set('Dec', '12');
+    
+    // DEBUG: need to set sunset and sunrise time
+    var currentDay = new Date();
+    currentDay.setHours(12);
+    currentDay.setMinutes(30);
+    var parts = currentDay.toUTCString().split(' ');
+    var hourMinSec = parts[4].split(':');
+    var currentDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
+    var sunset = UTCtoJD(currentDateString);
+    // console.log(sunset); 2025-02-19 17:30:00
+
+    var nextDay = new Date();
+    nextDay.setDate(currentDay.getDate() + 1);
+    nextDay.setHours(2);
+    nextDay.setMinutes(30);
+    var parts = nextDay.toUTCString().split(' ');
+    var hourMinSec = parts[4].split(':');
+    var nextDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
+    var sunrise = UTCtoJD(nextDateString);
+    // console.log(sunrise); 2025-02-20 07:30:00
+    // DEBUG: need to set sunset and sunrise time
+    
     try {
 
         // Import the filesystem module 
-        const fs = require('fs'); 
+        const fs = require('fs');
+        
+        fs.readFileSync('./colibri_user_observations.csv', 'utf8');
 
         var data = "Directory Name,Priority,RA,Dec,Start Time,End Time,Obs Duration,Exposure Time,Filter,Binning,Total Score,Astronomy Score, Time Score\n"
-        
+        data += "Sunrise: "
+        data += sunrise;
+        data += "\n";
+        data += "Sunset: "
+        data += sunset;
+        data += "\n";
+
         // Write the new lines of data to the file
         for (var i = 0; i < requests.length; i++) {
+            startObsWindowJD = UTCtoJD(requests[i].startUTC);
+            endObsWindowJD = UTCtoJD(requests[i].endUTC);
+            if (startObsWindowJD >= sunset && endObsWindowJD <= sunrise) {
             var obs = "";
             obs += requests[i].directoryName;
             obs += ",";
@@ -489,13 +554,44 @@ function writeRequestsToCSV(requests) {
             obs += requests[i].timeScore; 
             obs += '\n';
             data += obs;
+            }
+
         }
-        fs.writeFileSync("sorted_user_observations.csv", data); 
+        fs.writeFileSync("sorted_user_observations.csv", data);
+
+        file1 = './colibri_user_observations.csv';
+        file2 = 'sorted_user_observations.csv';
+
+        // Read and normalize files, handling commas for CSVs
+        const file1Lines = fs.readFileSync(file1, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
+        const file2Lines = fs.readFileSync(file2, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
+
+        // Extract the first word from each line by splitting by commas
+        const file2FirstWords = new Set(file2Lines.map(line => line.split(',')[0].trim()));
+
+        console.log('First fields in file2:', Array.from(file2FirstWords));  // Debugging
+
+        // Filter file1 lines where the first field (before comma) is not in file2
+        const uniqueLines = file1Lines.filter(line => {
+            const firstWord = line.split(',')[0].trim(); // Get the first field (before the comma)
+            return !file2FirstWords.has(firstWord);
+        });
+
+        console.log('Unique lines from file1:', uniqueLines);  // Debugging
+
+        // Write back the filtered lines to file1
+        fs.writeFileSync(file1, uniqueLines.join('\n'), 'utf8');
+
+        console.log(`Updated ${file1}, removed ${file1Lines.length - uniqueLines.length} lines with common first fields.`);
     } catch (e) {
         // In case of an error (e.g., file access issues), log the error message
         console.error("Error: " + e.message);
     }
 }
+
+
+//New function to delete observations that have already been scheduled
+
 
 // END OF FUNCTIONS
 
@@ -503,7 +599,7 @@ function writeRequestsToCSV(requests) {
 // Variables used for logging and system state checks.
 var logconsole = true; // Enable or disable logging the console output.
 var fso, f1, ts; // FileSystemObject and file variables for logging and file handling.
-var currentDate = "20250101"; // Store the current date.
+// var currentDate = "20250101"; // Store the current date.
 
 // Magic numbers for astronomical limits
 var elevationLimit = 10; // Minimum elevation angle for telescope pointing (degrees).
@@ -540,6 +636,8 @@ function main() {
     var hourMinSec = parts[4].split(':');
     var currentDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
     var sunset = UTCtoJD(currentDateString);
+    console.log("Sunset JD:")
+    console.log(sunset);
 
     var nextDay = new Date();
     nextDay.setDate(currentDay.getDate() + 1);
@@ -549,6 +647,8 @@ function main() {
     var hourMinSec = parts[4].split(':');
     var nextDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
     var sunrise = UTCtoJD(nextDateString);
+    console.log("Sunrise JD:")
+    console.log(sunrise);
     // DEBUG: need to set sunset and sunrise time
     
     // Get the current position of the Moon
