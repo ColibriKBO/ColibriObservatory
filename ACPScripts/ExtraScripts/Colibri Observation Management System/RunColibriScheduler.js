@@ -87,9 +87,27 @@ function isoStringToUTC(timeString){
 }
 
 // Added by Akshat and Owen
-function JDtoUTCScheduler(JD){
+function formatISODate(date) {
+    function pad(n) { return n < 10 ? '0' + n : n; }
+    return date.getUTCFullYear() + '-' +
+           pad(date.getUTCMonth() + 1) + '-' +
+           pad(date.getUTCDate()) + 'T' +
+           pad(date.getUTCHours()) + ':' +
+           pad(date.getUTCMinutes()) + ':' +
+           pad(date.getUTCSeconds()) + '.' +
+           (date.getUTCMilliseconds() / 1000).toFixed(3).slice(2, 5) + 'Z';
+}
+
+// Added by Akshat and Owen
+function JDtoUTCScheduler(JD, debug){
     var unixTimestamp = (JD - 2440587.5) * 86400000;
-    var newDate = isoStringToUTC(new Date(unixTimestamp).toISOString())
+    var newDate;
+    if(debug === undefined){
+        newDate = isoStringToUTC(formatISODate(new Date(unixTimestamp)));
+    }
+    else{
+        newDate = isoStringToUTC(new Date(unixTimestamp).toISOString());
+    }
     newDate = newDate.split(":"); // Convert to JavaScript Date object
 
     var date = "";
@@ -107,7 +125,7 @@ function JDtoUTCScheduler(JD){
 // Scheduling-related functions
 // Converts a UTC time string to a Julian Date (JD) for astronomical calculations.
 // JD is used for precision in tracking celestial events and scheduling observations.
-function UTCtoJDOld(UTC, debug) {
+function UTCtoJD(UTC, debug) {
 
     // Split the UTC string into its components: year, month, day, hour, and minutes.
     var dividedUTC = UTC.split(":");
@@ -140,40 +158,6 @@ function UTCtoJDOld(UTC, debug) {
         // Add the fractional day to the Julian Day
         return JD + fracDay;
 }
-function UTCtoJD(UTC, debug) {
-    if (debug === undefined) { // normal operation of code
-        // Use the ACP Util Object to calculate the Julian Date from the year, month, and fractional day.
-        return Util.Calendar_Julian(year, month, fracDay);
-    }
-    // else, in debugging mode so can't use ACP API
-    // Split the UTC string into its components: year, month, day, hour, and minutes.
-    var dividedUTC = UTC.split(":");
-
-    // Parse the components as integers for calculation.
-    var year = parseInt(dividedUTC[0], 10);
-    var month = parseInt(dividedUTC[1], 10);
-    var day = parseInt(dividedUTC[2], 10);
-    var hour = parseInt(dividedUTC[3], 10);
-    var minute = parseInt(dividedUTC[4], 10);
-
-    // Convert the time into fractional days.
-    var fracDay = (hour + (minute / 60)) / 24; // Convert hours/minutes to fraction of a day.
-
-    // If month is January or February, adjust year and month for Julian calculation.
-    if (month <= 2) {
-        year -= 1;
-        month += 12;
-    }
-
-    // Calculate Julian Day Number using the standard formula.
-    var A = Math.floor(year / 100);
-    var B = 2 - A + Math.floor(A / 4);
-    var JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + B - 1524.5;
-
-    // Add the fractional part of the day.
-    return JD + fracDay;
-}
-
 
 // Reads and parses observation requests from a CSV file.
 // The function returns an array of Request objects along with the raw CSV data.
@@ -295,20 +279,19 @@ function getLST(longitude, UTCstring, timeFastForward) {
     var now = UTCstring.split(":");
     
     // Get current UTC time components
-    var year = now[0];
-    var month = now[1];
-    var day = now[2];
-    var hours = now[3];
-    var minutes = now[4];
-    var seconds = '00';
-
-    var date = new Date(year + "-" + month + "-" + day + "T" + hours + ":" + minutes + ":" + seconds);
+    var year = parseInt(now[0], 10);
+    var month = parseInt(now[1], 10) - 1; // Adjust for zero-based index
+    var day = parseInt(now[2], 10);
+    var hours = parseInt(now[3], 10);
+    var minutes = parseInt(now[4], 10);
+    
+    var date = new Date(year, month, day, hours, minutes, 0); // No ISO string parsing
 
     date.setTime(date.getTime() + timeFastForward * 60000);
 
     year = date.getFullYear();
-    month = date.getMonth();
-    day = date.getDay();
+    month = date.getMonth() + 1; // Convert back to 1-based index
+    day = date.getDate(); // Corrected from getDay()
     hours = date.getHours();
     minutes = date.getMinutes();
 
@@ -317,32 +300,31 @@ function getLST(longitude, UTCstring, timeFastForward) {
         year -= 1;
         month += 12;
     }
-    
+
     var A = Math.floor(year / 100);
     var B = 2 - A + Math.floor(A / 4);
-    
+
     var JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + B - 1524.5 +
-             (hours + minutes / 60 + seconds / 3600) / 24;
-    
+             (hours + minutes / 60) / 24; // No `seconds` variable used
+
     // Calculate Julian Century
     var T = (JD - 2451545.0) / 36525.0;
 
     // Calculate Greenwich Mean Sidereal Time (GMST) in degrees
     var GMST = 280.46061837 + 360.98564736629 * (JD - 2451545) +
                T * T * (0.000387933 - T / 38710000);
-    
+
     // Normalize GMST to [0, 360] range
-    GMST = GMST % 360;
-    if (GMST < 0) GMST += 360;
+    GMST = ((GMST % 360) + 360) % 360;
 
     // Convert GMST to Local Sidereal Time (LST)
     var LST = GMST + longitude;
-    if (LST < 0) LST += 360;
-    if (LST >= 360) LST -= 360;
+    LST = ((LST % 360) + 360) % 360;
 
     // Convert degrees to hours
     return LST / 15; // LST in hours
 }
+
 
 // Selects the best observation from a list of requests, based on various filtering and ranking criteria.
 function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
@@ -352,8 +334,10 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
     if(debug === undefined){
         // Filter out observations that don't fit within the time window or between sunset and sunrise.
         suitableObs = filterByTime(requests, sunset, sunrise);
+        Console.PrintLine("length of suitableObs: " + suitableObs.length)
         // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
         filteredObs = filterByAstronomy(suitableObs, moonCT);
+        Console.PrintLine("length of filteredObs: " + filteredObs.length)
     }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
     else{
         suitableObs = filterByTime(requests, sunset, sunrise, "debug");
@@ -373,9 +357,9 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
     var rankedObsAstronomyCheck = [];
     var timeFastForward = 0;
     for (var i = 0; i < rankedObs.length; i++) {
-        var lst = getLST(-81.3103, rankedObs[i].startUTC, timeFastForward);
-        var endlst = getLST(-81.3103, rankedObs[i].endUTC, timeFastForward);
-
+        var lst = getLST(Telescope.Sitelongitude, rankedObs[i].startUTC, timeFastForward);
+        var endlst = getLST(Telescope.Sitelongitude, rankedObs[i].endUTC, timeFastForward);
+        //Console.PrintLine("lst: " + lst + " endlst: " + endlst);
         if (meetsAstronomyConditions(rankedObs[i], moonCT, lst, debug) && meetsAstronomyConditions(rankedObs[i], moonCT, endlst, debug)) {
             rankedObsAstronomyCheck.push(rankedObs[i]);
         }
@@ -536,13 +520,14 @@ function filterByTime(requests, sunset, sunrise, debug) {
         monthToNum.set('Dec', '12');
 
         var currentDay = new Date();
-        currentDay.setHours(20); // set hours to around midnight UTC so observations don't get filtered out
+        currentDay.setHours(21); // set hours to around midnight UTC so observations don't get filtered out
         var parts = currentDay.toUTCString().split(' ');
         var hourMinSec = parts[4].split(':');
         var currentDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
         currJD = UTCtoJD(currentDateString, "debug");
     }
     // Loop through each request and check if it fits within the time window and sunset/sunrise.
+    // Console.PrintLine("currJD: " + currJD + " sunset: " + sunset + " sunrise: " + sunrise);
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
         // Add to filteredObs if the request is within the time window.
@@ -556,10 +541,10 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
     
     var startWindow = request.startJD;  // Start time of the observation request (in Julian Date).
     var endWindow = request.endJD;      // End time of the observation request (in Julian Date).
-
+    
     // Calculate the end time of the observation in Julian Date.
     var endJD = currJD + (request.obsDuration / 1440); // obsDuration is in minutes, dividing by 1440 gives days.
-
+    Console.PrintLine("startWindow: " + startWindow + " endWindow: " + endWindow + " currJD: " + currJD + " sunrise: " + sunrise + " sunset: " + sunset);
     // Check if the observation fits within the time window and returns true if it does.
     return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
@@ -610,6 +595,7 @@ function calculateAltitude(ra, dec, newLST, debug) {
 
     if (debug === undefined) { // normal operation of code
         var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
+        Console.PrintLine("ra: " + ra + " dec: " + dec + " newLST: " + newLST);
         ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
         ct.Declination = dec; // Set the Declination of the target.
         return ct.Elevation; // Return the target's altitude (elevation) in degrees.
@@ -1945,18 +1931,18 @@ function main() {
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
     var lines = csvData[1]; // Lines from the CSV file
-    
+    Console.PrintLine("length of requests: " + requests.length)
     // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
     var listOfBestObs = selectBestObservations(requests, sunset, sunrise, moonCT);
     
     var obsIndex = 0;
     // Begin the main observation loop.
     do {
-        Console.PrintLine("on line 1955")
+        Console.PrintLine("length of listOfBestObs: " + listOfBestObs.length)
         Console.PrintLine(listOfBestObs)
         var bestObs = obsIndex < listOfBestObs.length ? listOfBestObs[obsIndex] : null;
         Console.PrintLine("on line 1957")
-        Console.PrintLine(bestObs);
+        Console.PrintLine(bestObs[0]);
         Console.PrintLine("on line 1959")
         updateLog(bestObs);
         Console.PrintLine("on line 1958")
