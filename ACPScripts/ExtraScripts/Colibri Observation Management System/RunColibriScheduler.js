@@ -1,4 +1,4 @@
-// const Util = require('./Util');    // used for debugging, not needed on ACP
+// var Util = require('./Util');    // used for debugging, not needed on ACP
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
@@ -88,7 +88,7 @@ function isoStringToUTC(timeString){
 
 // Added by Akshat and Owen
 function JDtoUTCScheduler(JD){
-    const unixTimestamp = (JD - 2440587.5) * 86400000;
+    var unixTimestamp = (JD - 2440587.5) * 86400000;
     var newDate = isoStringToUTC(new Date(unixTimestamp).toISOString())
     newDate = newDate.split(":"); // Convert to JavaScript Date object
 
@@ -237,7 +237,7 @@ function getRequests(debug) {
         return [requests, lines];
     }
     // debug mode which can be tested in say VS Code
-    const fs = require('fs');
+    var fs = require('fs');
     var data;
     try {
         data = fs.readFileSync('./colibri_user_observations.csv', 'utf8');
@@ -354,7 +354,7 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         suitableObs = filterByTime(requests, sunset, sunrise);
         // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
         filteredObs = filterByAstronomy(suitableObs, moonCT);
-    }
+    }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
     else{
         suitableObs = filterByTime(requests, sunset, sunrise, "debug");
         // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
@@ -362,14 +362,14 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         // Modified below
         //filteredObs = filterByAstronomy(requests, moonCT, "debug");
     }
-
+    
     // Rank the remaining suitable observations based on priority, time, and astronomy scores.
     var rankedObs = rankObservations(filteredObs, debug);
     
     // we need to calculate correct start and end times of the first and following observations
     // start and end times are arranged end to end. and are calculated based off of top observation.
     calculateStartEndWindows(rankedObs, debug);
-
+    
     var rankedObsAstronomyCheck = [];
     var timeFastForward = 0;
     for (var i = 0; i < rankedObs.length; i++) {
@@ -386,7 +386,7 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
     }
 
     calculateStartEndWindows(rankedObsAstronomyCheck, debug);
-
+    
     if(debug === undefined){
         writeRequestsToCSV(rankedObsAstronomyCheck);
     }
@@ -398,27 +398,29 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
 
 //Added by Akshat and Owen
 function getSunsetSunrise(numDays, debug){
+    
     // Moved section from main to this function so sunrise and sunset can be accessed
-    const monthToNum = new Map();
-    monthToNum.set('Jan', '01');
-    monthToNum.set('Feb', '02');
-    monthToNum.set('Mar', '03');
-    monthToNum.set('Apr', '04');
-    monthToNum.set('May', '05');
-    monthToNum.set('Jun', '06');
-    monthToNum.set('Jul', '07');
-    monthToNum.set('Aug', '08');
-    monthToNum.set('Sep', '09');
-    monthToNum.set('Oct', '10');
-    monthToNum.set('Nov', '11');
-    monthToNum.set('Dec', '12');
+    var monthToNum = {
+        'Jan': '01',
+        'Feb': '02',
+        'Mar': '03',
+        'Apr': '04',
+        'May': '05',
+        'Jun': '06',
+        'Jul': '07',
+        'Aug': '08',
+        'Sep': '09',
+        'Oct': '10',
+        'Nov': '11',
+        'Dec': '12'
+    };
     
     // DEBUG: need to set sunset and sunrise time
     var currentDay = new Date();
     currentDay.setDate(currentDay.getDate() + numDays);
     var parts = currentDay.toUTCString().split(' ');
     var hourMinSec = parts[4].split(':');
-    var currentDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
+    var currentDateString = parts[3] + ':' + monthToNum[parts[2]] + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
     var cdJD = UTCtoJD(currentDateString, debug);
 
     sunset  = twilightTimes(cdJD, debug)[1];
@@ -477,6 +479,7 @@ function calculateStartEndWindows(rankedObs, debug){
     var sunrise = getSunsetSunrise(numDays, debug)[1];
     var sunset = getSunsetSunrise(numDays, debug)[0];
     var sunriseSunsetReset = true;
+    
     // first observation is top observations, we start window cascading calculation based off that
     for (var i = 0; i < rankedObs.length; i++) {
         if (sunriseSunsetReset) {
@@ -518,7 +521,7 @@ function filterByTime(requests, sunset, sunrise, debug) {
     }
     else{
         // debug mode which can be tested in say VS Code
-        const monthToNum = new Map();
+        var monthToNum = new Map();
         monthToNum.set('Jan', '01');
         monthToNum.set('Feb', '02');
         monthToNum.set('Mar', '03');
@@ -571,7 +574,7 @@ function filterByAstronomy(requests, moonCT, debug) {
     }
     else{
         // debug mode which can be tested in say VS Code
-        currLST = 10.5; // Replace with a constant LST value in hours (e.g., 10.5 = 10:30 hours).
+        currLST = 10.5; // Replace with a varant LST value in hours (e.g., 10.5 = 10:30 hours).
     }
 
     // Loop through each request and check if it meets the astronomical conditions.
@@ -613,22 +616,22 @@ function calculateAltitude(ra, dec, newLST, debug) {
     }
     else{
         // debug mode which can be tested in say VS Code
-        // Constants
-        const latitude = 34.0; // Replace with the telescope's fixed latitude in degrees (e.g., 34.0 for a location in the northern hemisphere).
+        // varants
+        var latitude = 34.0; // Replace with the telescope's fixed latitude in degrees (e.g., 34.0 for a location in the northern hemisphere).
 
         // Convert inputs to radians for calculations
-        const raRad = (ra / 15) * (Math.PI / 180); // Convert RA from degrees to hours, then to radians
-        const decRad = dec * (Math.PI / 180); // Convert Dec to radians
-        const latRad = latitude * (Math.PI / 180); // Convert latitude to radians
-        const lstRad = newLST * (Math.PI / 180); // Convert LST to radians
+        var raRad = (ra / 15) * (Math.PI / 180); // Convert RA from degrees to hours, then to radians
+        var decRad = dec * (Math.PI / 180); // Convert Dec to radians
+        var latRad = latitude * (Math.PI / 180); // Convert latitude to radians
+        var lstRad = newLST * (Math.PI / 180); // Convert LST to radians
 
         // Calculate the Hour Angle (HA) in radians
-        const haRad = lstRad - raRad;
+        var haRad = lstRad - raRad;
 
         // Calculate altitude (elevation) using the formula:
         // sin(alt) = sin(dec) * sin(lat) + cos(dec) * cos(lat) * cos(HA)
-        const sinAlt = Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(haRad);
-        const altitude = Math.asin(sinAlt); // Resulting altitude in radians
+        var sinAlt = Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(haRad);
+        var altitude = Math.asin(sinAlt); // Resulting altitude in radians
 
         // Convert altitude back to degrees
         return altitude * (180 / Math.PI);
@@ -801,29 +804,38 @@ function writeRequestsToCSV(requests, debug) {
         if (debug !== undefined) {
             file1 = './colibri_user_observations.csv';
             file2 = 'sorted_user_observations.csv';
-    
+            
             // Read and normalize files, handling commas for CSVs
-            const file1Lines = fs.readFileSync(file1, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
-            const file2Lines = fs.readFileSync(file2, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
+            var file1Lines = fs.readFileSync(file1, 'utf8').replace(/\r/g, '').split('\n').map(function (line) {return line.trim();}).filter(function (line) {return line;});
+            var file2Lines = fs.readFileSync(file2, 'utf8').replace(/\r/g, '').split('\n').map(function (line) {return line.trim();}).filter(function (line) {return line;});
     
             // Extract the first word from each line by splitting by commas
-            const file2FirstWords = new Set(file2Lines.map(line => line.split(',')[0].trim()));
+            var file2FirstWords = new Set(file2Lines.map(function (line) {return line.split(',')[0].trim()}));
     
             console.log('First fields in file2:', Array.from(file2FirstWords));  // Debugging
     
-            const header = file1Lines[0];
+            var header = file1Lines[0];
     
-            const uniqueLines = [header, ...file1Lines.slice(1).filter(line => {
-                const firstWord = line.split(',')[0].trim(); // Get the first field (before the comma)
-                return !file2FirstWords.has(firstWord);
-            })];
+            var filteredLines = [];
+            var slicedLines = file1Lines.slice(1); // slice() is ES3-compatible
+            for (var i = 0; i < slicedLines.length; i++) {
+                var line = slicedLines[i];
+                var firstWord = line.split(',')[0].trim(); // Get the first field (before the comma)
+                
+                if (!file2FirstWords.has(firstWord)) {
+                    filteredLines.push(line);
+                }
+            }
+            // Use concat() instead of spread operator
+            var uniqueLines = [header].concat(filteredLines);
+
     
             console.log('Unique lines from file1:', uniqueLines);  // Debugging
     
             // Write back the filtered lines to file1
             fs.writeFileSync(file1, uniqueLines.join('\n'), 'utf8');
     
-            console.log(`Updated ${file1}, removed ${file1Lines.length - uniqueLines.length} lines with common first fields.`);
+            console.log("Updated " + file1 + ", removed " + (file1Lines.length - uniqueLines.length) + " lines with common first fields.");
         }
     } catch (e) {
         // In case of an error (e.g., file access issues), log the error message
@@ -883,15 +895,6 @@ function printPlan(plan) {
             updateLog("RA: " + request.ra + " Dec: " + request.dec + " Alt: " + request.alt + " Moon Angle: " + request.moonAngle, "INFO");
         }
     }
-}
-
-// Updates the log with the given message and type (e.g., INFO or ERROR).
-// 'contents' is the message to log, 'type' is the log type (INFO, ERROR, etc.).
-function updateLog(contents, type) {
-    // Print the log message to the console.
-    Console.PrintLine(contents);
-    // Write the log message to a file with a timestamp, type, and the log content.
-    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
 }
 
 // Handles script actions such as aborting, restarting, and shutdown 
@@ -1727,7 +1730,7 @@ function waitUntilSunset(updatetime) {
 // END OF FUNCTIONS
 
 // Global variables and configurations
-var DEBUG = true;
+var DEBUG = false;
 // Variables used for logging and system state checks.
 var logconsole = true; // Enable or disable logging the console output.
 var firstRun = true; // Tracks whether the script is running for the first time.
@@ -1742,7 +1745,7 @@ var elevationLimit = 10; // Minimum elevation angle for telescope pointing (degr
 var minMoonOffset = 15; // Minimum allowed angular distance from the Moon (degrees).
 var telescopeSchedulerSlewAllowance = 5; // allowance of 5 mins between observations in scheduler for slewing
 
-// File handling constants for different file modes.
+// File handling varants for different file modes.
 var ForReading = 1;
 var ForAppending = 8;
 var ForWriting = 2;
@@ -1778,16 +1781,38 @@ if(DEBUG === false){ // normal operation of code
     Console.PrintLine("Log file ready.")
 }
 
+// Updates the log with the given message and type (e.g., INFO or ERROR).
+// 'contents' is the message to log, 'type' is the log type (INFO, ERROR, etc.).
+function updateLog(contents, type) {
+    // Print the log message to the console.
+    Console.PrintLine(contents);
+    // Write the log message to a file with a timestamp, type, and the log content.
+    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
+}
+
 // main() function is utilized by ACP, while mainDEBUG() is utilized locally on say VSCode
 // Main execution function.
 function main() {
+    
+    // Define the log file path using the current sunset time in UTC format.
+    LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
+    
+    if (fso.FileExists(LogFile)) {
+        Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
+    } else {
+        fso.CreateTextFile(LogFile);
+    }
+    f1 = fso.GetFile(LogFile);
+    try {
+        ts = f1.OpenAsTextStream(ForAppending, true);
+    } catch(err) {
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Log file is already open.");
+    }
     try{
         updateLog("Attempting to create ActiveX object for MaxIM DL", "INFO");
-        
         // Create ActiveX object for controlling MaxIM DL software
         maximDL = new ActiveXObject("MaxIm.Application");
         updateLog("MaxIM DL ActiveX object created successfully.", "INFO");
-    
         // Access the CCD camera object from MaxIM DL.
         ccdCamera = maximDL.CCDCamera;
         updateLog("Accessing the CCD camera object", "INFO");
@@ -1795,7 +1820,7 @@ function main() {
         // Handle any errors during object creation or access.
         updateLog("An error occurred " + e.message, "ERROR");
     }
-
+    
     // Calculate astronomical sunrise and sunset times (technically 12 degree twilight times) based on Julian Date.
     // twilightTimes: [0] - JD of sunrise, [1] - JD of sunset
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
@@ -1860,22 +1885,6 @@ function main() {
         // If a new day starts, update the log file.
         if (getDate() != currentDate) {
             currentDate = getDate();
-
-            // Define the log file path using the current sunset time in UTC format.
-            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
-
-            if (fso.FileExists(LogFile)) {
-                Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
-            } else {
-                fso.CreateTextFile(LogFile);
-            }
-
-            f1 = fso.GetFile(LogFile);
-            try {
-                ts = f1.OpenAsTextStream(ForAppending, true);
-            } catch(err) {
-                ts.WriteLine(Util.SysUTCDate + " WARNING: Log file is already open.");
-            }
         }
 
         // Log and wait for 5 minutes before checking weather conditions again.
@@ -1909,6 +1918,7 @@ function main() {
 
         } else {
             // Open the log file in append mode for further logging
+            
             ts = f1.OpenAsTextStream(ForAppending, true);
         }
     }
@@ -1935,18 +1945,21 @@ function main() {
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
     var lines = csvData[1]; // Lines from the CSV file
-    updateLog(requests);
-
+    
     // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
     var listOfBestObs = selectBestObservations(requests, sunset, sunrise, moonCT);
     
     var obsIndex = 0;
     // Begin the main observation loop.
     do {
+        Console.PrintLine("on line 1955")
+        Console.PrintLine(listOfBestObs)
         var bestObs = obsIndex < listOfBestObs.length ? listOfBestObs[obsIndex] : null;
+        Console.PrintLine("on line 1957")
         Console.PrintLine(bestObs);
+        Console.PrintLine("on line 1959")
         updateLog(bestObs);
-
+        Console.PrintLine("on line 1958")
         obsIndex++;
 
         // Safeguard: Prevent observing before sunset
@@ -2224,7 +2237,7 @@ function mainDEBUG() {
     //sunset  = 2460699.4796364945;
     //sunrise = 2460699.987987991;
 
-    const monthToNum = new Map();
+    var monthToNum = new Map();
     monthToNum.set('Jan', '01');
     monthToNum.set('Feb', '02');
     monthToNum.set('Mar', '03');
@@ -2262,7 +2275,7 @@ function mainDEBUG() {
     // Get the current position of the Moon
     var moonCT = {
         RightAscension: 15.35477392,
-        Declination: -23.61302659,
+        Declination: -23.61302659
     };
 
     // Retrieve observation requests and their corresponding CSV lines.
