@@ -1,6 +1,7 @@
 // var Util = require('./Util');    // used for debugging, not needed on ACP
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
+
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
 function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
 
@@ -346,13 +347,16 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         // Modified below
         //filteredObs = filterByAstronomy(requests, moonCT, "debug");
     }
-    
+    Console.PrintLine("NowLST: " + Util.NowLST())
+    Console.PrintLine("length of filteredObs: " + filteredObs.length)
     // Rank the remaining suitable observations based on priority, time, and astronomy scores.
     var rankedObs = rankObservations(filteredObs, debug);
     
     // we need to calculate correct start and end times of the first and following observations
     // start and end times are arranged end to end. and are calculated based off of top observation.
+    Console.PrintLine(rankedObs.length + " ranked observations before start/end window calculation.");
     calculateStartEndWindows(rankedObs, debug);
+    Console.PrintLine(rankedObs.length + " ranked observations after start/end window calculation.");
     
     var rankedObsAstronomyCheck = [];
     var timeFastForward = 0;
@@ -367,9 +371,12 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         {
             timeFastForward += rankedObs[i].obsDuration;
         }
+        //Console.PrintLine("EndLST:" + endlst + ", LST:" + lst);
     }
-
+    
+    Console.PrintLine("At line 376:" + rankedObsAstronomyCheck.length + " ranked observations after astronomy check.");
     calculateStartEndWindows(rankedObsAstronomyCheck, debug);
+    Console.PrintLine("At line 378" + rankedObsAstronomyCheck.length + " ranked observations after start/end window calculation.");
     
     if(debug === undefined){
         writeRequestsToCSV(rankedObsAstronomyCheck);
@@ -544,7 +551,7 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
     
     // Calculate the end time of the observation in Julian Date.
     var endJD = currJD + (request.obsDuration / 1440); // obsDuration is in minutes, dividing by 1440 gives days.
-    Console.PrintLine("startWindow: " + startWindow + " endWindow: " + endWindow + " currJD: " + currJD + " sunrise: " + sunrise + " sunset: " + sunset);
+    //Console.PrintLine("startWindow: " + startWindow + " endWindow: " + endWindow + " currJD: " + currJD + " sunrise: " + sunrise + " sunset: " + sunset);
     // Check if the observation fits within the time window and returns true if it does.
     return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
@@ -586,6 +593,10 @@ function meetsAstronomyConditions(request, moonCT, newLST, debug) {
     request.altitude = targetAltitude;
     request.moonAngle = moonAngle;
 
+    if (debug !== undefined) {  // debug mode which can be tested in say VS Code
+        Console.PrintLine("Target Altitude: " + targetAltitude + " Moon Angle: " + moonAngle);
+    }
+
     // Return true if the target's ltitude is above the elevation limit and if the moon's angle is greater than the minimum offset.
     return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
 }
@@ -595,7 +606,7 @@ function calculateAltitude(ra, dec, newLST, debug) {
 
     if (debug === undefined) { // normal operation of code
         var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
-        Console.PrintLine("ra: " + ra + " dec: " + dec + " newLST: " + newLST);
+        //Console.PrintLine("ra: " + ra + " dec: " + dec + " newLST: " + newLST);
         ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
         ct.Declination = dec; // Set the Declination of the target.
         return ct.Elevation; // Return the target's altitude (elevation) in degrees.
@@ -659,8 +670,8 @@ function rankObservations(requests, debug) {
 function calculateScore(request, debug) {
 
     // new score calculation: (requestedTime(hrs) * priority) / ( 1/cosine(90deg - elevation))
-    var bottom = 1 / (Math.cos((90 - request.altitude) * (Math.PI / 180)) * (180 / Math.PI)); //convert return of Math.cos to degrees
-    var score = ((request.obsDuration / 60) * request.priority) / bottom;
+    var airmass = 1 / (Math.cos((90 - request.altitude) * (Math.PI / 180))); //Changed
+    var score = ((request.obsDuration / 60) * request.priority) / airmass;
     
     if (debug !== undefined) {  // debug mode which can be tested in say VS Code
         request.totalScore = score.toFixed(2);  // totalScore for display only
@@ -773,12 +784,12 @@ function writeRequestsToCSV(requests, debug) {
 
             if (debug === undefined) { // normal operation of code
                 obs += ",";
-                obs += Math.round(requests[i].totalScore * 10) / 10;
+                obs += Math.round(requests[i].score * 10) / 10;
                 writeFile.WriteLine(obs); // Write each line to the file
             }
             else{
                 obs += ",";
-                obs += Math.round(requests[i].totalScore * 10) / 10;
+                obs += Math.round(requests[i].score * 10) / 10;
                 obs += '\n';
                 data += obs;
             }
