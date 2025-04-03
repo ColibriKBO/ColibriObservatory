@@ -31,6 +31,7 @@ from astropy.io.fits import Header
 from astropy import wcs
 from pathlib import Path
 from astropy.coordinates import Angle,EarthLocation,SkyCoord
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Custom Imports
 
@@ -62,6 +63,20 @@ verboseprint = lambda *a, **k: None
 
 #--------------------------------functions------------------------------------#
 
+def windows_to_wsl_path(windows_path):
+    """Convert a Windows path to a Unix-style path for WSL."""
+    windows_path = windows_path.replace('\\', '/')
+    
+    # If the path starts with a drive letter (e.g., "D:") handle it
+    if windows_path[1] == ':':
+        drive, path = os.path.splitdrive(windows_path)
+        drive = drive.lower().strip(':')  # Convert to lowercase and remove the colon
+        wsl_path = f"/mnt/{drive}/{path.lstrip('/')}"  # Ensure there is a slash after the drive letter
+    else:
+        wsl_path = windows_path
+    
+    return wsl_path
+    
 ###########################
 ## File Reading
 ###########################
@@ -309,44 +324,48 @@ def extractStars(image_data, detect_threshold):
 ###########################
 
 def getLocalSolution(image_file, save_file, order):
-    """
-    Astrometry.net must be installed locally to use this function. It installs under WSL.
-    To use the local solution, you'll need to modify call to the function somewhat.
-    This function will write the new fits file w/ plate solution to a file with the name save_file in the
-    tmp directory on the d: drive.
-    The function will return wcs_header. Alternatively, you could comment out those lines and read it from
-    the pipeline.
-
-    Args:
-        image_file (str): Path to the image file to submit
-        save_file (str): Basename to save the WCS solution header to
-        order (int): Order of the WCS solution
-
-    Returns:
-        wcs_header (astropy.io.fits.header.Header): WCS solution header
+    # try:
+    image_dir = os.path.dirname(image_file)
+    save_file_base = image_dir
     
-    """
+    image_file_wsl = windows_to_wsl_path(image_file)
+    save_file_base_wsl = windows_to_wsl_path(save_file_base)
+    save_file_wsl = save_file
 
-    # Define tmp directory and image file path using WSL path
-    tmp_dir = '/mnt/d/tmp/'
-    image_file = convertToWSLPath(image_file)
+    print(f"Image file: {image_file_wsl}")
+    print(f"Save file base: {save_file_base_wsl}")
+    print(f"Save file: {save_file_wsl}")
 
-    # -D to specify write directory, -o to specify output base name, -N new-fits-filename
-    verboseprint(f"Reading from {image_file} for astrometry solution.")
-    # print(save_file.split(".")[0])
-    verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
+    cwd = os.getcwd()
+    os.chdir('d:\\')
 
-    # Run the astrometry.net command from wsl command line
-    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
-                     f' -N {tmp_dir + save_file} -t {order}' +\
-                     f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}'
-    verboseprint(subprocess_arg)
-    subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    verboseprint("Astrometry.net solution completed successfully.")
+    command = f'wsl time solve-field --no-plots -D {save_file_base_wsl} -N {save_file_base_wsl}/{save_file_wsl} -t {order} --scale-units arcsecperpix --scale-low 2.2 --overwrite --scale-high 2.6 {image_file_wsl}'
 
-    # Read the WCS header from the new output file
-    wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
+    subprocess.run(command, shell=True, check=True)
+    os.chdir(cwd)
+
+    # Load the WCS header
+    wcs_header_path = f'{save_file_base}\\{save_file}'
+    wcs_header = Header.fromfile(wcs_header_path)
+
+    # except Exception as e:
+    #     print(f"An error occurred: {e}")
+    #     wcs_header = getSolution(image_file, save_file, order)
+
     return wcs_header
+
+def solve_image_parallel(image_file, save_file, order):
+    """
+    Attempt to solve using parallel processing
+    """
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(getLocalSolution, image_file, save_file, order)
+        try:
+            wcs_header = future.result(timeout=120)
+            return wcs_header
+        except Exception as e:
+            print(f"Astrometry solution failed: {e}")
+            raise
 
 
 def getSolution(image_file, save_file, order):
@@ -367,7 +386,6 @@ def getSolution(image_file, save_file, order):
             
     return wcs_header
 
-
 def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attempt_backup=True):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
@@ -376,7 +394,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
 
     Args:
         fits_filepath (str): Path to the fits file
-        file_str (str): Filename of saved WCS solution file
+        file_str (str): Filaename of saved WCS solution file
         soln_order (int): Order of the WCS solution
 
     Returns:
@@ -392,7 +410,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = getLocalSolution(str(fits_filepath), file_str, soln_order)
+        wcs_header = solve_image_parallel(str(fits_filepath), file_str, soln_order)
     except Exception as e:
         # if attempt_backup is False, raise the error
         if not attempt_backup:
@@ -451,7 +469,7 @@ def getRADEC_Single(transform, x, y):
     radec = transform.pixel_to_world(x, y)
     ra = radec.ra.degree
     dec = radec.dec.degree
-
+    verboseprint(f"Target coordinates: RA={ra}, DEC={dec}")
     verboseprint(f"(x,y) = ({x},{y}) -> (RA,Dec) = ({ra},{dec})")
     return ra,dec
 
@@ -516,6 +534,7 @@ if __name__ == '__main__':
     # If no reference image is provided, generate a test image
     # using ColibriGrab.exe
     if args.image is None:
+        # Generate a test image using ColibriGrab.exe
         colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab"
         colibrigrab_path_home = colibrigrab_base_path_home / "ColibriGrab.exe"
         colibrigrab_path = colibrigrab_path_home
@@ -578,7 +597,7 @@ if __name__ == '__main__':
     # Get the WCS solution for the reference image
     verboseprint("Getting WCS solution for reference image...")
     try:
-        ref_wcs = getWCSTransform(FITS_path, attempt_backup=False)
+        ref_wcs = solve_image_parallel(FITS_path, 'astr_corr.fits', 4)
     except Exception as e:
         verboseprint(f"WARNING: 'Error: {e}' caused wcs transform to fail. \nBackup solution is currently disabled.")
         print("0.0 0.0")
@@ -587,9 +606,9 @@ if __name__ == '__main__':
     # Convert the central pixel of the reference image to RA/Dec
     verboseprint("Converting central pixel of reference image to RA/Dec...")
     ref_ra,ref_dec = getRADEC_Single(ref_wcs, IMG_WIDTH/2, IMG_WIDTH/2)
-
+    verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
     # Calculate the offset between the reference image and the target
-    verboseprint("Calculating offset between reference image and target...")
+    print(f"Calculating offset between reference image and target...")
     ra_offset = ra - ref_ra
     dec_offset = dec - ref_dec
     
@@ -616,5 +635,3 @@ if __name__ == '__main__':
         # Add legend and show the plot
         ax.legend()
         plt.show()
-
-

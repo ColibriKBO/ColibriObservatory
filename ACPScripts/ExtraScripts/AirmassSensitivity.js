@@ -25,7 +25,7 @@ var airmassList = [1.0001, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]; // list of airmasses t
 var exposureList = [25, 33, 50, 100, 200]; // list of exposure times to use (in ms)
 
 // Misc Variables
-var azimuthTarget = 270; // azimuth of target in degrees
+var azimuthTarget = 180; // azimuth of target in degrees
 var observationTime = 60000; // time to observe in milliseconds
 
 /*-------------------------------functions-----------------------------------*/
