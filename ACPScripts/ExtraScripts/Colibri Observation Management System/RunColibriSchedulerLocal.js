@@ -1,6 +1,6 @@
+const Util = require('./Util_Local');    // used for debugging, not needed on ACP
 // Scheduling observation request objects
 // Request Object is used to represent scheduling observation requests.
-
 // Each request contains details such as target coordinates, timing, exposure settings, and observation metadata.
 function Request(directoryName, priority, ra, dec, startUTC, startJD, endUTC, endJD, obsDuration, exposureTime, filter, binning, csvIndex) {
 
@@ -87,27 +87,9 @@ function isoStringToUTC(timeString){
 }
 
 // Added by Akshat and Owen
-function formatISODate(date) {
-    function pad(n) { return n < 10 ? '0' + n : n; }
-    return date.getUTCFullYear() + '-' +
-           pad(date.getUTCMonth() + 1) + '-' +
-           pad(date.getUTCDate()) + 'T' +
-           pad(date.getUTCHours()) + ':' +
-           pad(date.getUTCMinutes()) + ':' +
-           pad(date.getUTCSeconds()) + '.' +
-           (date.getUTCMilliseconds() / 1000).toFixed(3).slice(2, 5) + 'Z';
-}
-
-// Added by Akshat and Owen
-function JDtoUTCScheduler(JD, debug){
-    var unixTimestamp = (JD - 2440587.5) * 86400000;
-    var newDate;
-    if(debug === undefined){
-        newDate = isoStringToUTC(formatISODate(new Date(unixTimestamp)));
-    }
-    else{
-        newDate = isoStringToUTC(new Date(unixTimestamp).toISOString());
-    }
+function JDtoUTCScheduler(JD){
+    const unixTimestamp = (JD - 2440587.5) * 86400000;
+    var newDate = isoStringToUTC(new Date(unixTimestamp).toISOString())
     newDate = newDate.split(":"); // Convert to JavaScript Date object
 
     var date = "";
@@ -125,7 +107,7 @@ function JDtoUTCScheduler(JD, debug){
 // Scheduling-related functions
 // Converts a UTC time string to a Julian Date (JD) for astronomical calculations.
 // JD is used for precision in tracking celestial events and scheduling observations.
-function UTCtoJD(UTC, debug) {
+function UTCtoJDOld(UTC, debug) {
 
     // Split the UTC string into its components: year, month, day, hour, and minutes.
     var dividedUTC = UTC.split(":");
@@ -158,6 +140,41 @@ function UTCtoJD(UTC, debug) {
         // Add the fractional day to the Julian Day
         return JD + fracDay;
 }
+function UTCtoJD(UTC, debug) {
+    console.log("UTC:" + UTC);
+    if (debug === undefined) { // normal operation of code
+        // Use the ACP Util Object to calculate the Julian Date from the year, month, and fractional day.
+        return Util.Calendar_Julian(year, month, fracDay);
+    }
+    // else, in debugging mode so can't use ACP API
+    // Split the UTC string into its components: year, month, day, hour, and minutes.
+    var dividedUTC = UTC.split(":");
+
+    // Parse the components as integers for calculation.
+    var year = parseInt(dividedUTC[0], 10);
+    var month = parseInt(dividedUTC[1], 10);
+    var day = parseInt(dividedUTC[2], 10);
+    var hour = parseInt(dividedUTC[3], 10);
+    var minute = parseInt(dividedUTC[4], 10);
+
+    // Convert the time into fractional days.
+    var fracDay = (hour + (minute / 60)) / 24; // Convert hours/minutes to fraction of a day.
+
+    // If month is January or February, adjust year and month for Julian calculation.
+    if (month <= 2) {
+        year -= 1;
+        month += 12;
+    }
+
+    // Calculate Julian Day Number using the standard formula.
+    var A = Math.floor(year / 100);
+    var B = 2 - A + Math.floor(A / 4);
+    var JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + B - 1524.5;
+
+    // Add the fractional part of the day.
+    return JD + fracDay;
+}
+
 
 // Reads and parses observation requests from a CSV file.
 // The function returns an array of Request objects along with the raw CSV data.
@@ -221,7 +238,7 @@ function getRequests(debug) {
         return [requests, lines];
     }
     // debug mode which can be tested in say VS Code
-    var fs = require('fs');
+    const fs = require('fs');
     var data;
     try {
         data = fs.readFileSync('./colibri_user_observations.csv', 'utf8');
@@ -279,19 +296,20 @@ function getLST(longitude, UTCstring, timeFastForward) {
     var now = UTCstring.split(":");
     
     // Get current UTC time components
-    var year = parseInt(now[0], 10);
-    var month = parseInt(now[1], 10) - 1; // Adjust for zero-based index
-    var day = parseInt(now[2], 10);
-    var hours = parseInt(now[3], 10);
-    var minutes = parseInt(now[4], 10);
-    
-    var date = new Date(year, month, day, hours, minutes, 0); // No ISO string parsing
+    var year = now[0];
+    var month = now[1];
+    var day = now[2];
+    var hours = now[3];
+    var minutes = now[4];
+    var seconds = '00';
 
-    date.setTime(date.getTime() + timeFastForward * 60000);
+    var date = new Date(year + "-" + month + "-" + day + "T" + hours + ":" + minutes + ":" + seconds);
+
+    date.setTime(date.getTime() + timeFastForward * 60000); //Changed to -/+
 
     year = date.getFullYear();
-    month = date.getMonth() + 1; // Convert back to 1-based index
-    day = date.getDate(); // Corrected from getDay()
+    month = date.getMonth();
+    day = date.getDay();
     hours = date.getHours();
     minutes = date.getMinutes();
 
@@ -300,31 +318,32 @@ function getLST(longitude, UTCstring, timeFastForward) {
         year -= 1;
         month += 12;
     }
-
+    
     var A = Math.floor(year / 100);
     var B = 2 - A + Math.floor(A / 4);
-
+    
     var JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + B - 1524.5 +
-             (hours + minutes / 60) / 24; // No `seconds` variable used
-
+             (hours + minutes / 60 + seconds / 3600) / 24;
+    
     // Calculate Julian Century
     var T = (JD - 2451545.0) / 36525.0;
 
     // Calculate Greenwich Mean Sidereal Time (GMST) in degrees
     var GMST = 280.46061837 + 360.98564736629 * (JD - 2451545) +
                T * T * (0.000387933 - T / 38710000);
-
+    
     // Normalize GMST to [0, 360] range
-    GMST = ((GMST % 360) + 360) % 360;
+    GMST = GMST % 360;
+    if (GMST < 0) GMST += 360;
 
     // Convert GMST to Local Sidereal Time (LST)
     var LST = GMST + longitude;
-    LST = ((LST % 360) + 360) % 360;
+    if (LST < 0) LST += 360;
+    if (LST >= 360) LST -= 360;
 
     // Convert degrees to hours
     return LST / 15; // LST in hours
 }
-
 
 // Selects the best observation from a list of requests, based on various filtering and ranking criteria.
 function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
@@ -334,11 +353,9 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
     if(debug === undefined){
         // Filter out observations that don't fit within the time window or between sunset and sunrise.
         suitableObs = filterByTime(requests, sunset, sunrise);
-        Console.PrintLine("length of suitableObs: " + suitableObs.length)
         // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
         filteredObs = filterByAstronomy(suitableObs, moonCT);
-        Console.PrintLine("length of filteredObs: " + filteredObs.length)
-    }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+    }
     else{
         suitableObs = filterByTime(requests, sunset, sunrise, "debug");
         // Filter out observations that don't meet the required astronomical conditions (e.g., moon proximity, altitude).
@@ -346,23 +363,20 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         // Modified below
         //filteredObs = filterByAstronomy(requests, moonCT, "debug");
     }
-    Console.PrintLine("NowLST: " + Util.NowLST())
-    Console.PrintLine("length of filteredObs: " + filteredObs.length)
+
     // Rank the remaining suitable observations based on priority, time, and astronomy scores.
     var rankedObs = rankObservations(filteredObs, debug);
     
     // we need to calculate correct start and end times of the first and following observations
     // start and end times are arranged end to end. and are calculated based off of top observation.
-    Console.PrintLine(rankedObs.length + " ranked observations before start/end window calculation.");
     calculateStartEndWindows(rankedObs, debug);
-    Console.PrintLine(rankedObs.length + " ranked observations after start/end window calculation.");
-    
+
     var rankedObsAstronomyCheck = [];
     var timeFastForward = 0;
     for (var i = 0; i < rankedObs.length; i++) {
-        var lst = getLST(Telescope.Sitelongitude, rankedObs[i].startUTC, timeFastForward);
-        var endlst = getLST(Telescope.Sitelongitude, rankedObs[i].endUTC, timeFastForward);
-        //Console.PrintLine("lst: " + lst + " endlst: " + endlst);
+        var lst = getLST(-81.3103, rankedObs[i].startUTC, timeFastForward);
+        var endlst = getLST(-81.3103, rankedObs[i].endUTC, timeFastForward);
+
         if (meetsAstronomyConditions(rankedObs[i], moonCT, lst, debug) && meetsAstronomyConditions(rankedObs[i], moonCT, endlst, debug)) {
             rankedObsAstronomyCheck.push(rankedObs[i]);
         }
@@ -370,13 +384,11 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
         {
             timeFastForward += rankedObs[i].obsDuration;
         }
-        //Console.PrintLine("EndLST:" + endlst + ", LST:" + lst);
+        console.log("EndLST:" + endlst + ", LST:" + lst);
     }
-    
-    Console.PrintLine("At line 376:" + rankedObsAstronomyCheck.length + " ranked observations after astronomy check.");
+
     calculateStartEndWindows(rankedObsAstronomyCheck, debug);
-    Console.PrintLine("At line 378" + rankedObsAstronomyCheck.length + " ranked observations after start/end window calculation.");
-    
+
     if(debug === undefined){
         writeRequestsToCSV(rankedObsAstronomyCheck);
     }
@@ -388,29 +400,27 @@ function selectBestObservations(requests, sunset, sunrise, moonCT, debug) {
 
 //Added by Akshat and Owen
 function getSunsetSunrise(numDays, debug){
-    
     // Moved section from main to this function so sunrise and sunset can be accessed
-    var monthToNum = {
-        'Jan': '01',
-        'Feb': '02',
-        'Mar': '03',
-        'Apr': '04',
-        'May': '05',
-        'Jun': '06',
-        'Jul': '07',
-        'Aug': '08',
-        'Sep': '09',
-        'Oct': '10',
-        'Nov': '11',
-        'Dec': '12'
-    };
+    const monthToNum = new Map();
+    monthToNum.set('Jan', '01');
+    monthToNum.set('Feb', '02');
+    monthToNum.set('Mar', '03');
+    monthToNum.set('Apr', '04');
+    monthToNum.set('May', '05');
+    monthToNum.set('Jun', '06');
+    monthToNum.set('Jul', '07');
+    monthToNum.set('Aug', '08');
+    monthToNum.set('Sep', '09');
+    monthToNum.set('Oct', '10');
+    monthToNum.set('Nov', '11');
+    monthToNum.set('Dec', '12');
     
     // DEBUG: need to set sunset and sunrise time
     var currentDay = new Date();
     currentDay.setDate(currentDay.getDate() + numDays);
     var parts = currentDay.toUTCString().split(' ');
     var hourMinSec = parts[4].split(':');
-    var currentDateString = parts[3] + ':' + monthToNum[parts[2]] + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
+    var currentDateString = parts[3] + ':' + monthToNum.get(parts[2]) + ':' + parts[1] + ':' + hourMinSec[0] + ':' + hourMinSec[1];
     var cdJD = UTCtoJD(currentDateString, debug);
 
     sunset  = twilightTimes(cdJD, debug)[1];
@@ -469,7 +479,6 @@ function calculateStartEndWindows(rankedObs, debug){
     var sunrise = getSunsetSunrise(numDays, debug)[1];
     var sunset = getSunsetSunrise(numDays, debug)[0];
     var sunriseSunsetReset = true;
-    
     // first observation is top observations, we start window cascading calculation based off that
     for (var i = 0; i < rankedObs.length; i++) {
         if (sunriseSunsetReset) {
@@ -490,6 +499,9 @@ function calculateStartEndWindows(rankedObs, debug){
         // For observations not included in the current night
         var obsStartJD = UTCtoJD(rankedObs[i].startUTC, debug)
         var obsEndJD = UTCtoJD(rankedObs[i].endUTC, debug)
+        if (i == 13 || i == 14) {
+            console.log("obsStartJD: " + obsStartJD + " obsEndJD: " + obsEndJD);
+        }
         if (obsStartJD > sunrise || (obsStartJD < sunrise && obsEndJD > sunrise)) {
             i--;
             // Recalculate sunrise and sunset for next day
@@ -511,7 +523,7 @@ function filterByTime(requests, sunset, sunrise, debug) {
     }
     else{
         // debug mode which can be tested in say VS Code
-        var monthToNum = new Map();
+        const monthToNum = new Map();
         monthToNum.set('Jan', '01');
         monthToNum.set('Feb', '02');
         monthToNum.set('Mar', '03');
@@ -533,7 +545,6 @@ function filterByTime(requests, sunset, sunrise, debug) {
         currJD = UTCtoJD(currentDateString, "debug");
     }
     // Loop through each request and check if it fits within the time window and sunset/sunrise.
-    // Console.PrintLine("currJD: " + currJD + " sunset: " + sunset + " sunrise: " + sunrise);
     for (var i = 0; i < requests.length; i++) {
         var request = requests[i];
         // Add to filteredObs if the request is within the time window.
@@ -547,10 +558,10 @@ function withinTimeWindow(request, currJD, sunset, sunrise) {
     
     var startWindow = request.startJD;  // Start time of the observation request (in Julian Date).
     var endWindow = request.endJD;      // End time of the observation request (in Julian Date).
-    
+
     // Calculate the end time of the observation in Julian Date.
     var endJD = currJD + (request.obsDuration / 1440); // obsDuration is in minutes, dividing by 1440 gives days.
-    //Console.PrintLine("startWindow: " + startWindow + " endWindow: " + endWindow + " currJD: " + currJD + " sunrise: " + sunrise + " sunset: " + sunset);
+
     // Check if the observation fits within the time window and returns true if it does.
     return startWindow <= currJD && currJD <= endWindow && endJD <= sunrise && sunset <= startWindow && startWindow <= sunrise && sunset <= endWindow && endWindow <= sunrise;
 }
@@ -565,7 +576,7 @@ function filterByAstronomy(requests, moonCT, debug) {
     }
     else{
         // debug mode which can be tested in say VS Code
-        currLST = 10.5; // Replace with a varant LST value in hours (e.g., 10.5 = 10:30 hours).
+        currLST = 10.5; // Replace with a constant LST value in hours (e.g., 10.5 = 10:30 hours).
     }
 
     // Loop through each request and check if it meets the astronomical conditions.
@@ -592,10 +603,6 @@ function meetsAstronomyConditions(request, moonCT, newLST, debug) {
     request.altitude = targetAltitude;
     request.moonAngle = moonAngle;
 
-    if (debug !== undefined) {  // debug mode which can be tested in say VS Code
-        Console.PrintLine("Target Altitude: " + targetAltitude + " Moon Angle: " + moonAngle);
-    }
-
     // Return true if the target's ltitude is above the elevation limit and if the moon's angle is greater than the minimum offset.
     return targetAltitude > elevationLimit && moonAngle > minMoonOffset;
 }
@@ -605,29 +612,28 @@ function calculateAltitude(ra, dec, newLST, debug) {
 
     if (debug === undefined) { // normal operation of code
         var ct = Util.NewCT(Telescope.SiteLatitude, newLST); // Create a new coordinate transform (CT) object with the telescope's latitude and current LST.
-        //Console.PrintLine("ra: " + ra + " dec: " + dec + " newLST: " + newLST);
         ct.RightAscension = ra/15; // Convert Right Ascension from degrees to hours. Set the Right Ascension of the target.
         ct.Declination = dec; // Set the Declination of the target.
         return ct.Elevation; // Return the target's altitude (elevation) in degrees.
     }
     else{
         // debug mode which can be tested in say VS Code
-        // varants
-        var latitude = 34.0; // Replace with the telescope's fixed latitude in degrees (e.g., 34.0 for a location in the northern hemisphere).
+        // Constants
+        const latitude = 34.0; // Replace with the telescope's fixed latitude in degrees (e.g., 34.0 for a location in the northern hemisphere).
 
         // Convert inputs to radians for calculations
-        var raRad = (ra / 15) * (Math.PI / 180); // Convert RA from degrees to hours, then to radians
-        var decRad = dec * (Math.PI / 180); // Convert Dec to radians
-        var latRad = latitude * (Math.PI / 180); // Convert latitude to radians
-        var lstRad = newLST * (Math.PI / 180); // Convert LST to radians
+        const raRad = (ra / 15) * (Math.PI / 180); // Convert RA from degrees to hours, then to radians
+        const decRad = dec * (Math.PI / 180); // Convert Dec to radians
+        const latRad = latitude * (Math.PI / 180); // Convert latitude to radians
+        const lstRad = newLST * (Math.PI / 180); // Convert LST to radians
 
         // Calculate the Hour Angle (HA) in radians
-        var haRad = lstRad - raRad;
+        const haRad = lstRad - raRad;
 
         // Calculate altitude (elevation) using the formula:
         // sin(alt) = sin(dec) * sin(lat) + cos(dec) * cos(lat) * cos(HA)
-        var sinAlt = Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(haRad);
-        var altitude = Math.asin(sinAlt); // Resulting altitude in radians
+        const sinAlt = Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(haRad);
+        const altitude = Math.asin(sinAlt); // Resulting altitude in radians
 
         // Convert altitude back to degrees
         return altitude * (180 / Math.PI);
@@ -783,12 +789,12 @@ function writeRequestsToCSV(requests, debug) {
 
             if (debug === undefined) { // normal operation of code
                 obs += ",";
-                obs += Math.round(requests[i].score * 10) / 10;
+                obs += Math.round(requests[i].score * 10) / 10; //Changed
                 writeFile.WriteLine(obs); // Write each line to the file
             }
             else{
                 obs += ",";
-                obs += Math.round(requests[i].score * 10) / 10;
+                obs += Math.round(requests[i].score * 10) / 10; //Chaged from total score to score
                 obs += '\n';
                 data += obs;
             }
@@ -800,38 +806,29 @@ function writeRequestsToCSV(requests, debug) {
         if (debug !== undefined) {
             file1 = './colibri_user_observations.csv';
             file2 = 'sorted_user_observations.csv';
-            
+    
             // Read and normalize files, handling commas for CSVs
-            var file1Lines = fs.readFileSync(file1, 'utf8').replace(/\r/g, '').split('\n').map(function (line) {return line.trim();}).filter(function (line) {return line;});
-            var file2Lines = fs.readFileSync(file2, 'utf8').replace(/\r/g, '').split('\n').map(function (line) {return line.trim();}).filter(function (line) {return line;});
+            const file1Lines = fs.readFileSync(file1, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
+            const file2Lines = fs.readFileSync(file2, 'utf8').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(line => line);
     
             // Extract the first word from each line by splitting by commas
-            var file2FirstWords = new Set(file2Lines.map(function (line) {return line.split(',')[0].trim()}));
+            const file2FirstWords = new Set(file2Lines.map(line => line.split(',')[0].trim()));
     
             console.log('First fields in file2:', Array.from(file2FirstWords));  // Debugging
     
-            var header = file1Lines[0];
+            const header = file1Lines[0];
     
-            var filteredLines = [];
-            var slicedLines = file1Lines.slice(1); // slice() is ES3-compatible
-            for (var i = 0; i < slicedLines.length; i++) {
-                var line = slicedLines[i];
-                var firstWord = line.split(',')[0].trim(); // Get the first field (before the comma)
-                
-                if (!file2FirstWords.has(firstWord)) {
-                    filteredLines.push(line);
-                }
-            }
-            // Use concat() instead of spread operator
-            var uniqueLines = [header].concat(filteredLines);
-
+            const uniqueLines = [header, ...file1Lines.slice(1).filter(line => {
+                const firstWord = line.split(',')[0].trim(); // Get the first field (before the comma)
+                return !file2FirstWords.has(firstWord);
+            })];
     
             console.log('Unique lines from file1:', uniqueLines);  // Debugging
     
             // Write back the filtered lines to file1
             fs.writeFileSync(file1, uniqueLines.join('\n'), 'utf8');
     
-            console.log("Updated " + file1 + ", removed " + (file1Lines.length - uniqueLines.length) + " lines with common first fields.");
+            console.log(`Updated ${file1}, removed ${file1Lines.length - uniqueLines.length} lines with common first fields.`);
         }
     } catch (e) {
         // In case of an error (e.g., file access issues), log the error message
@@ -891,6 +888,15 @@ function printPlan(plan) {
             updateLog("RA: " + request.ra + " Dec: " + request.dec + " Alt: " + request.alt + " Moon Angle: " + request.moonAngle, "INFO");
         }
     }
+}
+
+// Updates the log with the given message and type (e.g., INFO or ERROR).
+// 'contents' is the message to log, 'type' is the log type (INFO, ERROR, etc.).
+function updateLog(contents, type) {
+    // Print the log message to the console.
+    Console.PrintLine(contents);
+    // Write the log message to a file with a timestamp, type, and the log content.
+    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
 }
 
 // Handles script actions such as aborting, restarting, and shutdown 
@@ -1726,7 +1732,7 @@ function waitUntilSunset(updatetime) {
 // END OF FUNCTIONS
 
 // Global variables and configurations
-var DEBUG = false;
+var DEBUG = true;
 // Variables used for logging and system state checks.
 var logconsole = true; // Enable or disable logging the console output.
 var firstRun = true; // Tracks whether the script is running for the first time.
@@ -1741,7 +1747,7 @@ var elevationLimit = 10; // Minimum elevation angle for telescope pointing (degr
 var minMoonOffset = 15; // Minimum allowed angular distance from the Moon (degrees).
 var telescopeSchedulerSlewAllowance = 5; // allowance of 5 mins between observations in scheduler for slewing
 
-// File handling varants for different file modes.
+// File handling constants for different file modes.
 var ForReading = 1;
 var ForAppending = 8;
 var ForWriting = 2;
@@ -1777,38 +1783,16 @@ if(DEBUG === false){ // normal operation of code
     Console.PrintLine("Log file ready.")
 }
 
-// Updates the log with the given message and type (e.g., INFO or ERROR).
-// 'contents' is the message to log, 'type' is the log type (INFO, ERROR, etc.).
-function updateLog(contents, type) {
-    // Print the log message to the console.
-    Console.PrintLine(contents);
-    // Write the log message to a file with a timestamp, type, and the log content.
-    ts.writeLine(Util.SysUTCDate + " " + type + ": " + contents);
-}
-
 // main() function is utilized by ACP, while mainDEBUG() is utilized locally on say VSCode
 // Main execution function.
 function main() {
-    
-    // Define the log file path using the current sunset time in UTC format.
-    LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
-    
-    if (fso.FileExists(LogFile)) {
-        Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
-    } else {
-        fso.CreateTextFile(LogFile);
-    }
-    f1 = fso.GetFile(LogFile);
-    try {
-        ts = f1.OpenAsTextStream(ForAppending, true);
-    } catch(err) {
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Log file is already open.");
-    }
     try{
         updateLog("Attempting to create ActiveX object for MaxIM DL", "INFO");
+        
         // Create ActiveX object for controlling MaxIM DL software
         maximDL = new ActiveXObject("MaxIm.Application");
         updateLog("MaxIM DL ActiveX object created successfully.", "INFO");
+    
         // Access the CCD camera object from MaxIM DL.
         ccdCamera = maximDL.CCDCamera;
         updateLog("Accessing the CCD camera object", "INFO");
@@ -1816,7 +1800,7 @@ function main() {
         // Handle any errors during object creation or access.
         updateLog("An error occurred " + e.message, "ERROR");
     }
-    
+
     // Calculate astronomical sunrise and sunset times (technically 12 degree twilight times) based on Julian Date.
     // twilightTimes: [0] - JD of sunrise, [1] - JD of sunset
     // Note! The calculation for sunsetLST only works if you are west of Greenwich
@@ -1881,6 +1865,22 @@ function main() {
         // If a new day starts, update the log file.
         if (getDate() != currentDate) {
             currentDate = getDate();
+
+            // Define the log file path using the current sunset time in UTC format.
+            LogFile = "d:\\Logs\\ACP\\" + JDtoUTC(sunset) + "-ACP.log";
+
+            if (fso.FileExists(LogFile)) {
+                Console.PrintLine(Util.SysUTCDate + " INFO: Log file exists. Appending to existing log file.");
+            } else {
+                fso.CreateTextFile(LogFile);
+            }
+
+            f1 = fso.GetFile(LogFile);
+            try {
+                ts = f1.OpenAsTextStream(ForAppending, true);
+            } catch(err) {
+                ts.WriteLine(Util.SysUTCDate + " WARNING: Log file is already open.");
+            }
         }
 
         // Log and wait for 5 minutes before checking weather conditions again.
@@ -1914,7 +1914,6 @@ function main() {
 
         } else {
             // Open the log file in append mode for further logging
-            
             ts = f1.OpenAsTextStream(ForAppending, true);
         }
     }
@@ -1941,21 +1940,18 @@ function main() {
     var csvData = getRequests();
     var requests = csvData[0]; // Observation requests
     var lines = csvData[1]; // Lines from the CSV file
-    Console.PrintLine("length of requests: " + requests.length)
+    updateLog(requests);
+
     // Select the best observation based on the current conditions (sunset, sunrise, moon conditions, etc.)
     var listOfBestObs = selectBestObservations(requests, sunset, sunrise, moonCT);
     
     var obsIndex = 0;
     // Begin the main observation loop.
     do {
-        Console.PrintLine("length of listOfBestObs: " + listOfBestObs.length)
-        Console.PrintLine(listOfBestObs)
         var bestObs = obsIndex < listOfBestObs.length ? listOfBestObs[obsIndex] : null;
-        Console.PrintLine("on line 1957")
-        Console.PrintLine(bestObs[0]);
-        Console.PrintLine("on line 1959")
+        Console.PrintLine(bestObs);
         updateLog(bestObs);
-        Console.PrintLine("on line 1958")
+
         obsIndex++;
 
         // Safeguard: Prevent observing before sunset
@@ -2233,7 +2229,7 @@ function mainDEBUG() {
     //sunset  = 2460699.4796364945;
     //sunrise = 2460699.987987991;
 
-    var monthToNum = new Map();
+    const monthToNum = new Map();
     monthToNum.set('Jan', '01');
     monthToNum.set('Feb', '02');
     monthToNum.set('Mar', '03');
@@ -2271,7 +2267,7 @@ function mainDEBUG() {
     // Get the current position of the Moon
     var moonCT = {
         RightAscension: 15.35477392,
-        Declination: -23.61302659
+        Declination: -23.61302659,
     };
 
     // Retrieve observation requests and their corresponding CSV lines.
@@ -2279,7 +2275,10 @@ function mainDEBUG() {
     var requests = csvData[0]; // Observation requests
 
     var bestObs = selectBestObservations(requests, sunset, sunrise, moonCT, "debug");
+
+    var airmass = 1 / (Math.cos((90 - 10) * (Math.PI / 180))); //convert return of Math.cos to degrees
+    console.log(airmass);
 }
 
 // If you wish to run on ACP set to main(), if locally use mainDEBUG()
-main();
+mainDEBUG();
