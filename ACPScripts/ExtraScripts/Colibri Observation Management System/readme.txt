@@ -1,0 +1,3 @@
+The RunColibriScheduler.js should be ran on ACP, while the RunColibriSchedulerLocal.js should be ran on your local machine on any IDE such as VSCode.
+To run the file the input file (colibri_user_observations.csv) must have all 11 columns filled out, and have a start time which is after sunset in UTC, and an end time which is before sunrise in UTC.
+The output file (sorted_user_observations.csv) has the schedule of observations and also has units for all the columns.
