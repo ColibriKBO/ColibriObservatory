@@ -509,7 +509,7 @@ def slashDate(obsdate):
 
 #--------------------------------processes------------------------------------#
 
-def ColibriProcesses(obsdate, repro=False, sigma_threshold=6, tot_runtime=[]):
+def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
 
     print("\n" + "#"*30 + f"\n{obsdate}\n" + "#"*30 + "\n")
 
@@ -762,7 +762,7 @@ if __name__ == '__main__':
     # Available argument functionality
     arg_parser.add_argument('-d', '--date', help='Observation date (YYYYMMDD) of data to be processed.', nargs='*')
     arg_parser.add_argument('-r', '--repro', help='Will reprocess data if used.', action="store_true")
-    arg_parser.add_argument('-s', '--sigma', help='Significance treshold.', default='6')
+    arg_parser.add_argument('-s', '--sigma', help='Significance treshold.', default='4')
     arg_parser.add_argument('-t', '--test', help='Use ColibriData2 instead of ColibriData', action='store_true')
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
