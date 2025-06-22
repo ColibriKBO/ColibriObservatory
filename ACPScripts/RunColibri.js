@@ -339,7 +339,7 @@ function domeClose()
     ////////////////////////////////////////////////////
     // Check to see if the dome is closed or in error //
     ////////////////////////////////////////////////////
-    if (Dome.Status != 1)
+    if (Dome.ShutterStatus != 1)
     {
         Console.PrintLine("Dome is not closed. Trying again...")
         Util.WaitForMilliseconds(1000)
