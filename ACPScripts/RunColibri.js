@@ -1786,24 +1786,24 @@ function main()
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
+                Dome.UnparkHome()
+                if (Dome.slave == false)
+                {
+                    Dome.slave = true;
+                }
+
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing. Give me a minute...");
+                    Util.WaitForMilliseconds(500);
+                }
+
                 // Readjust the telescope pointing using child script
                 adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
                 while (Telescope.Slewing == true)
                 {
                     Console.PrintLine("Huh. Still Slewing...");
-                    Util.WaitForMilliseconds(500);
-                }
-
-                Dome.UnparkHome()
-                if (Dome.slave == false)
-                {
-                    Dome.slave == true;
-                }
-
-                while (Dome.Slewing == true)
-                {
-                    Console.PrintLine("Dome is still slewing. Give me a minute...");
                     Util.WaitForMilliseconds(500);
                 }
 
