@@ -1,10 +1,8 @@
-// === MaxIm DL Continuous Acquisition Script with Binning and Directory Creation ===
+// === MaxIm DL High-Speed Buffered Acquisition Script ===
 
 var fso = new ActiveXObject("Scripting.FileSystemObject");
 var Console = Util.Console;
 var logFile;
-
-// === Utility Functions ===
 
 function log(msg) {
     Console.PrintLine(msg);
@@ -39,89 +37,98 @@ function ensureDirExists(path) {
     }
 }
 
-// === Main Function ===
-
 function main() {
     var baseDir = "D:\\TestImages";
     ensureDirExists(baseDir);
     var logPath = baseDir + "\\CameraTest_" + getDate() + ".log";
     logFile = fso.CreateTextFile(logPath, true);
+    log("=== Starting Buffered High-Speed Acquisition ===");
 
-    log("=== Starting Continuous Camera Acquisition ===");
-
-    var maximDL, ccdCamera;
-
-    // Connect to MaxIm DL
+    var maximDL, cam;
     try {
-        log("Creating MaxIm DL ActiveX object...");
+        log("Connecting to MaxIm DL...");
         maximDL = new ActiveXObject("MaxIm.Application");
-        ccdCamera = maximDL.CCDCamera;
-        log("Camera object accessed.");
+        cam = maximDL.CCDCamera;
     } catch (e) {
-        abort("Could not create or access MaxIm DL object: " + e.message);
+        abort("Failed to create MaxIm DL object: " + e.message);
     }
 
-    // Link the camera
     try {
-        if (!ccdCamera.LinkEnabled) {
-            log("Linking camera...");
-            ccdCamera.LinkEnabled = true;
+        if (!cam.LinkEnabled) {
+            cam.LinkEnabled = true;
             Util.WaitForMilliseconds(1000);
         }
-        if (ccdCamera.LinkEnabled) {
-            log("Camera successfully linked.");
-        } else {
-            abort("Failed to link camera.");
-        }
+        log("Camera linked.");
     } catch (e) {
-        abort("Error while linking camera: " + e.message);
+        abort("Error linking camera: " + e.message);
     }
 
-    // === Image Acquisition Loop ===
-    var exposureTime = 0.025; // seconds
-    var binX = 2, binY = 2;
-    var saveSubfolder;
-    var imageCounter = 0;
+    cam.BinX = 2;
+    cam.BinY = 2;
+    cam.FastReadout = true;
+    cam.AutoDownload = true;
+
+    var exposureTime = 0.025; // 25 ms
+    var totalFrames = 2400;
+    var frameBuffers = [];
+    var minuteIndex = 0;
 
     while (true) {
-        var minuteStart = new Date();
-        saveSubfolder = baseDir + "\\" + getDateTime();
-        ensureDirExists(saveSubfolder);
-        log("Starting 1-minute acquisition in folder: " + saveSubfolder);
+        var minuteFolder = baseDir + "\\" + getDateTime();
+        ensureDirExists(minuteFolder);
 
-        while ((new Date() - minuteStart) < 60000) { // 1 minute loop
+        var modes = cam.ReadoutModes;
+
+        for (var i = 0; i < modes.length; i++) {
+            Util.Console.PrintLine("Readout Mode " + i + ": " + modes[i]);
+        }
+
+        log("Acquiring minute bin #" + minuteIndex);
+
+        var currentBuffer = [];
+        var t0 = new Date();
+
+        for (var i = 0; i < totalFrames; i++) {
             try {
-                ccdCamera.BinX = binX;
-                ccdCamera.BinY = binY;
-
-                ccdCamera.Expose(exposureTime, 1); // 1 = light frame
-                Util.WaitForMilliseconds(100); // wait briefly
-
-                var waitTime = 0;
-                var waitLimit = 5000; // 5 seconds max wait
-                while (!ccdCamera.ImageReady && waitTime < waitLimit) {
-                    Util.WaitForMilliseconds(100);
-                    waitTime += 100;
+                cam.Expose(exposureTime, 1); // Light frame
+                while (!cam.ImageReady) {
+                    Util.WaitForMilliseconds(1);
                 }
 
-                if (ccdCamera.ImageReady) {
-                    var filename = saveSubfolder + "\\IMG_" + getDateTime() + "_" + exposureTime + "s.fits";
-                    ccdCamera.SaveImage(filename);
-                    log("Saved: " + filename);
-                    imageCounter++;
-                } else {
-                    log("WARNING: Image not ready after wait.");
-                }
+                // Store copy of image in memory
+                currentBuffer.push(cam.ImageArray);
 
             } catch (e) {
-                log("ERROR: Failed during exposure: " + e.message);
-                Util.WaitForMilliseconds(1000); // wait a bit before retrying
+                log("ERROR during exposure " + i + ": " + e.message);
             }
         }
 
-        log("Completed 1-minute bin with " + imageCounter + " images.");
+        var elapsed = (new Date() - t0) / 1000;
+        log("Acquisition done in " + elapsed.toFixed(2) + " seconds.");
+
+        // === Save previous buffer if available
+        if (frameBuffers.length > 0) {
+            var bufferToSave = frameBuffers.shift(); // remove first
+            var folderToSave = baseDir + "\\Minute_" + pad(minuteIndex - 1);
+            ensureDirExists(folderToSave);
+
+            for (var j = 0; j < bufferToSave.length; j++) {
+                try {
+                    cam.ImageArray = bufferToSave[j];
+                    var fname = folderToSave + "\\IMG_" + pad(j) + ".fit";
+                    cam.SaveImage(fname);
+                } catch (e) {
+                    log("ERROR saving image " + j + ": " + e.message);
+                }
+            }
+
+            log("Finished saving minute " + (minuteIndex - 1));
+        }
+
+        // Store current buffer for saving next loop
+        frameBuffers.push(currentBuffer);
+        minuteIndex++;
     }
 }
 
-// === Start Script ===
 main();
