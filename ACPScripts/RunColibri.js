@@ -1218,6 +1218,8 @@ function main()
     sunsetLST  = (Util.Julian_GMST(sunset)  + Telescope.SiteLongitude / 15).toFixed(1);
     sunriseLST = (Util.Julian_GMST(sunrise) + Telescope.SiteLongitude / 15).toFixed(1);
 
+    finalFields = [];
+
     // Length of night
     var darkHours = (sunrise - sunset) * 24;
     var timeUntilSunset = (sunset - Util.SysJulianDate) * 24; // hours
