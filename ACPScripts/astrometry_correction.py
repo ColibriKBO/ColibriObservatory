@@ -269,7 +269,7 @@ def extractStars(image_data, detect_threshold):
 ## WCS Solving
 ###########################
 
-def getLocalSolution(image_file, save_file, order):
+def getLocalSolution(image_file, save_file, order, timeout=300):
     """
     Astrometry.net must be installed locally to use this function. It installs under WSL.
     To use the local solution, you'll need to modify call to the function somewhat.
@@ -282,38 +282,48 @@ def getLocalSolution(image_file, save_file, order):
         image_file (str): Path to the image file to submit
         save_file (str): Basename to save the WCS solution header to
         order (int): Order of the WCS solution
+        timeout (int): Timeout in seconds (default 300 seconds)
 
     Returns:
         wcs_header (astropy.io.fits.header.Header): WCS solution header
     
+    Raises:
+        RuntimeError: If astrometry subprocess fails or times out.
     """
-
+    
     # Define tmp directory and image file path using WSL path
     tmp_dir = '/mnt/d/tmp/'
     image_file = convertToWSLPath(image_file)
 
-    # -D to specify write directory, -o to specify output base name, -N new-fits-filename
-    verboseprint(f"Reading from {image_file} for astrometry solution.")
-    # print(save_file.split(".")[0])
+    verboseprint(f"Reading from {image_file} for astrometry solution.")3
     verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
 
-    # Run the astrometry.net command from wsl command line
     subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
                      f' -N {tmp_dir + save_file} -t {order}' +\
                      f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}'
+
     verboseprint(subprocess_arg)
 
     try:
-        subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)  # Timeout in seconds
+        result = subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                                timeout=timeout, shell=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Astrometry.net failed with return code {result.returncode}")
     except subprocess.TimeoutExpired:
-        verboseprint("Astrometry.net solution timed out.")
-        raise
+        verboseprint("Astrometry.net subprocess timed out. Killing subprocess.")
+        # Attempt to forcibly kill any lingering WSL astrometry processes
+        subprocess.run("wsl pkill solve-field", shell=True)
+        raise RuntimeError("Astrometry.net subprocess timed out and was killed.")
 
     verboseprint("Astrometry.net solution completed successfully.")
 
-    # Read the WCS header from the new output file
-    wcs_header = Header.fromfile('d:\\tmp\\' + save_file.split(".fits")[0] + '.wcs')
+    wcs_header_path = 'd:\\tmp\\' + save_file.split(".fits")[0] + '.wcs'
+    if not os.path.exists(wcs_header_path):
+        raise RuntimeError(f"WCS header file '{wcs_header_path}' not found after successful solve-field call.")
+
+    wcs_header = Header.fromfile(wcs_header_path)
     return wcs_header
+
 
 
 # def getSolution(image_file, save_file, order):
