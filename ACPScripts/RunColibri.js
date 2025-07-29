@@ -734,7 +734,7 @@ function adjustPointing(target_ra, target_dec) {
 
         // Run astrometry_correction with current best coordinates in degrees
         var SH = new ActiveXObject("WScript.Shell");
-        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + best_ra_deg + " " + best_dec);
+        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + best_ra_deg + " " + best_dec + " -t");
         var python_output = "";
 
         while (BS.Status != 1) {
