@@ -750,6 +750,15 @@ function adjustPointing(target_ra, target_dec) {
         var ra_offset = parseFloat(radec_offset[0]);
         var dec_offset = parseFloat(radec_offset[1]);
 
+        // If parsing failed (NaN), skip this iteration and continue with original target
+        if (isNaN(ra_offset) || isNaN(dec_offset)) {
+            Console.PrintLine("Astrometry correction failed (received NaN). Using original target position.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction failed (received NaN). Using original target position.");
+
+            // Just break the loop and go to the fallback slew
+            break;
+        }
+
         // Update RA and Dec with offsets relative to the target position
         best_ra_deg = target_ra_deg - ra_offset;
         best_dec = target_dec - dec_offset;
