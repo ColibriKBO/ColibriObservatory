@@ -345,7 +345,7 @@ def getLocalSolution(image_file, save_file, order):
 
     command = f'wsl time solve-field --no-plots -D {save_file_base_wsl} -N {save_file_base_wsl}/{save_file_wsl} -t {order} --scale-units arcsecperpix --scale-low 2.2 --overwrite --scale-high 2.6 {image_file_wsl}'
 
-    subprocess.run(command, shell=True, check=True)
+    subprocess.run(command, shell=True, check=True, timeout=150)
     os.chdir(cwd)
 
     # Load the WCS header
@@ -364,7 +364,7 @@ def solve_image_parallel(image_file, save_file, order):
     Attempt to solve using parallel processing
     """
     with ThreadPoolExecutor() as executor:
-        future = executor.submit(getLocalSolution, image_file, save_file, order, timeout=150)
+        future = executor.submit(getLocalSolution, image_file, save_file, order)
         try:
             wcs_header = future.result(timeout=150)
             return wcs_header
