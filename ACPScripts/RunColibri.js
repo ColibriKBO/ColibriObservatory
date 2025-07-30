@@ -1664,14 +1664,14 @@ function main()
             // if (Util.IsTaskActive(tid))
                 //Util.ShellExec("taskkill.exe", "/im ColibriGrab.exe /t /f")
             // abortAndRestart()
-            andRestart();
+            shutDown();
         }
         else if (currentField[2] < 0 && currField[0] != -1)
         {
             Console.PrintLine("Negative loops remaining. Past last field. Closing up.");
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.");
             // abortAndRestart()
-            andRestart();
+            shutDown();
         }
 
         // Monitor the weather status, if the weather script is active
