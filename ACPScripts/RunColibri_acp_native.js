@@ -707,6 +707,10 @@ function adjustPointing(target_ra, target_dec) {
     Console.PrintLine("== Pointing Correction (ACP) ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: Using ACP-native pointing correction.");
 
+    var maximDL = new ActiveXObject("MaxIm.Application");
+    var cam = maximDL.CCDCamera;
+    cam.LinkEnabled = true;
+
     var posAngle = 0; // Desired rotator PA, or 0 if no rotator
     var SUP = new ActiveXObject("ACP.AcquireSupport");
     SUP.Initialize();
@@ -746,6 +750,9 @@ function adjustPointing(target_ra, target_dec) {
         target_dec, // degrees
         posAngle
     );
+
+    // ... your camera operations ...
+    cam.LinkEnabled = false; // this disconnects the camera
 
     if (result) {
         Console.PrintLine("Pointing correction completed.");
