@@ -779,9 +779,8 @@ function adjustPointing(target_ra, target_dec) {
         Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
 
-
         try {
-            res = execAstrometry(best_ra_deg, best_dec, TIMEOUT_MS);
+            res = execAstrometry(target_ra_deg, target_dec, TIMEOUT_MS);
         } catch (e) {
             Console.PrintLine("Astrometry correction timed out: " + e.message);
             ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out: " + e.message);
@@ -802,9 +801,12 @@ function adjustPointing(target_ra, target_dec) {
         var ra_offset = off.ra;
         var dec_offset = off.dec;
 
-        // Update RA and Dec with offsets relative to the target position
-        best_ra_deg = target_ra_deg - ra_offset;
-        best_dec = target_dec - dec_offset;
+        // Instead of accumulating offsets onto best_ra_deg / best_dec:
+        best_ra_deg = target_ra_deg + ra_offset;
+        best_dec    = target_dec    + dec_offset;
+
+        if (best_ra_deg >= 360) best_ra_deg -= 360;
+        if (best_ra_deg < 0)    best_ra_d eg += 360;
 
         // Calculate the total angular offset in degrees (RA in degrees)
         total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
@@ -840,6 +842,7 @@ function adjustPointing(target_ra, target_dec) {
     if (total_offset <= tolerance) {
         Console.PrintLine("Pointing correction achieved within tolerance after " + iterations + " iterations.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
+        break;
     } else {
         // Convert closest RA in degrees to hours for fallback
         var fallback_ra_hours = closest_ra_deg / 15;
