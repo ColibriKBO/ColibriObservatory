@@ -698,6 +698,49 @@ function gotoRADec(ra, dec)
     }
 }
 
+function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
+    var sh = new ActiveXObject("WScript.Shell");
+    // -u = unbuffered; 2>&1 merges stderr→stdout so we only have one stream to drain.
+    var cmd = 'cmd /c python -u ExtraScripts\\astrometry_correction.py ' +
+              bestRaDeg + ' ' + bestDecDeg + ' 2>&1';
+
+    var p = sh.Exec(cmd);
+    var start = new Date().getTime();
+    var out = "";
+
+    while (p.Status === 0) {
+        // Drain output in chunks (faster than Read(1))
+        while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
+         Util.WaitForMilliseconds(100);
+
+        var elapsed = new Date().getTime() - start;
+        if (elapsed > timeoutMs) {
+            // Kill the whole process tree if it overruns
+            try { sh.Run("taskkill /PID " + p.ProcessID + " /T /F", 0, true); } catch (e) {}
+            throw new Error("astrometry_correction timed out after " + Math.floor(timeoutMs/1000) + "s");
+        }
+    }
+
+    // Drain any trailing output after exit
+    while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
+
+    return { code: p.ExitCode, stdout: out };
+}
+
+function parseOffsets(text) {
+    // Find the last line that contains at least two floats
+    var lines = text.replace(/\r/g, "").split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+        var nums = lines[i].match(/-?\d+(?:\.\d+)?/g);
+        if (nums && nums.length >= 2) {
+            var raOff = parseFloat(nums[0]);
+            var decOff = parseFloat(nums[1]);
+            if (!isNaN(raOff) && !isNaN(decOff)) return { ra: raOff, dec: decOff };
+        }
+    }
+    return null;
+}
+
 //////////////////////////////////////////////////////////////
 // Function to adjust telescope pointing. Repeatedly calls the 
 // astrometry_correction.py subprocess to get a new pointing position.
@@ -719,6 +762,10 @@ function adjustPointing(target_ra, target_dec) {
     var closest_dec = best_dec;
     var min_total_offset = tolerance + 1;
 
+    // Run astrometry_correction with a hard timeout (e.g., 2.5 minutes)
+        var TIMEOUT_MS = 2.5 * 60 * 1000;
+        var res, off;
+
     // Log target position
     Console.PrintLine("== Pointing Correction ==");
     Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
@@ -732,32 +779,28 @@ function adjustPointing(target_ra, target_dec) {
         Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
 
-        // Run astrometry_correction with current best coordinates in degrees
-        var SH = new ActiveXObject("WScript.Shell");
-        var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + best_ra_deg + " " + best_dec + " -t");
-        var python_output = "";
 
-        while (BS.Status != 1) {
-            while (!BS.StdOut.AtEndOfStream) {
-                python_output += BS.StdOut.Read(1);
-            }
-            Util.WaitForMilliseconds(100);
+        try {
+            res = execAstrometry(best_ra_deg, best_dec, TIMEOUT_MS);
+        } catch (e) {
+            Console.PrintLine("Astrometry correction timed out: " + e.message);
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out: " + e.message);
+            break; // fall back to closest position later
         }
 
-        // Parse RA and Dec offsets
-        var py_lines = python_output.split("\n");
-        var radec_offset = py_lines[py_lines.length - 2].split(" ");
-        var ra_offset = parseFloat(radec_offset[0]);
-        var dec_offset = parseFloat(radec_offset[1]);
+        // Try to parse two floats from the *last* line that contains numbers
+        off = parseOffsets(res.stdout);
 
-        // If parsing failed (NaN), skip this iteration and continue with original target
-        if (isNaN(ra_offset) || isNaN(dec_offset)) {
-            Console.PrintLine("Astrometry correction failed (received NaN). Using original target position.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction failed (received NaN). Using original target position.");
-
-            // Just break the loop and go to the fallback slew
+        // If Python exited non-zero or we failed to parse, bail gracefully
+        if (res.code !== 0 || !off) {
+            var tail = res.stdout.slice(-400); // last ~400 chars
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry failed. Exit=" + res.code + " Tail: " + tail);
+            Console.PrintLine("Astrometry correction failed/timed out. Using original target.");
             break;
         }
+
+        var ra_offset = off.ra;
+        var dec_offset = off.dec;
 
         // Update RA and Dec with offsets relative to the target position
         best_ra_deg = target_ra_deg - ra_offset;

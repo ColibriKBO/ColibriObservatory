@@ -49,6 +49,9 @@ IMG_WIDTH = 2048
 BIT_DEPTH = 12
 IMG_SIZE = IMG_WIDTH**2
 
+DEFAULT_SOLVE_TIMEOUT = 150  # seconds
+DEFAULT_GRAB_TIMEOUT = 60    # seconds
+
 # Site longitude/latitude
 SITE_LAT  = 43.1933116667
 SITE_LON = -81.3160233333
@@ -65,9 +68,9 @@ verboseprint = lambda *a, **k: None
 
 def windows_to_wsl_path(windows_path):
     """Convert a Windows path to a Unix-style path for WSL."""
-    print("Path before replace: ", windows_path)
+    verboseprint("Path before replace: ", windows_path)
     windows_path = str(windows_path).replace("\\", "/")
-    print("Path after replace: ", windows_path)
+    verboseprint("Path after replace: ", windows_path)
     
     # If the path starts with a drive letter (e.g., "D:") handle it
     if windows_path[1] == ':':
@@ -324,39 +327,39 @@ def extractStars(image_data, detect_threshold):
 ###########################
 ## WCS Solving
 ###########################
-
 def getLocalSolution(image_file, save_file, order):
-    # try:
+
     image_dir = os.path.dirname(image_file)
     save_file_base = image_dir
-    
+
     image_file_wsl = windows_to_wsl_path(image_file)
     save_file_base_wsl = windows_to_wsl_path(save_file_base)
     save_file_wsl = save_file
 
-    print(f"Image file: {image_file_wsl}")
-    print(f"Save file base: {save_file_base_wsl}")
-    print(f"Save file: {save_file_wsl}")
+    # NOTE: removed 'time' and we capture output so it can't flood
+    command = [
+        'wsl', 'solve-field',
+        '--no-plots',
+        '-D', save_file_base_wsl,
+        '-N', f'{save_file_base_wsl}/{save_file_wsl}',
+        '-t', str(order),
+        '--scale-units', 'arcsecperpix',
+        '--scale-low', '2.2',
+        '--scale-high', '2.6',
+        '--overwrite',
+        image_file_wsl
+    ]
+    out = subprocess.run(
+        command,
+        check=True,
+        timeout=DEFAULT_SOLVE_TIMEOUT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-    cwd = os.getcwd()
-    os.chdir('d:')
-    print(os.getcwd())
-
-
-    command = f'wsl time solve-field --no-plots -D {save_file_base_wsl} -N {save_file_base_wsl}/{save_file_wsl} -t {order} --scale-units arcsecperpix --scale-low 2.2 --overwrite --scale-high 2.6 {image_file_wsl}'
-
-    subprocess.run(command, shell=True, check=True, timeout=150)
-    os.chdir(cwd)
-
-    # Load the WCS header
     wcs_header_path = f'{save_file_base}\\{save_file}'
     wcs_header = Header.fromfile(wcs_header_path)
-    print("Header: ", wcs_header)
-
-    # except Exception as e:
-    #     print(f"An error occurred: {e}")
-    #     wcs_header = getSolution(image_file, save_file, order)
-
     return wcs_header
 
 def solve_image_parallel(image_file, save_file, order):
@@ -366,7 +369,7 @@ def solve_image_parallel(image_file, save_file, order):
     with ThreadPoolExecutor() as executor:
         future = executor.submit(getLocalSolution, image_file, save_file, order)
         try:
-            wcs_header = future.result(timeout=150)
+            wcs_header = future.result(timeout=DEFAULT_SOLVE_TIMEOUT + 10)
             return wcs_header
         except Exception as e:
             print(f"Astrometry solution failed: {e}")
@@ -539,34 +542,34 @@ if __name__ == '__main__':
     # If no reference image is provided, generate a test image
     # using ColibriGrab.exe
     if args.image is None:
-        # Generate a test image using ColibriGrab.exe
-        colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab"
-        colibrigrab_path_home = colibrigrab_base_path_home / "ColibriGrab.exe"
-        colibrigrab_path = colibrigrab_path_home
-        # subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
-        command = f'"{colibrigrab_path}" -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\'
-        os.system(command)
-        # Set the path to the reference image
-        tmp_dir = BASE_PATH / 'tmp'
-        tmp_dir_dirs = [d for d in tmp_dir.iterdir() if d.is_dir()]
-        
-        # Get the most recent directory
-        tmp_dir_dirs.sort(key=os.path.getmtime)
-        img_dir = tmp_dir_dirs[-1]
+        colibrigrab_path = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab/ColibriGrab.exe"
+        try:
+            subprocess.run(
+                [str(colibrigrab_path),
+                 "-n","1","-p","pointing_reference","-e","1000","-t","-10","-f","normal","-w","D:\\tmp\\"],
+                check=True, timeout=DEFAULT_GRAB_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            print("0.0 0.0", flush=True); sys.exit(124)
+        except Exception:
+            print("0.0 0.0", flush=True); sys.exit(1)
 
-        # Get the test image path
+        tmp_dir = BASE_PATH / 'tmp'
+        try:
+            tmp_dirs = sorted([d for d in tmp_dir.iterdir() if d.is_dir()], key=os.path.getmtime)
+            img_dir = tmp_dirs[-1]
+        except Exception:
+            print("0.0 0.0", flush=True); sys.exit(1)
+
         ref_image = img_dir / 'pointing_reference_0000001.rcd'
         if not ref_image.exists():
-            print("0.0 0.0")
-            raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_image}'.")
-
-    # Otherwise, use the provided reference image
-    elif args.image is not None:
+            print(f"Could not find ColibriGrab test image '{ref_image}'.")
+            print("0.0 0.0", flush=True); sys.exit(1)
+    else:
         ref_image = Path(args.image)
-        # Check that the reference image exists
         if not ref_image.exists():
-            print("0.0 0.0")
-            raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
+            print(f"Reference image for astrometric correction '{ref_image}' not found.")
+            print("0.0 0.0", flush=True); sys.exit(1)
 
 ###########################
 ## Astrometry
