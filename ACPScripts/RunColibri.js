@@ -804,9 +804,8 @@ function adjustPointing(target_ra, target_dec) {
         // Instead of accumulating offsets onto best_ra_deg / best_dec:
         best_ra_deg = target_ra_deg + ra_offset;
         best_dec    = target_dec    + dec_offset;
-
         if (best_ra_deg >= 360) best_ra_deg -= 360;
-        if (best_ra_deg < 0)    best_ra_d eg += 360;
+        if (best_ra_deg < 0)    best_ra_deg += 360;
 
         // Calculate the total angular offset in degrees (RA in degrees)
         total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
@@ -842,7 +841,7 @@ function adjustPointing(target_ra, target_dec) {
     if (total_offset <= tolerance) {
         Console.PrintLine("Pointing correction achieved within tolerance after " + iterations + " iterations.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        break;
+        return;
     } else {
         // Convert closest RA in degrees to hours for fallback
         var fallback_ra_hours = closest_ra_deg / 15;
