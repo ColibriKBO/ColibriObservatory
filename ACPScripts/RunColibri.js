@@ -206,7 +206,7 @@ function darkCollection(today, LogFile) {
 
 
     var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t -10 -f dark -l 1 -w D:\\ColibriData\\" + today.toString() + "\\Dark";
 
     wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
@@ -1900,7 +1900,7 @@ function main()
 
             // Commands to run ColibriGrab.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString()
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t -10 -f normal -l 1 -w D:\\ColibriData\\" + today.toString()
             
             Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
