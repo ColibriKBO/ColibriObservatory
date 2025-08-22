@@ -751,6 +751,7 @@ function adjustPointing(target_ra, target_dec) {
     var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
     var max_iterations = 5;
     var iterations = 0;
+    var lambda = 0.8;
 
     // Convert target RA to degrees and store initial values in degrees for astrometry correction
     var target_ra_deg = target_ra * 15; 
@@ -802,19 +803,12 @@ function adjustPointing(target_ra, target_dec) {
         var dec_offset = off.dec;
 
         // Instead of accumulating offsets onto best_ra_deg / best_dec:
-        // off.{ra,dec} = (target - current_center) in degrees
-
-        if (iterations === 1) {
-            // first correction is from the original target
+        if (iterations == 1 || iterations == 2);
             best_ra_deg = target_ra_deg + ra_offset;
             best_dec    = target_dec    + dec_offset;
-        } else {
-            // subsequent corrections nudge the last command by the new residual
-            best_ra_deg = best_ra_deg + ra_offset;
-            best_dec    = best_dec    + dec_offset;
-        }
-
-        // keep RA in [0,360)
+        else:
+            best_ra_deg = target_ra_deg + lambda * ra_offset;
+            best_dec    = target_dec    + lambda * dec_offset;
         if (best_ra_deg >= 360) best_ra_deg -= 360;
         if (best_ra_deg < 0)    best_ra_deg += 360;
 
@@ -822,20 +816,10 @@ function adjustPointing(target_ra, target_dec) {
         total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
 
         // Update closest position if this iteration improves it
-        // --- replace your current "update closest" block with this ---
-        var improved = false;
         if (total_offset < min_total_offset) {
             min_total_offset = total_offset;
             closest_ra_deg = best_ra_deg;
             closest_dec = best_dec;
-            improved = true;
-        }
-
-        // If no improvement, don’t keep slewing pointlessly
-        if (!improved) {
-            Console.PrintLine("No improvement on this iteration; stopping to avoid thrashing.");
-            ts.WriteLine(Util.SysUTCDate + " INFO: No improvement; stopping pointing correction.");
-            return;
         }
 
         // Log current position and offset to target with rounding
