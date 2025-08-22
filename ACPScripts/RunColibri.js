@@ -803,12 +803,15 @@ function adjustPointing(target_ra, target_dec) {
         var dec_offset = off.dec;
 
         // Instead of accumulating offsets onto best_ra_deg / best_dec:
-        if (iterations == 1 || iterations == 2);
+        if ((iterations == 1) || (iterations == 2)) {
             best_ra_deg = target_ra_deg + ra_offset;
             best_dec    = target_dec    + dec_offset;
-        else:
+        }
+        else {
             best_ra_deg = target_ra_deg + lambda * ra_offset;
             best_dec    = target_dec    + lambda * dec_offset;
+        }
+
         if (best_ra_deg >= 360) best_ra_deg -= 360;
         if (best_ra_deg < 0)    best_ra_deg += 360;
 
