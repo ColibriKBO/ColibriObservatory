@@ -819,6 +819,107 @@ function trkOn()
     }
 }
 
+// ---------------------------------------------------------------------
+// Function: setOutletState
+// Arguments:
+//   outletIndex (number) - 0-based outlet number (0 = Switch 1)
+//   desiredState (bool)  - true for ON, false for OFF
+// This function controls the DigitalLoggers Web Power Switch used by Colibri
+// ---------------------------------------------------------------------
+function setOutletState(outletNumber, switchValue) {
+    var PWC  = new ActiveXObject("ASCOM.DigitalLoggers.Switch");
+
+    try {
+        if (!PWC.Connected) {
+            PWC.Connected = true;
+        }
+
+        var outletCount = PWC.MaxSwitch;
+        if (outletNumber < 0 || outletNumber >= outletCount) {
+            Util.Console.PrintLine("ERROR: Outlet number " + outletNumber + " is out of range.");
+            return;
+        }
+
+        var outletName = PWC.GetSwitchName(outletNumber);
+        Util.Console.PrintLine("Setting outlet #" + outletNumber + " (" + outletName + ") to " + (switchValue ? "ON" : "OFF") + "...");
+        PWC.SetSwitch(outletNumber, switchValue);
+
+    } catch (e) {
+        Util.Console.PrintLine("ERROR: " + e.message);
+    } finally {
+        if (PWC != null) {
+            PWC.Connected = false;
+        }
+    }
+}
+
+// This function opens FliPilot, waits for 10 seconds and kill FliPilot
+function resetFliPilot() {
+    var WshShell = new ActiveXObject("WScript.Shell");
+
+    try {
+        Util.Console.PrintLine("Starting FLIPilot...");
+
+        // Launch FLIPilot (adjust the path if needed)
+        var flipilotPath = '"C:\\Program Files\\Finger Lakes Instrumentation\\FliPilot\\FLIPilot.exe"';
+        WshShell.Run(flipilotPath, 1, false); // 1=normal window, false=don't wait
+
+        Util.Console.PrintLine("FLIPilot launched. Waiting 60 seconds...");
+        // Wait for 60 seconds
+        Util.WaitForMilliseconds(10000);
+
+        Util.Console.PrintLine("Killing FLIPilot...");
+
+        // Kill FLIPilot process
+        WshShell.Run('taskkill /IM FLIPilot.exe /F', 0, true);
+
+        Util.Console.PrintLine("FLIPilot closed successfully.");
+
+    } catch (e) {
+        Util.Console.PrintLine("Error: " + e.message);
+    }
+}
+
+function CameraStartup(){
+
+// Number of iterations to simulate Colibri simulations
+    var iterations = 2;
+    var framesPerIteration = 2400;
+    var frameType = "normal"; // Frame type to test
+    var filterWheelPosition = 1;
+    
+    Console.PrintLine('ColibriGrab testing with ' + framesPerIteration + ' frames of 25ms exposure');
+
+    // Get the current date and time
+    var date = new Date();
+    var dateString = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+
+    for (var i = 0; i < iterations; i++) {
+        var iterationDir = "D:\\colibrigrab_tests\\" + dateString + "_" + (i + 1) + "_" + frameType;
+        
+        var fso = new ActiveXObject("Scripting.FileSystemObject");
+        if (!fso.FolderExists(iterationDir)) {
+            fso.CreateFolder(iterationDir);
+        }
+
+        // Define the path for ColibriGrab log file
+        var colibriGrabLogPath = "D:\\colibrigrab_tests\\colibrigrab_output.txt";
+
+        // Get the user's home directory and construct the path to ColibriGrab.exe in Github
+        var wshShell = new ActiveXObject("WScript.Shell");
+        var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+        var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+        
+        // Dynamically start ColibriGrab
+        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -l " + filterWheelPosition +" -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+        wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
+
+        Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
+    }
+
+    Console.PrintLine('All testing done');
+}
+
 /////////////////////////////////////////////////////
 // Returns JD of sunrise and sunset for current day
 // See: https://en.wikipedia.org/wiki/Sunrise_equation
@@ -1687,6 +1788,18 @@ function main()
         // Readjust the telescope pointing using child script
         adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
+        //Now we must do a powerReset on the camera so it can work again on ColibriGrab
+        setOutletState(2,false); //Turn off the camera
+        Util.WaitForMilliseconds(10000) //wait for 10 seconds
+        setOutletState(2,true) //Turn the camera on
+
+        //Now we must open FliPilot, wait for the camera to connect and close it agian
+        resetFliPilot(); // This opens fli, wait for 10 s and close it again
+
+        //Now we must run the camera test script
+        CameraStartup(); // This runs a camera test script that start up it
+        //The camera is now prepared to operate with RunColibri
+
         while (Telescope.Slewing == true)
         {
             Console.PrintLine("Huh. Still Slewing...");
@@ -1811,7 +1924,7 @@ function main()
 
             // Commands to run ColibriGrab.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -l 6 -w D:\\ColibriData\\" + today.toString()
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -l 1 -w D:\\ColibriData\\" + today.toString()
             
             Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
