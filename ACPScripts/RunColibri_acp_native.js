@@ -883,8 +883,8 @@ function resetFliPilot() {
 function CameraStartup(){
 
 // Number of iterations to simulate Colibri simulations
-    var iterations = 2;
-    var framesPerIteration = 2400;
+    var iterations = 1;
+    var framesPerIteration = 700;
     var frameType = "normal"; // Frame type to test
     var filterWheelPosition = 1;
     
@@ -1736,6 +1736,9 @@ function main()
         if ((Weather.Available && Weather.safe) || (ignoreWeather == true))
         {
             Console.PrintLine("Checking Weather");
+            Console.PrintLine("Powering on the telescope...");
+            setOutletState(0,true); //Power on the telescope
+            Util.WaitForMilliseconds(5000); //Wait 5 seconds for the mount to power on
             connectScope();
             domeOpen();
             trkOn();
@@ -1789,9 +1792,9 @@ function main()
         adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
         //Now we must do a powerReset on the camera so it can work again on ColibriGrab
-        setOutletState(2,false); //Turn off the camera
+        setOutletState(1,false); //Turn off the camera
         Util.WaitForMilliseconds(10000) //wait for 10 seconds
-        setOutletState(2,true) //Turn the camera on
+        setOutletState(1,true) //Turn the camera on
 
         //Now we must open FliPilot, wait for the camera to connect and close it agian
         resetFliPilot(); // This opens fli, wait for 10 s and close it again
@@ -1881,6 +1884,18 @@ function main()
                 // Readjust the telescope pointing using child script
                 adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
+                //Now we must do a powerReset on the camera so it can work again on ColibriGrab
+                setOutletState(1,false); //Turn off the camera
+                Util.WaitForMilliseconds(10000) //wait for 10 seconds
+                setOutletState(1,true) //Turn the camera on
+
+                //Now we must open FliPilot, wait for the camera to connect and close it agian
+                resetFliPilot(); // This opens fli, wait for 10 s and close it again
+
+                //Now we must run the camera test script
+                CameraStartup(); // This runs a camera test script that start up it
+                //The camera is now prepared to operate with RunColibri
+
                 while (Telescope.Slewing == true)
                 {
                     Console.PrintLine("Huh. Still Slewing...");
@@ -1942,8 +1957,11 @@ function main()
             runCounter++;
         }
     }
+    Console.PrintLine("Finished all observations for the night. Turning off equipment.");
+    setOutletState(0,false); //Turn off the telescope 
+    setOutletState(1,false); //Turn off the camera 
+    shutDown();     
 
-    shutDown();       
 }
             // Run ColibriGrab.exe
             //wsh.Run(command, 1, true); 
