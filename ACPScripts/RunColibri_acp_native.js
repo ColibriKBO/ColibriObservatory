@@ -206,7 +206,7 @@ function darkCollection(today, LogFile) {
 
 
     var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -l 0 -w D:\\ColibriData\\" + today.toString() + "\\Dark";
 
     wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
@@ -451,16 +451,16 @@ function domeOpen()
     ////////////////////////////////////////
     // Home the dome if not already done. //
     ////////////////////////////////////////
-    if (!Dome.AtHome)
-    {
-        Dome.FindHome();
-        while (!Dome.AtHome)
-        {
-            Console.PrintLine("*** Homing dome...");
-            Util.WaitForMilliseconds(2000);
-        }
-        Console.PrintLine("--> Dome is homed... Bigly.");
-    }
+    //if (!Dome.AtHome)
+    //{
+    //    Dome.FindHome();
+    //    while (!Dome.AtHome)
+    //    {
+    //        Console.PrintLine("*** Homing dome...");
+    //        Util.WaitForMilliseconds(2000);
+    //    }
+    //    Console.PrintLine("--> Dome is homed... Bigly.");
+    //}
     
 }
 
@@ -709,48 +709,43 @@ function adjustPointing(target_ra, target_dec) {
 
     var maximDL = new ActiveXObject("MaxIm.Application");
     var cam = maximDL.CCDCamera;
-    cam.LinkEnabled = true;
+    if (!cam.LinkEnabled) cam.LinkEnabled = true;
+    Console.PrintLine("Camera linked via MaxIm DL.");
 
-    var posAngle = 0; // Desired rotator PA, or 0 if no rotator
     var SUP = new ActiveXObject("ACP.AcquireSupport");
     SUP.Initialize();
 
-    // Call the modified WSC function (no model update)
-    var result = SUP.UpdatePointing(
-        "Target",
-        target_ra,  // hours
-        target_dec, // degrees
-        posAngle
-    );
+    //Now we can use ACP Build-in pointing correction script
+    var posAngle = 0;                // No rotator, set to desired PA otherwise
+    var threshold = 0.05;            // Acceptable pointing error in arcminutes. 0.05 arcmin = 3 arcseconds. 1 pixel = 2.4 arcseconds.
+                                     // It is possible to get a smaller error but the script may bounce around a reasonable value
+    var pointing_error = 9999;       // Start with a very high error
+    var max_attempts = 5;            // Prevent infinite looping
+    var attempt = 0;
 
-    var result = SUP.UpdatePointing(
-        "Target",
-        target_ra,  // hours
-        target_dec, // degrees
-        posAngle
-    );
+    while (pointing_error > threshold && attempt < max_attempts) {
+        attempt++;
 
-    var result = SUP.UpdatePointing(
-        "Target",
-        target_ra,  // hours
-        target_dec, // degrees
-        posAngle
-    );
+        Console.PrintLine("Attempt " + attempt + ": Updating pointing...");
+        pointing_error = SUP.UpdatePointing("Target", target_ra, target_dec, posAngle);
 
-    var result = SUP.UpdatePointing(
-        "Target",
-        target_ra,  // hours
-        target_dec, // degrees
-        posAngle
-    );
+        if (pointing_error >= 0) {
+            Console.PrintLine("Pointing error: " + pointing_error.toFixed(2) + " arcminutes");
+        } else {
+            Console.PrintLine("Pointing update failed on attempt " + attempt);
+            break; // Exit loop if UpdatePointing fails (-1 returned)
+        }
 
-    var result = SUP.UpdatePointing(
-        "Target",
-        target_ra,  // hours
-        target_dec, // degrees
-        posAngle
-    );
+        if (pointing_error > threshold) {
+            Console.PrintLine("Error above threshold (" + threshold + " arcminutes), retrying...");
+        }
+    }
 
+    if (pointing_error >= 0 && pointing_error <= threshold) {
+        Console.PrintLine("Final pointing error: " + pointing_error.toFixed(2) + " arcminutes (within threshold)");
+    } else if (pointing_error > threshold) {
+        Console.PrintLine("Warning: Could not achieve desired pointing accuracy after " + attempt + " attempts.");
+    }
     // ... your camera operations ...
     cam.LinkEnabled = false; // this disconnects the camera
 
@@ -866,7 +861,7 @@ function resetFliPilot() {
 
         Util.Console.PrintLine("FLIPilot launched. Waiting 60 seconds...");
         // Wait for 60 seconds
-        Util.WaitForMilliseconds(10000);
+        Util.WaitForMilliseconds(15000);
 
         Util.Console.PrintLine("Killing FLIPilot...");
 
@@ -884,9 +879,9 @@ function CameraStartup(){
 
 // Number of iterations to simulate Colibri simulations
     var iterations = 1;
-    var framesPerIteration = 700;
+    var framesPerIteration = 2400;
     var frameType = "normal"; // Frame type to test
-    var filterWheelPosition = 1;
+    var filterWheelPosition = 0;
     
     Console.PrintLine('ColibriGrab testing with ' + framesPerIteration + ' frames of 25ms exposure');
 
@@ -918,6 +913,12 @@ function CameraStartup(){
     }
 
     Console.PrintLine('All testing done');
+}
+
+function autofocus(){
+
+
+    
 }
 
 /////////////////////////////////////////////////////
@@ -1771,7 +1772,7 @@ function main()
             Util.WaitForMilliseconds(500);
         }
 
-        Dome.UnparkHome();
+        //Dome.UnparkHome();
         if (Dome.slave == false)
         {
             Dome.slave = true;
@@ -1793,11 +1794,11 @@ function main()
 
         //Now we must do a powerReset on the camera so it can work again on ColibriGrab
         setOutletState(1,false); //Turn off the camera
-        Util.WaitForMilliseconds(10000) //wait for 10 seconds
+        Util.WaitForMilliseconds(5000) //wait for 5 seconds
         setOutletState(1,true) //Turn the camera on
 
         //Now we must open FliPilot, wait for the camera to connect and close it agian
-        resetFliPilot(); // This opens fli, wait for 10 s and close it again
+        resetFliPilot(); // This opens fli, wait for 15 s and close it again
 
         //Now we must run the camera test script
         CameraStartup(); // This runs a camera test script that start up it
@@ -1809,7 +1810,6 @@ function main()
             Util.WaitForMilliseconds(500);
         }
 
-        Dome.UnparkHome()
         if (Dome.slave == false)
         {
             Dome.slave = true;
@@ -1869,7 +1869,7 @@ function main()
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-                Dome.UnparkHome()
+                //Dome.UnparkHome()
                 if (Dome.slave == false)
                 {
                     Dome.slave = true;
@@ -1890,7 +1890,7 @@ function main()
                 setOutletState(1,true) //Turn the camera on
 
                 //Now we must open FliPilot, wait for the camera to connect and close it agian
-                resetFliPilot(); // This opens fli, wait for 10 s and close it again
+                resetFliPilot(); // This opens fli, wait for 15 s and close it again
 
                 //Now we must run the camera test script
                 CameraStartup(); // This runs a camera test script that start up it
@@ -1939,7 +1939,7 @@ function main()
 
             // Commands to run ColibriGrab.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -l 1 -w D:\\ColibriData\\" + today.toString()
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -l 0 -w D:\\ColibriData\\" + today.toString()
             
             Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
