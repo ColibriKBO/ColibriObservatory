@@ -720,7 +720,7 @@ function adjustPointing(target_ra, target_dec) {
     var threshold = 0.05;            // Acceptable pointing error in arcminutes. 0.05 arcmin = 3 arcseconds. 1 pixel = 2.4 arcseconds.
                                      // It is possible to get a smaller error but the script may bounce around a reasonable value
     var pointing_error = 9999;       // Start with a very high error
-    var max_attempts = 5;            // Prevent infinite looping
+    var max_attempts = 1;            // Prevent infinite looping
     var attempt = 0;
 
     while (pointing_error > threshold && attempt < max_attempts) {
@@ -748,14 +748,6 @@ function adjustPointing(target_ra, target_dec) {
     }
     // ... your camera operations ...
     cam.LinkEnabled = false; // this disconnects the camera
-
-    if (result) {
-        Console.PrintLine("Pointing correction completed.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction completed.");
-    } else {
-        Console.PrintLine("Pointing correction failed.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing correction failed.");
-    }
 }
 
 ///////////////////////////////////////////////////////////////
@@ -916,9 +908,28 @@ function CameraStartup(){
 }
 
 function autofocus(){
-
-
     
+    Console.PrintLine("== Simple AutoFocus with FocusMax");
+
+    // Ensure telescope is tracking
+    if (!Telescope.Tracking) {
+        Console.PrintLine("Turning on Tracking ...");
+        Telescope.Tracking = true;
+    }
+
+    // Initialize AcquireSupport
+    var SUP = new ActiveXObject("ACP.AcquireSupport");
+    SUP.Initialize();
+
+    // Perform autofocus
+    var success = SUP.AutoFocus(Telescope.RightAscension, Telescope.Declination);
+    if (!success) {
+        Console.PrintLine("***AutoFocus failed.");
+    }
+
+    // Clean up
+    SUP.Terminate();
+    Console.PrintLine("AutoFocus completed.");
 }
 
 /////////////////////////////////////////////////////
@@ -1761,8 +1772,14 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
 
+        var SUP = new ActiveXObject("ACP.AcquireSupport");
+        SUP.Initialize();
+
+        SUP.StartSlewJ2000(currentField[5],currentFieldCt.RightAscension,currentFieldCt.Declination)
+        //adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
         // Slew to the current field
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+        //gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
         // Slave the dome to the telescope and wait until they are both in
         // the correct position to begin observing
@@ -1772,7 +1789,7 @@ function main()
             Util.WaitForMilliseconds(500);
         }
 
-        //Dome.UnparkHome();
+        Dome.UnparkHome();
         if (Dome.slave == false)
         {
             Dome.slave = true;
@@ -1783,12 +1800,17 @@ function main()
             Console.PrintLine("Dome is still slewing. Give me a minute...");
             Util.WaitForMilliseconds(500);
         }
+        Util.WaitForMilliseconds(5000);
 
         Console.PrintLine("At target.");
         Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
         ts.WriteLine(Util.SysUTCDate + " INFO: At target.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
 
+        //autofocus();
+
+
+        
         // Readjust the telescope pointing using child script
         adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
@@ -1867,9 +1889,18 @@ function main()
             {
                 Console.PrintLine("Flipping sides of pier...");
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
-                gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
 
-                //Dome.UnparkHome()
+                var maximDL = new ActiveXObject("MaxIm.Application");
+                var cam = maximDL.CCDCamera;
+                if (!cam.LinkEnabled) cam.LinkEnabled = true;
+                Console.PrintLine("Camera linked via MaxIm DL.");
+
+                var SUP = new ActiveXObject("ACP.AcquireSupport");
+                SUP.Initialize();
+                SUP.StartSlewJ2000(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+                
+                Dome.UnparkHome()
                 if (Dome.slave == false)
                 {
                     Dome.slave = true;
@@ -1945,7 +1976,7 @@ function main()
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
     
             // Run ColibriGrab.exe
-            wsh.Run(command, 1, true); 
+            wsh.Run(command, 0, true); 
 
             Util.WaitForMilliseconds(50);
 
@@ -1958,9 +1989,9 @@ function main()
         }
     }
     Console.PrintLine("Finished all observations for the night. Turning off equipment.");
+    shutDown();     
     setOutletState(0,false); //Turn off the telescope 
     setOutletState(1,false); //Turn off the camera 
-    shutDown();     
 
 }
             // Run ColibriGrab.exe
