@@ -162,7 +162,17 @@ function darkCollection(today) {
     // Console.Printline(today.toString());
 
     Console.PrintLine("Starting dark frame collection...");
+<<<<<<< Updated upstream
     Console.Printline("d:\\ColibriData\\" + today.toString() + "\\Dark");
+=======
+    Console.PrintLine("d:\\ColibriData\\" + today.toString() + "\\Dark");
+
+
+    var wsh = new ActiveXObject("WScript.Shell");
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -l 0 -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+
+    wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
+>>>>>>> Stashed changes
 
     tid = Util.ShellExec("ColibriGrab.exe", "-n 10 -p Dark_25ms -e 25 -t 0 -f dark -w D:\\ColibriData\\" + today.toString() + "\\Dark");
     while (Util.IsTaskActive(tid))
@@ -395,6 +405,7 @@ function domeOpen()
         Console.PrintLine("There was a problem with the shutter control...")
         break;
     }
+<<<<<<< Updated upstream
 
     // Home the dome if not already done.
     if (!Dome.AtHome)
@@ -407,6 +418,21 @@ function domeOpen()
         }
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
+=======
+    ////////////////////////////////////////
+    // Home the dome if not already done. //
+    ////////////////////////////////////////
+    //if (!Dome.AtHome)
+    //{
+    //    Dome.FindHome();
+    //    while (!Dome.AtHome)
+    //    {
+    //        Console.PrintLine("*** Homing dome...");
+    //        Util.WaitForMilliseconds(2000);
+    //    }
+    //    Console.PrintLine("--> Dome is homed... Bigly.");
+    //}
+>>>>>>> Stashed changes
     
 }
 
@@ -648,6 +674,7 @@ function gotoRADec(ra, dec)
 // subprocess to get new pointing.
 //////////////////////////////////////////////////////////////
 
+<<<<<<< Updated upstream
 function adjustPointing(ra, dec)
 {
     // Convert RA to decimal degrees
@@ -665,10 +692,44 @@ function adjustPointing(ra, dec)
         while(!BS.StdOut.AtEndOfStream)
         {
             python_output += BS.StdOut.Read(1);
+=======
+function adjustPointing(target_ra, target_dec) {
+    Console.PrintLine("== Pointing Correction (ACP) ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Using ACP-native pointing correction.");
+
+    var maximDL = new ActiveXObject("MaxIm.Application");
+    var cam = maximDL.CCDCamera;
+    if (!cam.LinkEnabled) cam.LinkEnabled = true;
+    Console.PrintLine("Camera linked via MaxIm DL.");
+
+    var SUP = new ActiveXObject("ACP.AcquireSupport");
+    SUP.Initialize();
+
+    //Now we can use ACP Build-in pointing correction script
+    var posAngle = 0;                // No rotator, set to desired PA otherwise
+    var threshold = 0.05;            // Acceptable pointing error in arcminutes. 0.05 arcmin = 3 arcseconds. 1 pixel = 2.4 arcseconds.
+                                     // It is possible to get a smaller error but the script may bounce around a reasonable value
+    var pointing_error = 9999;       // Start with a very high error
+    var max_attempts = 1;            // Prevent infinite looping
+    var attempt = 0;
+
+    while (pointing_error > threshold && attempt < max_attempts) {
+        attempt++;
+
+        Console.PrintLine("Attempt " + attempt + ": Updating pointing...");
+        pointing_error = SUP.UpdatePointing("Target", target_ra, target_dec, posAngle);
+
+        if (pointing_error >= 0) {
+            Console.PrintLine("Pointing error: " + pointing_error.toFixed(2) + " arcminutes");
+        } else {
+            Console.PrintLine("Pointing update failed on attempt " + attempt);
+            break; // Exit loop if UpdatePointing fails (-1 returned)
+>>>>>>> Stashed changes
         }
         Util.WaitForMilliseconds(100);
     };
 
+<<<<<<< Updated upstream
     // Parse output from astrometry_correction.py
     var py_lines = python_output.split("\n");
     var radec_offset = py_lines[py_lines.length-2].split(" ");
@@ -713,6 +774,20 @@ function adjustPointing(ra, dec)
     else
     {gotoRADec(new_ra, new_dec)};
 
+=======
+        if (pointing_error > threshold) {
+            Console.PrintLine("Error above threshold (" + threshold + " arcminutes), retrying...");
+        }
+    }
+
+    if (pointing_error >= 0 && pointing_error <= threshold) {
+        Console.PrintLine("Final pointing error: " + pointing_error.toFixed(2) + " arcminutes (within threshold)");
+    } else if (pointing_error > threshold) {
+        Console.PrintLine("Warning: Could not achieve desired pointing accuracy after " + attempt + " attempts.");
+    }
+    // ... your camera operations ...
+    cam.LinkEnabled = false; // this disconnects the camera
+>>>>>>> Stashed changes
 }
 
 ///////////////////////////////////////////////////////////////
@@ -768,6 +843,132 @@ function trkOn()
         Console.PrintLine("Failed to enable tracking")
         ts.WriteLine(" WARNING: Failed to enable telescope tracking")
     }
+}
+
+// ---------------------------------------------------------------------
+// Function: setOutletState
+// Arguments:
+//   outletIndex (number) - 0-based outlet number (0 = Switch 1)
+//   desiredState (bool)  - true for ON, false for OFF
+// This function controls the DigitalLoggers Web Power Switch used by Colibri
+// ---------------------------------------------------------------------
+function setOutletState(outletNumber, switchValue) {
+    var PWC  = new ActiveXObject("ASCOM.DigitalLoggers.Switch");
+
+    try {
+        if (!PWC.Connected) {
+            PWC.Connected = true;
+        }
+
+        var outletCount = PWC.MaxSwitch;
+        if (outletNumber < 0 || outletNumber >= outletCount) {
+            Util.Console.PrintLine("ERROR: Outlet number " + outletNumber + " is out of range.");
+            return;
+        }
+
+        var outletName = PWC.GetSwitchName(outletNumber);
+        Util.Console.PrintLine("Setting outlet #" + outletNumber + " (" + outletName + ") to " + (switchValue ? "ON" : "OFF") + "...");
+        PWC.SetSwitch(outletNumber, switchValue);
+
+    } catch (e) {
+        Util.Console.PrintLine("ERROR: " + e.message);
+    } finally {
+        if (PWC != null) {
+            PWC.Connected = false;
+        }
+    }
+}
+
+// This function opens FliPilot, waits for 10 seconds and kill FliPilot
+function resetFliPilot() {
+    var WshShell = new ActiveXObject("WScript.Shell");
+
+    try {
+        Util.Console.PrintLine("Starting FLIPilot...");
+
+        // Launch FLIPilot (adjust the path if needed)
+        var flipilotPath = '"C:\\Program Files\\Finger Lakes Instrumentation\\FliPilot\\FLIPilot.exe"';
+        WshShell.Run(flipilotPath, 1, false); // 1=normal window, false=don't wait
+
+        Util.Console.PrintLine("FLIPilot launched. Waiting 60 seconds...");
+        // Wait for 60 seconds
+        Util.WaitForMilliseconds(15000);
+
+        Util.Console.PrintLine("Killing FLIPilot...");
+
+        // Kill FLIPilot process
+        WshShell.Run('taskkill /IM FLIPilot.exe /F', 0, true);
+
+        Util.Console.PrintLine("FLIPilot closed successfully.");
+
+    } catch (e) {
+        Util.Console.PrintLine("Error: " + e.message);
+    }
+}
+
+function CameraStartup(){
+
+// Number of iterations to simulate Colibri simulations
+    var iterations = 1;
+    var framesPerIteration = 2400;
+    var frameType = "normal"; // Frame type to test
+    var filterWheelPosition = 0;
+    
+    Console.PrintLine('ColibriGrab testing with ' + framesPerIteration + ' frames of 25ms exposure');
+
+    // Get the current date and time
+    var date = new Date();
+    var dateString = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+
+    for (var i = 0; i < iterations; i++) {
+        var iterationDir = "D:\\colibrigrab_tests\\" + dateString + "_" + (i + 1) + "_" + frameType;
+        
+        var fso = new ActiveXObject("Scripting.FileSystemObject");
+        if (!fso.FolderExists(iterationDir)) {
+            fso.CreateFolder(iterationDir);
+        }
+
+        // Define the path for ColibriGrab log file
+        var colibriGrabLogPath = "D:\\colibrigrab_tests\\colibrigrab_output.txt";
+
+        // Get the user's home directory and construct the path to ColibriGrab.exe in Github
+        var wshShell = new ActiveXObject("WScript.Shell");
+        var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+        var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+        
+        // Dynamically start ColibriGrab
+        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -l " + filterWheelPosition +" -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+        wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
+
+        Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
+    }
+
+    Console.PrintLine('All testing done');
+}
+
+function autofocus(){
+    
+    Console.PrintLine("== Simple AutoFocus with FocusMax");
+
+    // Ensure telescope is tracking
+    if (!Telescope.Tracking) {
+        Console.PrintLine("Turning on Tracking ...");
+        Telescope.Tracking = true;
+    }
+
+    // Initialize AcquireSupport
+    var SUP = new ActiveXObject("ACP.AcquireSupport");
+    SUP.Initialize();
+
+    // Perform autofocus
+    var success = SUP.AutoFocus(Telescope.RightAscension, Telescope.Declination);
+    if (!success) {
+        Console.PrintLine("***AutoFocus failed.");
+    }
+
+    // Clean up
+    SUP.Terminate();
+    Console.PrintLine("AutoFocus completed.");
 }
 
 /////////////////////////////////////////////////////
@@ -1579,10 +1780,20 @@ function main()
         // TODO: Add Goto and all that stuff.
         if ((Weather.Available && Weather.safe) || (ignoreWeather == true))
         {
+<<<<<<< Updated upstream
             Console.PrintLine("Checking Weather")
             connectScope()
             domeOpen()
             trkOn()
+=======
+            Console.PrintLine("Checking Weather");
+            Console.PrintLine("Powering on the telescope...");
+            setOutletState(0,true); //Power on the telescope
+            Util.WaitForMilliseconds(5000); //Wait 5 seconds for the mount to power on
+            connectScope();
+            domeOpen();
+            trkOn();
+>>>>>>> Stashed changes
         }
 
         // Create coordinate transform for the current field
@@ -1601,18 +1812,75 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation)
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth)
 
+        var SUP = new ActiveXObject("ACP.AcquireSupport");
+        SUP.Initialize();
+
+        SUP.StartSlewJ2000(currentField[5],currentFieldCt.RightAscension,currentFieldCt.Declination)
+        //adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
         // Slew to the current field
+<<<<<<< Updated upstream
         gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination)
+=======
+        //gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+>>>>>>> Stashed changes
 
         // Slave the dome to the telescope and wait until they are both in
         // the correct position to begin observing
         while (Telescope.Slewing == true)
         {
+<<<<<<< Updated upstream
             Console.PrintLine("Huh. Still Slewing...")
             Util.WaitForMilliseconds(500)
+=======
+            Console.PrintLine("Huh. Still Slewing...");
+            Util.WaitForMilliseconds(500);
         }
 
-        Dome.UnparkHome()
+        Dome.UnparkHome();
+        if (Dome.slave == false)
+        {
+            Dome.slave = true;
+        }
+
+        while (Dome.Slewing == true)
+        {
+            Console.PrintLine("Dome is still slewing. Give me a minute...");
+            Util.WaitForMilliseconds(500);
+        }
+        Util.WaitForMilliseconds(5000);
+
+        Console.PrintLine("At target.");
+        Console.PrintLine("Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+        ts.WriteLine(Util.SysUTCDate + " INFO: At target.");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Target Alt/Az is: Alt. =" + currentFieldCt.Elevation.toFixed(2) + "   Az.= " + currentFieldCt.Azimuth.toFixed(2));
+
+        //autofocus();
+
+
+        
+        // Readjust the telescope pointing using child script
+        adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+        //Now we must do a powerReset on the camera so it can work again on ColibriGrab
+        setOutletState(1,false); //Turn off the camera
+        Util.WaitForMilliseconds(5000) //wait for 5 seconds
+        setOutletState(1,true) //Turn the camera on
+
+        //Now we must open FliPilot, wait for the camera to connect and close it agian
+        resetFliPilot(); // This opens fli, wait for 15 s and close it again
+
+        //Now we must run the camera test script
+        CameraStartup(); // This runs a camera test script that start up it
+        //The camera is now prepared to operate with RunColibri
+
+        while (Telescope.Slewing == true)
+        {
+            Console.PrintLine("Huh. Still Slewing...");
+            Util.WaitForMilliseconds(500);
+>>>>>>> Stashed changes
+        }
+
         if (Dome.slave == false)
         {
             Dome.slave == true
@@ -1693,6 +1961,7 @@ function main()
             // Check pier side
             if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
             {
+<<<<<<< Updated upstream
                 Console.PrintLine("Flipping sides of pier...")
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.")
                 gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
@@ -1705,6 +1974,21 @@ function main()
                     Util.WaitForMilliseconds(500)
                 }
 
+=======
+                Console.PrintLine("Flipping sides of pier...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
+
+                var maximDL = new ActiveXObject("MaxIm.Application");
+                var cam = maximDL.CCDCamera;
+                if (!cam.LinkEnabled) cam.LinkEnabled = true;
+                Console.PrintLine("Camera linked via MaxIm DL.");
+
+                var SUP = new ActiveXObject("ACP.AcquireSupport");
+                SUP.Initialize();
+                SUP.StartSlewJ2000(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+                
+>>>>>>> Stashed changes
                 Dome.UnparkHome()
                 if (Dome.slave == false)
                 {
@@ -1713,8 +1997,34 @@ function main()
 
                 while (Dome.Slewing == true)
                 {
+<<<<<<< Updated upstream
                     Console.PrintLine("Dome is still slewing. Give me a minute...")
                     Util.WaitForMilliseconds(500)
+=======
+                    Console.PrintLine("Dome is still slewing. Give me a minute...");
+                    Util.WaitForMilliseconds(500);
+                }
+
+                // Readjust the telescope pointing using child script
+                adjustPointing(currentFieldCt.RightAscension, currentFieldCt.Declination);
+
+                //Now we must do a powerReset on the camera so it can work again on ColibriGrab
+                setOutletState(1,false); //Turn off the camera
+                Util.WaitForMilliseconds(10000) //wait for 10 seconds
+                setOutletState(1,true) //Turn the camera on
+
+                //Now we must open FliPilot, wait for the camera to connect and close it agian
+                resetFliPilot(); // This opens fli, wait for 15 s and close it again
+
+                //Now we must run the camera test script
+                CameraStartup(); // This runs a camera test script that start up it
+                //The camera is now prepared to operate with RunColibri
+
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Huh. Still Slewing...");
+                    Util.WaitForMilliseconds(500);
+>>>>>>> Stashed changes
                 }
 
                 // Check pier side
@@ -1737,8 +2047,52 @@ function main()
                darkCollection(today) 
                darkCounter = 0
             }
+<<<<<<< Updated upstream
             darkCounter++
             Console.PrintLine("Dark counter = " + darkCounter.toString())
+=======
+            darkCounter++;
+            Console.PrintLine("Dark counter = " + darkCounter.toString());
+
+            // Dynamically fetches the correct path to ColibriGrab.exe
+            var wshShell = new ActiveXObject("WScript.Shell");
+            var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+            var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+
+            // var today = getDate();
+            // Console.Printline(today.toString());
+
+            // Commands to run ColibriGrab.exe from the GitHub
+            var wsh = new ActiveXObject("WScript.Shell");
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -l 0 -w D:\\ColibriData\\" + today.toString()
+            
+            Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
+            ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
+    
+            // Run ColibriGrab.exe
+            wsh.Run(command, 0, true); 
+
+            Util.WaitForMilliseconds(50);
+
+            // Append and delete ColibriGrab log to ACP log after each run
+            appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+            Console.PrintLine("Done exposing run # " + runCounter.toString());
+            ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
+            runCounter++;
+        }
+    }
+    Console.PrintLine("Finished all observations for the night. Turning off equipment.");
+    shutDown();     
+    setOutletState(0,false); //Turn off the telescope 
+    setOutletState(1,false); //Turn off the camera 
+
+}
+            // Run ColibriGrab.exe
+            //wsh.Run(command, 1, true); 
+
+>>>>>>> Stashed changes
 
             // Start grabbing images
             pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
