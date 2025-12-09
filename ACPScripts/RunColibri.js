@@ -449,7 +449,7 @@ function domeOpen()
         }
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
-
+}
 /////////////////////////////////////////////////////
 // Returns available disk space
 // freespace.bat must exist in the same directory
