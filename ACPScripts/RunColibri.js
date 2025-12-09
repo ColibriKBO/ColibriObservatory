@@ -336,9 +336,8 @@ function domeClose()
         return;
         break;
     }
-    ////////////////////////////////////////////////////
-    // Check to see if the dome is closed or in error //
-    ////////////////////////////////////////////////////
+
+    // Check to see if the dome is closed or in error
     if (Dome.ShutterStatus != 1)
     {
         Console.PrintLine("Dome is not closed. Trying again...")
@@ -379,16 +378,13 @@ function domeHome()
 function domeOpen()
 {
     switch (Dome.ShutterStatus)
-    {   //////////////////
-        // Dome is open //
-        //////////////////
+    {
+        // Dome is open
         case 0:
         Console.PrintLine("--> Dome shutter is already open :-P");
         break;
 
-        ////////////////////
-        // Dome is closed //
-        ////////////////////
+        // Dome is closed
         case 1:
         Console.PrintLine("--> Dome shutter is closed.");
         Dome.OpenShutter();
@@ -408,9 +404,6 @@ function domeOpen()
             Console.PrintLine("--> Dome is NOT open.");
         break;
 
-        ////////////////////////
-        // Shutter is opening //
-        ////////////////////////
         case 2:
         while (Dome.ShutterStatus == 2)
         {
@@ -420,9 +413,7 @@ function domeOpen()
         Console.PrintLine("--> Dome shutter is opened...");
         break;
 
-        /////////////////////////////////////////////////////
-        // Dome is closing. Let it close and then open it. //
-        /////////////////////////////////////////////////////
+        // Dome is closing. Let it close and then open it.
         case 3:
         while (Dome.ShutterStatus ==3)
         {
@@ -441,16 +432,13 @@ function domeOpen()
         Console.PrintLine("--> Dome shutter is open...");
         break;
 
-        /////////////////////////////////
-        // Houston, we have a problem. //
-        /////////////////////////////////
+        // Houston, we have a problem.
         case 4:
         Console.PrintLine("There was a problem with the shutter control...")
         break;
     }
-    ////////////////////////////////////////
-    // Home the dome if not already done. //
-    ////////////////////////////////////////
+
+    // Home the dome if not already done.
     if (!Dome.AtHome)
     {
         Dome.FindHome();
@@ -461,8 +449,6 @@ function domeOpen()
         }
         Console.PrintLine("--> Dome is homed... Bigly.");
     }
-    
-}
 
 /////////////////////////////////////////////////////
 // Returns available disk space
