@@ -228,19 +228,16 @@ function connectScope()
     if (Telescope.Connected)
     {
         Console.PrintLine("Telescope is connected!")
-        trkOn()
     }
         
     else
     {
         Console.PrintLine("Telescope is not connected. Attempting to connect...")
         Telescope.Connected = true;
-        trkOn()
         
         if (Telescope.Connected)
         {
             Console.PrintLine("Telescope is now connected!")
-            trkOn()
         } 
 
         else
