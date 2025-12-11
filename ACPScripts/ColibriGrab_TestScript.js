@@ -19,7 +19,7 @@ function main() {
     // Number of iterations to simulate Colibri simulations
     var iterations = 25;
     var framesPerIteration = 2400;
-    var frameType = "normal"; // Frame type to test
+    var frameType = "dark"; // Frame type to test
     var filterWheelPosition = 1;
     
     Console.PrintLine('ColibriGrab testing with ' + framesPerIteration + ' frames of 25ms exposure');
