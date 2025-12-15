@@ -546,7 +546,7 @@ if __name__ == '__main__':
         try:
             subprocess.run(
                 [str(colibrigrab_path),
-                 "-n","1","-p","pointing_reference","-e","1000","-t","-10","-f","normal","-w","D:\\tmp\\"],
+                 "-n","1","-p","pointing_reference","-e","1000","-t","-10","-l","2","-f","normal","-w","D:\\tmp\\"],
                 check=True, timeout=DEFAULT_GRAB_TIMEOUT
             )
         except subprocess.TimeoutExpired:
