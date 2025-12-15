@@ -1702,7 +1702,7 @@ function main()
             // abortAndRestart()
             shutDown();
         }
-        else if (currentField[2] < 0 && currField[0] != -1)
+        else if (currentField[2] < 0 && currentField[0] != -1)
         {
             Console.PrintLine("Negative loops remaining. Past last field. Closing up.");
             ts.WriteLine(Util.SysUTCDate + " INFO: Negative loops. Aborting script.");
@@ -1717,6 +1717,18 @@ function main()
             Console.PrintLine("Checking Weather");
             connectScope();
             domeOpen();
+            Util.WaitForMilliseconds(250);
+
+            // SAFETY CHECK: only turn on tracking if dome is really open
+            if (Dome.ShutterStatus == 0) {
+                Console.PrintLine("--> Dome confirmed open. Enabling tracking...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Dome confirmed open. Enabling tracking...");
+            } else {
+                Console.PrintLine("ERROR: Dome is NOT open after calling domeOpen(). Aborting for safety.");
+                ts.WriteLine(Util.SysUTCDate + " ERROR: Dome is NOT open after calling domeOpen(). Aborting for safety.");
+                shutDown();
+                return;  // stop main() cleanly
+
             trkOn();
         }
 
@@ -1743,7 +1755,7 @@ function main()
         // the correct position to begin observing
         while (Telescope.Slewing == true)
         {
-            Console.PrintLine("Huh. Still Slewing...");
+            Console.PrintLine("Huh. Dome still Slewing...");
             Util.WaitForMilliseconds(500);
         }
 
@@ -1891,7 +1903,7 @@ function main()
 
             // Commands to run ColibriGrab.exe from the GitHub
             var wsh = new ActiveXObject("WScript.Shell");
-            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t -10 -f normal -l 1 -w D:\\ColibriData\\" + today.toString()
+            var command = "\"" + colibriGrabPath + "\" -n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t -10 -f normal -l 2 -w D:\\ColibriData\\" + today.toString()
             
             Console.PrintLine(Util.SysUTCDate + 'Executing command: ' + command);
             ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command); // Write the command to the log file
@@ -1912,25 +1924,3 @@ function main()
 
     shutDown();       
 }
-            // Run ColibriGrab.exe
-            //wsh.Run(command, 1, true); 
-
-
-            // Start grabbing images
-            //pid = Util.ShellExec("ColibriGrab.exe", "-n " + numExposures.toString() + " -p " + currentField[5].toString() + "_25ms-" + pierside + " -e 25 -t 0 -f normal -w D:\\ColibriData\\" + today.toString())
-            
-            //Console.PrintLine("Process ID = " + pid.toString())
-            //Util.WaitForMilliseconds(1000)
-
-            // Append and delete ColibriGrab log to ACP log after each run
-            //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
-            //Console.PrintLine("Done exposing run # " + runCounter.toString())
-          
-            //runCounter++
-//        }
-
-//    }
-
-//    shutDown();
-
-//}
