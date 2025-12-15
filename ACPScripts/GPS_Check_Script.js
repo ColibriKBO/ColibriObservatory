@@ -35,6 +35,12 @@ function main() {
     var exposureIncrement = 1; // Exposure increment in ms
     var totalExposures = 12; // Total number of different exposures to test
     var totalCaptureTime = 60000; // Total capture time in milliseconds (1 minute)
+    //var initialExposure = 25; // Initial exposure time in ms
+    //var exposureIncrement = 1; // Exposure increment in ms
+    //var totalExposures = 1; // Total number of different exposures to test
+    var exposures = [16];
+    var totalExposures = exposures.length;
+    var totalCaptureTime = (60000); // Total capture time in milliseconds (60 minutes)
     var frameType = "dark"; // Frame type to test
     
     Console.PrintLine('ColibriGrab testing with various exposure settings');
@@ -48,6 +54,21 @@ function main() {
         var framesPerIteration = Math.floor(totalCaptureTime / exposure);
 
         for (var i = 0; i < 12; i++) {
+        //var exposure = initialExposure + (exposureIndex * exposureIncrement);
+        var exposure = exposures[exposureIndex];
+
+        if (exposure == 1 || exposure == 10)
+        {
+            framesPerIteration  = 144000;
+        }
+        else
+        {
+            framesPerIteration = Math.floor(totalCaptureTime / exposure);
+        }
+        
+        framesPerIteration = 36000
+
+        for (var i = 0; i < 1; i++) {
             var iterationDir = "D:\\colibrigrab_test_new\\" + dateString + "_" + exposure + "ms_" + (i + 1);
             
             var fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -64,7 +85,6 @@ function main() {
             var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
             
             // Dynamically start ColibriGrab
-
             var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e " + exposure + " -t 0 -f " + frameType + " -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
             var wsh = new ActiveXObject("WScript.Shell");
             wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
@@ -72,7 +92,7 @@ function main() {
             Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
         }
     }
-    Console.PrintLine("Organizing directories...");
+    /*Console.PrintLine("Organizing directories...");
     var wsh = new ActiveXObject("WScript.Shell");
 
     // Organize directories by exposure setting
@@ -89,9 +109,7 @@ function main() {
     Console.PrintLine("Start GPS Checks...");
     // Run the GPS check script after organizing directories
     var gpsCheckScript = "python " + userProfile + "\\Documents\\GitHub\\ColibriObservatory\\ACPScripts\\GPS_Check\\check_gps.py";
-    executePythonScript(gpsCheckScript);
-
-    Console.PrintLine('All testing done');
+    executePythonScript(gpsCheckScript);*/
 }
 
 main();

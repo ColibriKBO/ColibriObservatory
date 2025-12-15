@@ -30,8 +30,9 @@ from astropy.io import fits
 from astropy.io.fits import Header
 from astropy import wcs
 from pathlib import Path
-from astropy.coordinates import Angle,EarthLocation,SkyCoord
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
 
 # Custom Imports
 
@@ -49,47 +50,19 @@ IMG_WIDTH = 2048
 BIT_DEPTH = 12
 IMG_SIZE = IMG_WIDTH**2
 
-DEFAULT_SOLVE_TIMEOUT = 150  # seconds
-DEFAULT_GRAB_TIMEOUT = 60    # seconds
-
-# Site longitude/latitude
-SITE_LAT  = 43.1933116667
-SITE_LON = -81.3160233333
-SITE_HGT = 224
-SITE_LOC  = EarthLocation(lat=SITE_LAT,
-                         lon=SITE_LON,
-                         height=SITE_HGT)
-
 # Verbose print statement
 verboseprint = lambda *a, **k: None
 
 
 #--------------------------------functions------------------------------------#
 
-def windows_to_wsl_path(windows_path):
-    """Convert a Windows path to a Unix-style path for WSL."""
-    verboseprint("Path before replace: ", windows_path)
-    windows_path = str(windows_path).replace("\\", "/")
-    verboseprint("Path after replace: ", windows_path)
-    
-    # If the path starts with a drive letter (e.g., "D:") handle it
-    if windows_path[1] == ':':
-        drive, path = os.path.splitdrive(windows_path)
-        drive = drive.lower().strip(':')  # Convert to lowercase and remove the colon
-        wsl_path = f"/mnt/{drive}/{path.lstrip('/')}"  # Ensure there is a slash after the drive letter
-    else:
-        wsl_path = windows_path
-    
-    return wsl_path
-    
 ###########################
 ## File Reading
 ###########################
 
-def readxbytes(fid, start_byte, num_bytes):
+def readxbytes(fid, start_byte, num_bytes, dtype):
     """
     Read a specified number of bytes from a file and return the data.
-    Returns as a numpy array of the specified data type.
 
     Args:
         fid (file): The file to be read from.
@@ -106,33 +79,9 @@ def readxbytes(fid, start_byte, num_bytes):
     fid.seek(start_byte)
 
     # Read the data
-    data = fid.read(num_bytes)
+    data = np.fromfile(fid, dtype=dtype, count=num_bytes)
 
     return data
-
-
-def decodexbytes(fid, start_byte, num_bytes):
-    """
-    Read a specified number of bytes from a file and return the data.
-    Returns as a string decoded as utf-8.
-
-    Args:
-        fid (file): The file to be read from.
-        start_byte (int): The byte to start reading from.
-        num_bytes (int): The number of bytes to read.
-
-    Returns:
-        data (np.ndarray): A numpy array containing the data read from the file.
-
-    """
-
-    # Seek to the specified byte
-    fid.seek(start_byte)
-
-    # Read the data
-    data = fid.read(num_bytes)
-
-    return data.decode('utf-8')
 
 
 # Function to read 12-bit data with Numba to speed things up
@@ -189,25 +138,24 @@ def readRCD(filename):
     """
 
     # Open the file
-    with open(filename, 'rb') as rcd:
+    with open(filename, 'rb') as f:
+        mmapped_file = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
-        # Read the header information
-        hdict = {}
-        hdict['serialnum'] = readxbytes(rcd, 63, 9) # Serial number of camera
-        hdict['exptime'] = readxbytes(rcd, 85, 4) # Exposure time in 10.32us periods
-        hdict['timestamp'] = readxbytes(rcd, 152, 29)
-        hdict['lat'] = readxbytes(rcd, 182, 4)
-        hdict['lon'] = readxbytes(rcd, 186, 4)
+        # Read the header
+        exptime = np.frombuffer(mmapped_file[85:89], dtype=np.float32)
+        timestamp = mmapped_file[152:181].decode('utf-8')
+        lat = np.frombuffer(mmapped_file[182:186], dtype=np.float32)
+        lon = np.frombuffer(mmapped_file[186:190], dtype=np.float32)
 
         # Read the data, convert to 16-bit, extract high-gain lines, reshape
-        # size = (2048x2048 image) * (2 high/low gain modes) * 12-bit depth
-        rcd.seek(384,0)
-        data = np.fromfile(rcd, dtype=np.uint8, count=int(IMG_SIZE*2*(BIT_DEPTH/8)))
+        data = np.frombuffer(mmapped_file[384:], dtype=np.uint8, count=IMG_SIZE * 2 * (BIT_DEPTH // 8))
         data = conv_12to16(data)
-        data = (data.reshape(2*IMG_WIDTH, IMG_WIDTH))[1::2]
+        data = (data.reshape(2 * IMG_WIDTH, IMG_WIDTH))[1::2]
 
-        return hdict, data
+        mmapped_file.close()
 
+    return {'EXPTIME': exptime, 'DATE-OBS': timestamp, 'SITELAT': lat, 'SITELONG': lon}, data
+    
 
 def readFITS(filename):
     """
@@ -230,14 +178,14 @@ def readFITS(filename):
     return hdict, data
 
 
-def writeToFITS(filename, hdict, data):
+def writeToFITS(filename, header, data):
     """
     Write data to a FITS file.
     
     Args:
         filename (str): The name of the FITS file to be written.
         data (np.ndarray): A numpy array containing the image data.
-        hdict (dict): A dictionary containing the header information.
+        header (dict): A dictionary containing the header information.
 
     Returns:
         None
@@ -245,18 +193,11 @@ def writeToFITS(filename, hdict, data):
     """
 
     # Update the site latitude and longitude to be in degrees
-    latitude, longitude = computelatlong(hdict['lat'],hdict['lon'])
+    header['SITELAT'], header['SITELONG'] = computelatlong(header['SITELAT'], header['SITELONG'])
 
-    # Create the HDU object and empty header
+    # Create the HDU object, overwrite if the file already exists
     hdu = fits.PrimaryHDU(data)
-    hdr = hdu.header
-
-    # Add the header information
-    hdr.set('exptime', int(binascii.hexlify(hdict['exptime']), 16) * 10.32 / 1000000)
-    hdr.set('DATE-OBS', str(hdict['timestamp'], 'utf-8'))
-    hdr.set('SITELAT', latitude)
-    hdr.set('SITELONG', longitude)
-    hdr.set('SERIAL', str(hdict['serialnum'], 'utf-8'))
+    hdu.header = Header(header)
 
     # Write the data to a FITS file
     hdu.writeto(filename, overwrite=True)
@@ -327,74 +268,98 @@ def extractStars(image_data, detect_threshold):
 ###########################
 ## WCS Solving
 ###########################
-def getLocalSolution(image_file, save_file, order):
 
-    image_dir = os.path.dirname(image_file)
-    save_file_base = image_dir
+def getLocalSolution(image_file, save_file, order, timeout=300):
+    """
+    Astrometry.net must be installed locally to use this function. It installs under WSL.
+    To use the local solution, you'll need to modify call to the function somewhat.
+    This function will write the new fits file w/ plate solution to a file with the name save_file in the
+    tmp directory on the d: drive.
+    The function will return wcs_header. Alternatively, you could comment out those lines and read it from
+    the pipeline.
 
-    image_file_wsl = windows_to_wsl_path(image_file)
-    save_file_base_wsl = windows_to_wsl_path(save_file_base)
-    save_file_wsl = save_file
+    Args:
+        image_file (str): Path to the image file to submit
+        save_file (str): Basename to save the WCS solution header to
+        order (int): Order of the WCS solution
+        timeout (int): Timeout in seconds (default 300 seconds)
 
-    # NOTE: removed 'time' and we capture output so it can't flood
-    command = [
-        'wsl', 'solve-field',
-        '--no-plots',
-        '-D', save_file_base_wsl,
-        '-N', f'{save_file_base_wsl}/{save_file_wsl}',
-        '-t', str(order),
-        '--scale-units', 'arcsecperpix',
-        '--scale-low', '2.2',
-        '--scale-high', '2.6',
-        '--overwrite',
-        image_file_wsl
-    ]
-    out = subprocess.run(
-        command,
-        check=True,
-        timeout=DEFAULT_SOLVE_TIMEOUT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
+    Returns:
+        wcs_header (astropy.io.fits.header.Header): WCS solution header
+    
+    Raises:
+        RuntimeError: If astrometry subprocess fails or times out.
+    """
+    
+    # Define tmp directory and image file path using WSL path
+    tmp_dir = '/mnt/d/tmp/'
+    image_file = convertToWSLPath(image_file)
 
-    wcs_header_path = f'{save_file_base}\\{save_file}'
+    verboseprint(f"Reading from {image_file} for astrometry solution.")3
+    verboseprint(f"Writing WCS header to {save_file.split('.fits')[0] + '.wcs'}")
+
+    subprocess_arg = f'wsl time solve-field --no-plots -D /mnt/d/tmp -O -o {save_file.split(".fits")[0]}' +\
+                     f' -N {tmp_dir + save_file} -t {order}' +\
+                     f' --scale-units arcsecperpix --scale-low 2.2 --scale-high 2.6 {image_file}'
+
+    verboseprint(subprocess_arg)
+
+    try:
+        result = subprocess.run(subprocess_arg, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                                timeout=timeout, shell=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Astrometry.net failed with return code {result.returncode}")
+    except subprocess.TimeoutExpired:
+        verboseprint("Astrometry.net subprocess timed out. Killing subprocess.")
+        # Attempt to forcibly kill any lingering WSL astrometry processes
+        subprocess.run("wsl pkill solve-field", shell=True)
+        raise RuntimeError("Astrometry.net subprocess timed out and was killed.")
+
+    verboseprint("Astrometry.net solution completed successfully.")
+
+    wcs_header_path = 'd:\\tmp\\' + save_file.split(".fits")[0] + '.wcs'
+    if not os.path.exists(wcs_header_path):
+        raise RuntimeError(f"WCS header file '{wcs_header_path}' not found after successful solve-field call.")
+
     wcs_header = Header.fromfile(wcs_header_path)
     return wcs_header
 
+
+
+# def getSolution(image_file, save_file, order):
+#     '''send request to solve image from astrometry.net
+#     input: path to the image file to submit, filepath to save the WCS solution header to, order of soln
+#     returns: WCS solution header'''
+#     from astroquery.astrometry_net import AstrometryNet
+#     #astrometry.net API
+#     ast = AstrometryNet()
+    
+#     #key for astrometry.net account
+#     ast.api_key = 'vbeenheneoixdbpb'    #key for Rachel Brown's account (040822)
+#     wcs_header = ast.solve_from_image(image_file, crpix_center = True, tweak_order = order, force_image_upload=True)
+
+#     #save solution to file
+#     if not save_file.exists():
+#             wcs_header.tofile(save_file)
+            
+#     return wcs_header
+
+
 def solve_image_parallel(image_file, save_file, order):
-    """
-    Attempt to solve using parallel processing
-    """
+    '''a parallel process version of the function above... send request to solve image from astrometry.net
+    input: path to the image file to submit, filepath to save the WCS solution header to, order of soln
+    returns: WCS solution header'''
     with ThreadPoolExecutor() as executor:
         future = executor.submit(getLocalSolution, image_file, save_file, order)
         try:
-            wcs_header = future.result(timeout=DEFAULT_SOLVE_TIMEOUT + 10)
+            wcs_header = future.result(timeout=300) # 5 minute timeout timer
             return wcs_header
         except Exception as e:
-            print(f"Astrometry solution failed: {e}")
+            verboseprint(f"Astrometry solution failed: {e}")
             raise
 
 
-def getSolution(image_file, save_file, order):
-    '''send request to solve image from astrometry.net
-    input: path to the image file to submit, filepath to save the WCS solution header to, order of soln
-    returns: WCS solution header'''
-    from astroquery.astrometry_net import AstrometryNet
-    #astrometry.net API
-    ast = AstrometryNet()
-    
-    #key for astrometry.net account
-    ast.api_key = 'vbeenheneoixdbpb'    #key for Rachel Brown's account (040822)
-    wcs_header = ast.solve_from_image(image_file, crpix_center = True, tweak_order = order, force_image_upload=True)
-
-    #save solution to file
-    if not save_file.exists():
-            wcs_header.tofile(save_file)
-            
-    return wcs_header
-
-def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attempt_backup=True):
+def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4):
     """
     Finds median image that best fits for the time of the detection and uses it to get Astrometry solution.
     Required to have a list of median-combined images (median_combos)
@@ -402,7 +367,7 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
 
     Args:
         fits_filepath (str): Path to the fits file
-        file_str (str): Filaename of saved WCS solution file
+        file_str (str): Filename of saved WCS solution file
         soln_order (int): Order of the WCS solution
 
     Returns:
@@ -418,13 +383,9 @@ def getWCSTransform(fits_filepath, file_str='ast_corr.fits', soln_order=4, attem
     # Try to create a WCS solution for the image
     try:
         #try if local Astrometry can solve it
-        wcs_header = solve_image_parallel(str(fits_filepath), file_str, soln_order)
+        wcs_header = getLocalSolution(str(fits_filepath), file_str, soln_order)
     except Exception as e:
-        # if attempt_backup is False, raise the error
-        if not attempt_backup:
-            raise e
-
-        # Otherwise, if not, try to solve it with astrometry.net
+        #if not, try to solve it with astrometry.net
         print(f"\nLocal solution failed. Trying astrometry.net solution.\n    Error: {e}")
         wcs_header = getSolution(fits_filepath, wcs_filepath, soln_order)
 
@@ -477,7 +438,7 @@ def getRADEC_Single(transform, x, y):
     radec = transform.pixel_to_world(x, y)
     ra = radec.ra.degree
     dec = radec.dec.degree
-    verboseprint(f"Target coordinates: RA={ra}, DEC={dec}")
+
     verboseprint(f"(x,y) = ({x},{y}) -> (RA,Dec) = ({ra},{dec})")
     return ra,dec
 
@@ -527,46 +488,52 @@ if __name__ == '__main__':
     # Process argparse list as useful variables
     args = parser.parse_args()
     ra,dec = args.coords
+    test = args.test
+    if args.image is not None:
+        ref_image = Path(args.image)
+        # Check that the reference image exists
+        if not ref_image.exists():
+            print("0.0 0.0")                                                                                                
+            raise FileNotFoundError(f"Reference image for astrometric correction '{ref_image}' not found.")
 
     # If in test mode, verboseprint is now print
-    test = args.test
     if test:
         verboseprint = print
-
     
 
 ###########################
 ## Image Generation
 ###########################
+    colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab"
+    colibrigrab_path_home = colibrigrab_path_home / "ColibriGrab.exe"
+    colibrigrab_path = colibrigrab_path_home
 
+    print(colibrigrab_path)
+    # Ensure the path exists
+    if not colibrigrab_path.exists():
+        raise FileNotFoundError(f"ColibriGrab path '{colibrigrab_path}' does not exist.")
+
+        print("hi")
     # If no reference image is provided, generate a test image
     # using ColibriGrab.exe
-    if args.image is None:
+    if ref_image is None:
+        # Generate a test image using ColibriGrab.exe
+        subprocess.call([str(colibrigrab_path), "-n 1", "-p pointing_reference", "-e 1000", "-t 0", "-f normal", "-w D:\\tmp\\"])
 
-        colibrigrab_base_path_home = Path(os.path.expanduser('~')) / "Documents/GitHub/ColibriGrab/ColibriGrab"
-        colibrigrab_path_home = colibrigrab_base_path_home / "ColibriGrab.exe"
-        colibrigrab_path = colibrigrab_path_home
-        # subprocess.call("ColibriGrab.exe -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w d:\\tmp\\")
-        command = f'"{colibrigrab_path}" -n 1 -p pointing_reference -e 1000 -t 0 -f normal -w D:\\tmp\\'
-        os.system(command)
         # Set the path to the reference image
-
         tmp_dir = BASE_PATH / 'tmp'
-        try:
-            tmp_dirs = sorted([d for d in tmp_dir.iterdir() if d.is_dir()], key=os.path.getmtime)
-            img_dir = tmp_dirs[-1]
-        except Exception:
-            print("0.0 0.0", flush=True); sys.exit(1)
+        tmp_dir_dirs = [d for d in tmp_dir.iterdir() if d.is_dir()]
+        
+        # Get the most recent directory
+        tmp_dir_dirs.sort(key=os.path.getmtime)
+        img_dir = tmp_dir_dirs[-1]
 
-        ref_image = img_dir / 'pointing_reference_0000001.rcd'
-        if not ref_image.exists():
-            print(f"Could not find ColibriGrab test image '{ref_image}'.")
-            print("0.0 0.0", flush=True); sys.exit(1)
-    else:
-        ref_image = Path(args.image)
-        if not ref_image.exists():
-            print(f"Reference image for astrometric correction '{ref_image}' not found.")
-            print("0.0 0.0", flush=True); sys.exit(1)
+        # Get the test image path
+        ref_img = img_dir / 'pointing_reference_0000001.rcd'
+        if not ref_img.exists():
+            print("0.0 0.0")
+            raise FileNotFoundError(f"Could not find ColibriGrab test image '{ref_img}'.")
+
 
 ###########################
 ## Astrometry
@@ -579,7 +546,7 @@ if __name__ == '__main__':
         ref_hdict, ref_data = readRCD(ref_image)
 
         # Save the header and data as a fits file
-        FITS_path = BASE_PATH / 'tmp' / ('astr_corr_unsolved.fits')
+        FITS_path = BASE_PATH / 'tmp' / ('astr_corr.fits')
         if FITS_path.exists():
             FITS_path.unlink()
         writeToFITS(FITS_path, ref_hdict, ref_data)
@@ -600,21 +567,15 @@ if __name__ == '__main__':
 
     # Get the WCS solution for the reference image
     verboseprint("Getting WCS solution for reference image...")
-    try:
-        ref_wcs = solve_image_parallel(FITS_path, 'astr_corr.fits', 4)
-    except Exception as e:
-        verboseprint(f"WARNING: 'Error: {e}' caused wcs transform to fail. \nBackup solution is currently disabled.")
-        print("0.0 0.0")
-        sys.exit(1)
+    #ref_wcs = getWCSTransform(FITS_path)
+    ref_wcs = solve_image_parallel(FITS_path, 'astr_corr.fits', 4)
 
     # Convert the central pixel of the reference image to RA/Dec
     verboseprint("Converting central pixel of reference image to RA/Dec...")
-    transform = wcs.WCS(ref_wcs)
-    ref_ra,ref_dec = getRADEC_Single(transform, IMG_WIDTH/2, IMG_WIDTH/2)
-    verboseprint(f"Central pixel coordinates: (RA, Dec) = ({ref_ra}, {ref_dec})")
+    ref_ra,ref_dec = getRADEC_Single(ref_wcs, IMG_WIDTH/2, IMG_WIDTH/2)
+
     # Calculate the offset between the reference image and the target
-    print(f"Calculating offset between reference image and target...")
-    print("Reference RA and dec: ", ref_ra, ref_dec)
+    verboseprint("Calculating offset between reference image and target...")
     ra_offset = ra - ref_ra
     dec_offset = dec - ref_dec
     
@@ -643,4 +604,3 @@ if __name__ == '__main__':
         plt.show()
 
 
-                                                
