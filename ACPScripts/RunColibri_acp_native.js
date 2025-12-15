@@ -177,7 +177,7 @@ function biasCollection(today, LogFile) {
     
 
     var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" -n 50 -p Bias_25ms -e 0 -t 0 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias";
+    var command = "\"" + colibriGrabPath + "\" -n 50 -p Bias_25ms -e 0 -t 0 -l 1 -f bias -w D:\\ColibriData\\" + today.toString() + "\\Bias";
     Console.PrintLine('Executing command: ' + command);       
     // Run ColibriGrab.exe
 
@@ -206,7 +206,7 @@ function darkCollection(today, LogFile) {
 
 
     var wsh = new ActiveXObject("WScript.Shell");
-    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -l 0 -w D:\\ColibriData\\" + today.toString() + "\\Dark";
+    var command = "\"" + colibriGrabPath + "\" -n 10 -p Dark_25ms -e 0 -t 0 -f dark -l 1 -w D:\\ColibriData\\" + today.toString() + "\\Dark";
 
     wsh.Run(command, 1, true); // 1: normal window, true: wait for completion
 
@@ -873,7 +873,7 @@ function CameraStartup(){
     var iterations = 1;
     var framesPerIteration = 2400;
     var frameType = "normal"; // Frame type to test
-    var filterWheelPosition = 0;
+    var filterWheelPosition = 1; // Pos 1 => no filter
     
     Console.PrintLine('ColibriGrab testing with ' + framesPerIteration + ' frames of 25ms exposure');
 
