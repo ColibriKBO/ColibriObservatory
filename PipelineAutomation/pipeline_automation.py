@@ -41,7 +41,7 @@ from preparedata import is_dir_too_small
 # Environment defaults
 ENV_SIM = 'sim'
 ENV_REAL = 'real'
-DEFAULT_ENV = os.environ.get('COLIBRI_ENV', ENV_SIM).lower()
+DEFAULT_ENV = os.environ.get('COLIBRI_ENV', ENV_REAL).lower()
 
 # Telescope definitions
 TELESCOPE_NAMES = ('REDBIRD', 'GREENBIRD', 'BLUEBIRD')
@@ -646,7 +646,7 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
             'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
             'coordsfinder': [f'-d {slashDate(obsdate)}'],
             'image_stats_dark': [f'-d {slashDate(obsdate)}'],
-            'sensitivity': [f'-d {slashDate(obsdate)}']
+            # 'sensitivity': [f'-d {slashDate(obsdate)}']
                     }
     
     raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
