@@ -706,7 +706,12 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], ph
         # dictionary. Format is {script_basename : [list_of_cml_args]}.
         GREEN1_processes =  {
                 'simultaneous_occults': [f'{obsdate}'],
-                'colibri_secondary': [f'-d {slashDate(obsdate)}']
+                # -b explicit so colibri_secondary doesn't fall back to its
+                # hardcoded 'd:' default; BASE_PATH is sim- or real-mode aware.
+                # Flags and values are separate list entries — combining them
+                # ("-b /path") leaks the space into the value.
+                'colibri_secondary': ['-d', slashDate(obsdate),
+                                      '-b', str(BASE_PATH)]
                             }
         
         GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)

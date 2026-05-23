@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +31,27 @@ PASS2_ORDER = ('REDBIRD', 'BLUEBIRD', 'GREENBIRD')
 
 THIS_DIR = Path(__file__).resolve().parent
 ORCHESTRATOR = THIS_DIR / 'pipeline_automation.py'
+
+# Source kernel file shipped with the pipeline repo, copied into the sim tree
+# so colibri_secondary.py can find <basedir>/kernels/kernels.txt.
+DEFAULT_KERNEL_SOURCE = (THIS_DIR.parent.parent / 'ColibriPipeline-Updated'
+                         / 'KernelGeneratorGUI_RAB032922'
+                         / 'kernels_40hz_20230206.txt')
+
+# Column header for the cumulative-stats CSV consumed by cumulative_stats.py.
+# Order matches the comment block at cumulative_stats.py:441-446.
+CUMSTATS_HEADER = ('obsdate,red_obs_h,red_starh,red_occ,'
+                   'green_obs_h,green_starh,green_occ,'
+                   'blue_obs_h,blue_starh,blue_occ,'
+                   'matched_starh,sat_matches,occ_2tel,occ_3tel\n')
+
+# Minimal ACP log content. timeline.getSunsetSunrise only needs the substrings
+# 'INFO: Sunset JD: ' and 'INFO: Sunrise JD: '; JD values are placeholders
+# corresponding roughly to evening/morning of the sim obsdate.
+ACP_LOG_TEMPLATE = (
+    "INFO: Sunset JD: 2460917.9\n"
+    "INFO: Sunrise JD: 2460918.4\n"
+)
 
 
 def hyphenate(obsdate: str) -> str:
@@ -48,6 +70,76 @@ def clear_sentinels(sim_root: Path, obsdate: str) -> None:
         if data_dir.exists():
             for f in data_dir.glob('*.txt'):
                 f.unlink()
+
+
+def bootstrap_green_fixtures(sim_root: Path, obsdate: str,
+                             kernel_source: Path = DEFAULT_KERNEL_SOURCE) -> None:
+    """Create the Green-side fixture files the post-phase scripts require.
+
+    - <root>/Green/kernels/kernels.txt: colibri_secondary.py loads this.
+    - <root>/Green/CentralRepo/CumulativeStats/cumulative_stats.csv:
+      cumulative_stats.py read_csv's this with no fallback.
+    - <root>/Green/CentralRepo/CumulativeStats/Matches-SSO/sso_log.csv:
+      same — cumulative_stats.py reads with no fallback.
+    - <root>/Green/ColibriArchive/<hyphenated>/matched/: cumulative_stats.py
+      iterates this dir; empty is fine for a no-detections sim night.
+
+    All steps are no-ops if the destination already exists.
+    """
+    kernels_dest = sim_root / 'Green' / 'kernels' / 'kernels.txt'
+    if not kernels_dest.exists():
+        if not kernel_source.exists():
+            print(f"WARNING: kernel source not found at {kernel_source}; "
+                  f"colibri_secondary.py will fail.", file=sys.stderr)
+        else:
+            kernels_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(kernel_source, kernels_dest)
+            print(f"Bootstrapped {kernels_dest}", flush=True)
+
+    cumstats_dest = (sim_root / 'Green' / 'CentralRepo' / 'CumulativeStats'
+                     / 'cumulative_stats.csv')
+    if not cumstats_dest.exists():
+        cumstats_dest.parent.mkdir(parents=True, exist_ok=True)
+        cumstats_dest.write_text(CUMSTATS_HEADER)
+        print(f"Bootstrapped {cumstats_dest}", flush=True)
+
+    # cumulative_stats.py overwrites this with whatever columns its DataFrame
+    # has — which, with no matched events, drops the sigma columns and breaks
+    # the next run's plotMatchedCandidates. Always reset it in sim.
+    sso_dest = (sim_root / 'Green' / 'CentralRepo' / 'CumulativeStats'
+                / 'Matches-SSO' / 'sso_log.csv')
+    sso_dest.parent.mkdir(parents=True, exist_ok=True)
+    sso_dest.write_text('timestamp,sigma1,sigma2,sigma3\n')
+    print(f"Bootstrapped {sso_dest}", flush=True)
+
+    matched_dest = (sim_root / 'Green' / 'ColibriArchive'
+                    / hyphenate(obsdate) / 'matched')
+    if not matched_dest.exists():
+        matched_dest.mkdir(parents=True, exist_ok=True)
+        print(f"Bootstrapped {matched_dest}", flush=True)
+
+    # ACP logs for every telescope so timeline.py has at least one valid log
+    # to extract sunset/sunrise from. Without this it raises FileExistsError
+    # and the PDF is never generated.
+    for color in TELESCOPE_COLORS.values():
+        acp_dest = sim_root / color / 'Logs' / 'ACP' / f'{obsdate}-ACP.log'
+        if not acp_dest.exists():
+            acp_dest.parent.mkdir(parents=True, exist_ok=True)
+            # ACP writes its real logs as UTF-16; timeline.py opens with
+            # encoding='utf-16' so the fixture must match.
+            acp_dest.write_text(ACP_LOG_TEMPLATE, encoding='utf-16')
+            print(f"Bootstrapped {acp_dest}", flush=True)
+
+    # Parent directories that the post-phase scripts assume exist:
+    # - <Green>/Logs/Operations/: timeline.py mkdir's <obsdate> under this
+    #   without parents=True and crashes if the parent is missing.
+    # - <Green>/tmp/: email_timeline.py shutil.copy's per-telescope ACP logs
+    #   here as attachments.
+    for relpath in ('Green/Logs/Operations', 'Green/tmp'):
+        d = sim_root / relpath
+        if not d.exists():
+            d.mkdir(parents=True, exist_ok=True)
+            print(f"Bootstrapped {d}", flush=True)
 
 
 def build_env(telescope: str, sim_root: Path, pdf_output: Path,
@@ -102,6 +194,8 @@ def main() -> int:
 
     pdf_output = sim_root / 'pipeline_output' / args.date
     pdf_output.mkdir(parents=True, exist_ok=True)
+
+    bootstrap_green_fixtures(sim_root, args.date)
 
     if args.repro:
         print(f"## Clearing sentinels for {args.date} under {sim_root} ##",
