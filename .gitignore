@@ -17,6 +17,7 @@ colibri_photometry.html
 # ignore misc files
 *.toc
 *.zip
+notes/*
 PyFocus/PyFocus.spec
 
 # ignore weather script identity notification

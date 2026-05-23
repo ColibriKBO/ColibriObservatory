@@ -537,7 +537,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
     return runtime
 
 def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
-                    errors=[], notes=[]):
+                    errors=[], notes=[], output_dir=None):
     """
     Sends a daily status email with the given parameters.
 
@@ -564,6 +564,8 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
     script_args = [str(obsdate), '--errors', *errors, '--notes', *notes]
     if ENVIRONMENT == ENV_SIM:
         script_args.append('--dry')
+    if output_dir is not None:
+        script_args += ['--output-dir', str(output_dir)]
 
     # Run the process with appropriate command-line arguments
     try:
@@ -628,50 +630,57 @@ def slashDate(obsdate):
 
 #--------------------------------processes------------------------------------#
 
-def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
+def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], phase='full'):
 
-    print("\n" + "#"*30 + f"\n{obsdate}\n" + "#"*30 + "\n")
+    print("\n" + "#"*30 + f"\n{obsdate} [phase={phase}]\n" + "#"*30 + "\n")
 
+    run_base = phase in ('base', 'full')
+    run_post = phase in ('post', 'full')
+
+    if run_base:
 ##############################
 ## Raw Data Processing
 ##############################
 
-    # Run subprocess over all dates in the specified list
-    print(f"\n## Processing raw data from {obsdate}... ##\n")
+        # Run subprocess over all dates in the specified list
+        print(f"\n## Processing raw data from {obsdate}... ##\n")
 
-    # This dictionary defines the *PYTHON* scripts which
-    # handle the raw data. To add a script, just add to this
-    # dictionary. Format is {script_basename : [list_of_cml_args]}.
-    raw_processes = {
-            'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
-            'coordsfinder': [f'-d {slashDate(obsdate)}'],
-            'image_stats_dark': [f'-d {slashDate(obsdate)}'],
-            'sensitivity': [f'-d {slashDate(obsdate)}']
-                    }
-    
-    raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
-    tot_runtime += raw_runtime
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the raw data. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        raw_processes = {
+                'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
+                'coordsfinder': [f'-d {slashDate(obsdate)}'],
+                'image_stats_dark': [f'-d {slashDate(obsdate)}'],
+                'sensitivity': [f'-d {slashDate(obsdate)}']
+                        }
+
+        raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
+        tot_runtime += raw_runtime
 
 ##############################
 ## Archival Data Processing
 ##############################
 
-    # Run subprocess over all dates in the specified list
-    print(f"\n## Processing archival data from {obsdate}... ##\n")
+        # Run subprocess over all dates in the specified list
+        print(f"\n## Processing archival data from {obsdate}... ##\n")
 
-    # This dictionary defines the *PYTHON* scripts which
-    # handle the archival data. To add a script, just add to this
-    # dictionary. Format is {script_basename : [list_of_cml_args]}.
-    archive_processes = {
-            'wcsmatching': [f'{obsdate}']
-                        }
-    
-    archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
-    tot_runtime += archive_runtime
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the archival data. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        archive_processes = {
+                'wcsmatching': [f'{obsdate}']
+                            }
 
-    # Signal to peers that this telescope has completed its first-pass processing.
-    # This is the sentinel the other telescopes wait on before running cross-telescope stages.
-    (ARCHIVE_PATH / hyphonateDate(obsdate) / 'done.txt').touch()
+        archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
+        tot_runtime += archive_runtime
+
+        # Signal to peers that this telescope has completed its first-pass processing.
+        # This is the sentinel the other telescopes wait on before running cross-telescope stages.
+        (ARCHIVE_PATH / hyphonateDate(obsdate) / 'done.txt').touch()
+
+    if not run_post:
+        return
 
 ##############################
 ## Split-Responsibility Processing
@@ -809,8 +818,11 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
         tot_runtime += end_runtime
 
         # Send status email
+        _pdf_out_env = os.environ.get('COLIBRI_PDF_OUTPUT')
+        pdf_out = Path(_pdf_out_env) if _pdf_out_env else \
+                  (Path.cwd() / 'pipeline_output') if ENVIRONMENT == ENV_SIM else None
         sendStatusEmail(obsdate, DATA_PATH / obsdate, repro=repro, new_stop=True,
-                        errors=err.errors, notes=[])
+                        errors=err.errors, notes=[], output_dir=pdf_out)
 
 
 #----------------------------------main---------------------------------------#
@@ -858,6 +870,8 @@ if __name__ == '__main__':
     arg_parser.add_argument('--telescope', choices=list(TELESCOPE_NAMES),
                             default=TELESCOPE,
                             help='Telescope identity for local/peer path mapping.')
+    arg_parser.add_argument('--phase', choices=['base', 'post', 'full'], default='full',
+                            help='Which slice of the pipeline to run. Used by the single-machine sim driver.')
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
 
@@ -937,7 +951,7 @@ if __name__ == '__main__':
 
     # Process each date specified
     for obsdate in obs_dates:
-        ColibriProcesses(obsdate, repro=repro, sigma_threshold=sigma_threshold)
+        ColibriProcesses(obsdate, repro=repro, sigma_threshold=sigma_threshold, phase=cml_args.phase)
 
 
 ##############################
