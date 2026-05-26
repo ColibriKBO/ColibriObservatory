@@ -45,11 +45,18 @@ CUMSTATS_HEADER = ('obsdate,red_obs_h,red_starh,red_occ,'
                    'blue_obs_h,blue_starh,blue_occ,'
                    'matched_starh,sat_matches,occ_2tel,occ_3tel\n')
 
-# Minimal ACP log content. timeline.getSunsetSunrise only needs the substrings
-# 'INFO: Sunset JD: ' and 'INFO: Sunrise JD: '; JD values are placeholders
-# corresponding roughly to evening/morning of the sim obsdate.
+# ACP log content. timeline.py reads patterns: 'Sunset JD', 'Sunrise JD',
+# 'Field Name:', 'starts', 'Weather unsafe!', 'Dome closed!'. JD values are
+# placeholders corresponding roughly to evening/morning of the sim obsdate.
+# Field Name and starts lines populate the event-timeline subplot in the PDF.
 ACP_LOG_TEMPLATE = (
     "INFO: Sunset JD: 2460917.9\n"
+    "INFO: Observing starts.\n"
+    "INFO: Field Name: SimField_A starts at JD 2460917.95\n"
+    "INFO: Field Name: SimField_B starts at JD 2460918.10\n"
+    "INFO: Weather unsafe!\n"
+    "INFO: Dome closed!\n"
+    "INFO: Field Name: SimField_A starts at JD 2460918.25\n"
     "INFO: Sunrise JD: 2460918.4\n"
 )
 
@@ -141,6 +148,27 @@ def bootstrap_green_fixtures(sim_root: Path, obsdate: str,
             d.mkdir(parents=True, exist_ok=True)
             print(f"Bootstrapped {d}", flush=True)
 
+    # Per-telescope ColibriData must contain at least one minute dir AND a
+    # Dark/ subdir, otherwise pipeline_automation.processRawData skips the
+    # entire primary-processing leg (len(minute_dirs) <= 1 guard). The single
+    # set of real .rcd frames lives under Red/ColibriData/<obsdate>/; symlink
+    # it into Green and Blue so all three telescopes have something to
+    # process. Symlink (not copy) keeps the fixture small and lets one update
+    # propagate.
+    red_data_root = sim_root / 'Red' / 'ColibriData' / obsdate
+    if red_data_root.exists():
+        for color in ('Green', 'Blue'):
+            peer_data_root = sim_root / color / 'ColibriData' / obsdate
+            peer_data_root.mkdir(parents=True, exist_ok=True)
+            for src in red_data_root.iterdir():
+                if not src.is_dir():
+                    continue
+                dest = peer_data_root / src.name
+                if not dest.exists():
+                    os.symlink(src.resolve(), dest)
+                    print(f"Bootstrapped symlink {dest} -> {src.resolve()}",
+                          flush=True)
+
 
 def build_env(telescope: str, sim_root: Path, pdf_output: Path,
               peer_timeout: int) -> dict:
@@ -155,7 +183,7 @@ def build_env(telescope: str, sim_root: Path, pdf_output: Path,
 
 
 def run_phase(telescope: str, phase: str, obsdate: str, env: dict,
-              extra_args: list) -> int:
+              extra_args: list, log_dir: Path) -> int:
     cmd = [
         sys.executable, str(ORCHESTRATOR),
         '-d', obsdate,
@@ -164,11 +192,31 @@ def run_phase(telescope: str, phase: str, obsdate: str, env: dict,
         '--phase', phase,
         *extra_args,
     ]
-    print(f"\n{'='*60}\n[{phase.upper()}] {telescope}\n{'='*60}", flush=True)
+    banner = f"\n{'='*60}\n[{phase.upper()}] {telescope}\n{'='*60}"
+    print(banner, flush=True)
     print(' '.join(cmd), flush=True)
-    result = subprocess.run(cmd, env=env)
-    print(f"[{phase.upper()}] {telescope} exit={result.returncode}", flush=True)
-    return result.returncode
+
+    # Tee orchestrator stdout+stderr to a per-(telescope,phase) log file under
+    # pipeline_output/<obsdate>/ while mirroring live to the parent terminal.
+    # Per-stage logs are already captured by runProcesses inside the
+    # orchestrator; this captures the orchestrator's own banners, peer-wait
+    # messages, and err.addError summary - which previously vanished on exit.
+    log_path = log_dir / f'orchestrator_{telescope}_{phase}.log'
+    with open(log_path, 'ab') as lf:
+        lf.write((banner + '\n').encode())
+        lf.write((' '.join(cmd) + '\n').encode())
+        lf.flush()
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, bufsize=1)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.buffer.write(line)
+            sys.stdout.flush()
+            lf.write(line)
+            lf.flush()
+        returncode = proc.wait()
+    print(f"[{phase.upper()}] {telescope} exit={returncode}", flush=True)
+    return returncode
 
 
 def main() -> int:
@@ -210,13 +258,13 @@ def main() -> int:
 
     for telescope in PASS1_ORDER:
         env = build_env(telescope, sim_root, pdf_output, args.peer_timeout)
-        rc = run_phase(telescope, 'base', args.date, env, extra_args)
+        rc = run_phase(telescope, 'base', args.date, env, extra_args, pdf_output)
         if rc != 0:
             failures.append(('base', telescope, rc))
 
     for telescope in PASS2_ORDER:
         env = build_env(telescope, sim_root, pdf_output, args.peer_timeout)
-        rc = run_phase(telescope, 'post', args.date, env, extra_args)
+        rc = run_phase(telescope, 'post', args.date, env, extra_args, pdf_output)
         if rc != 0:
             failures.append(('post', telescope, rc))
 

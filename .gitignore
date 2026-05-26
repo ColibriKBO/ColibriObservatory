@@ -22,3 +22,7 @@ PyFocus/PyFocus.spec
 
 # ignore weather script identity notification
 ACPScripts/WhichWeatherScript.txt
+
+# ignore CLAUDE related stuff
+CLAUDE.md
+SKILLS/*
