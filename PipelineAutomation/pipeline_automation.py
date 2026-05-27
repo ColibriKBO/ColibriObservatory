@@ -512,14 +512,15 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
         t_start = time.time()
         try:
             print(f"Initializing subprocess {process + '.py'}...")
-            cmd = ['python', str(SCRIPTS / (process + '.py'))] + [str(a) for a in script_args]
+            cmd = [sys.executable, str(SCRIPTS / (process + '.py'))] + [str(a) for a in script_args]
 
             if pipe_std is not None:
                 log_file = log_dir / (process + '.log')
                 with open(log_file, 'a') as lf:
-                    subp = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
+                    subp = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT,
+                                          cwd=str(SCRIPTS))
             else:
-                subp = subprocess.run(cmd)
+                subp = subprocess.run(cmd, cwd=str(SCRIPTS))
 
             if subp.returncode != 0:
                 err.addError(f"ERROR: {process}.py exited with code {subp.returncode}! Stop file not written.")
@@ -570,7 +571,8 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
     # Run the process with appropriate command-line arguments
     try:
         print(f"Sending daily status email...")
-        subp = subprocess.run(['python', str(EMAIL_SCRIPT), *script_args])
+        subp = subprocess.run([sys.executable, str(EMAIL_SCRIPT), *script_args],
+                              cwd=str(EMAIL_SCRIPT.parent))
 
         if subp.returncode != 0:
             err.addError(f"ERROR: {EMAIL_SCRIPT.name} exited with code {subp.returncode}! Stop file not written.")
