@@ -283,14 +283,27 @@ def grab_reference_image() -> Path:
 
 def correct_pointing(target_ra: float, target_dec: float,
                      image_path: Path, solver: str, plot: bool) -> tuple:
-    """Solve `image_path`, return (ra_offset, dec_offset, ref_ra, ref_dec, image_data)."""
+    """Solve `image_path`, return (ra_offset, dec_offset, ref_ra, ref_dec).
+
+    Offsets are coordinate-space degree differences: target - image_center.
+    They are NOT sky-plane angular offsets — RA must be scaled by cos(dec)
+    for angular distance, but are used directly as slewing corrections by the caller.
+    """
     fits_path = ensure_fits(image_path, TMP_PATH)
     verboseprint(f"Solving {fits_path} with solver={solver}...")
     transform = solve_wcs(fits_path, TMP_PATH, solver)
     ref_ra, ref_dec = pixel_to_radec(transform, IMG_WIDTH / 2, IMG_WIDTH / 2)
-    verboseprint(f"Reference centre: RA={ref_ra}, Dec={ref_dec}")
-    ra_offset = target_ra - ref_ra
+    verboseprint(f"Image centre: RA={ref_ra:.6f} deg  Dec={ref_dec:.6f} deg")
+    ra_offset  = target_ra  - ref_ra
     dec_offset = target_dec - ref_dec
+
+    # Diagnostic: sky-plane angular separation (stderr only, never stdout)
+    sep_arcsec = np.sqrt(
+        (ra_offset * np.cos(np.radians(target_dec)))**2 + dec_offset**2
+    ) * 3600
+    verboseprint(f"Sky-plane sep: {sep_arcsec:.1f} arcsec  "
+                 f"(RA coord: {ra_offset*3600:.1f} arcsec, "
+                 f"Dec: {dec_offset*3600:.1f} arcsec)")
 
     if plot:
         _plot(fits_path, transform, target_ra, target_dec, ra_offset, dec_offset)

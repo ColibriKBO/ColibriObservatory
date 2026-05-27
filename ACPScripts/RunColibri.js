@@ -847,139 +847,162 @@ function parseOffsets(text) {
 }
 
 //////////////////////////////////////////////////////////////
-// Function to adjust telescope pointing. Repeatedly calls the 
-// astrometry_correction.py subprocess to get a new pointing position.
+// Function to adjust telescope pointing. Repeatedly calls the
+// astrometry_correction.py subprocess to plate-solve and correct.
 //////////////////////////////////////////////////////////////
 
 function adjustPointing(target_ra, target_dec) {
 
-    var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
-    var max_iterations = 5;
-    var iterations = 0;
-    var lambda = 0.8;
+    var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
+    var MAX_ITERATIONS = 5;
+    var LAMBDA = 1.0;               // uniform damping, applied every iteration
+    var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
+    var TIMEOUT_MS = 5 * 60 * 1000;
 
-    // Convert target RA to degrees and store initial values in degrees for astrometry correction
-    var target_ra_deg = target_ra * 15; 
-    var best_ra_deg = target_ra_deg;
-    var best_dec = target_dec;
+    // target_ra arrives in hours (ACP convention); convert to degrees for Python
+    var target_ra_deg = target_ra * 15;
 
-    // Track the closest position
-    var closest_ra_deg = best_ra_deg;
-    var closest_dec = best_dec;
-    var min_total_offset = tolerance + 1;
+    // Track best achieved position for fallback if we never converge
+    var closest_ra_deg = target_ra_deg;
+    var closest_dec    = target_dec;
+    var min_sep_deg    = Infinity;  // sky-plane separation, degrees
 
-    // Run astrometry_correction with a hard timeout (e.g., 2.5 minutes)
-        var TIMEOUT_MS = 5 * 60 * 1000;
-        var res, off;
-
-    // Log target position
     Console.PrintLine("== Pointing Correction ==");
-    ts.WriteLine("== Pointing Correction ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    Console.PrintLine("Target: RA " + target_ra.toFixed(4) + " h  Dec " + target_dec.toFixed(4) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" + target_ra.toFixed(4) + "h Dec=" + target_dec.toFixed(4) + "deg");
 
-    Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+    var iterations  = 0;
+    var current_sep = Infinity;     // sky-plane separation after each solve, degrees
 
-    var total_offset = tolerance + 1;
-
-    // Start the correction loop
-    while (total_offset > tolerance && iterations < max_iterations) {
+    while (current_sep > TOLERANCE_DEG && iterations < MAX_ITERATIONS) {
         iterations++;
-        Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
+        Console.PrintLine(Util.SysUTCDate + " INFO: Pointing iteration " + iterations + "/" + MAX_ITERATIONS);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing iteration " + iterations);
+
+        // ---- Run astrometry ------------------------------------------------
+        var res, off;
+        var astrometry_failed = false;
 
         try {
-            res = execAstrometry(target_ra_deg, target_dec, TIMEOUT_MS); // Running with old targets seems wrong testing with best ra/dec instead.
-            //res = execAstrometry(best_ra_deg, best_dec, TIMEOUT_MS);
-
-
+            // Always pass the science target so Python returns (target - image_center),
+            // which is the exact pointing error we need to correct.
+            res = execAstrometry(target_ra_deg, target_dec, TIMEOUT_MS);
         } catch (e) {
-            Console.PrintLine("Astrometry correction timed out: " + e.message);
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out: " + e.message);
-            return; // fall back to closest position later
+            Console.PrintLine("WARNING: Astrometry timed out: " + e.message);
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry timed out: " + e.message);
+            astrometry_failed = true;
         }
 
-        // NEW: Handle null/undefined result safely
-        if (!res) {
-            Console.PrintLine("Astrometry returned null result.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned null result.");
-            return;
+        if (!astrometry_failed) {
+            if (!res || typeof(res.stdout) === "undefined" || res.stdout === null) {
+                Console.PrintLine("WARNING: Astrometry returned no result.");
+                ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned no result.");
+                astrometry_failed = true;
+            }
         }
 
-        // Also guard stdout
-        if (typeof(res.stdout) === "undefined" || res.stdout === null) {
-            Console.PrintLine("Astrometry returned no stdout.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned no stdout.");
-            return;
+        if (!astrometry_failed) {
+            off = parseOffsets(res.stdout);
+            if (res.code !== 0 || !off) {
+                var tail = res.stdout ? res.stdout.slice(-400) : "";
+                ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry failed. Exit=" + res.code + " tail: " + tail);
+                Console.PrintLine("WARNING: Astrometry failed (exit " + res.code + ").");
+                astrometry_failed = true;
+            }
         }
 
-        // Try to parse two floats from the *last* line that contains numbers
-        off = parseOffsets(res.stdout);
-
-        // If Python exited non-zero or we failed to parse, bail gracefully
-        if (res.code !== 0 || !off) {
-            var tail = res.stdout.slice(-400); // last ~400 chars
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry failed. Exit=" + res.code + " Tail: " + tail);
-            Console.PrintLine("Astrometry correction failed/timed out. Using original target.");
-            return;
+        if (astrometry_failed) {
+            break;  // fall through to fallback slew below
         }
 
-        var ra_offset = off.ra;
+        // ---- Offsets from Python (coordinate-space degrees) -----------------
+        // ra_offset  = target_ra_deg - image_center_ra_deg  (positive = scope is west of target)
+        // dec_offset = target_dec    - image_center_dec_deg (positive = scope is south of target)
+        var ra_offset  = off.ra;
         var dec_offset = off.dec;
 
-        // Instead of accumulating offsets onto best_ra_deg / best_dec:
-        if ((iterations == 1) || (iterations == 2)) {
-            best_ra_deg = target_ra_deg + ra_offset;
-            best_dec    = target_dec    + dec_offset;
-        }
-        else {
-            best_ra_deg = target_ra_deg + lambda * ra_offset;
-            best_dec    = target_dec    + lambda * dec_offset;
-        }
-
-        if (best_ra_deg >= 360) best_ra_deg -= 360;
-        if (best_ra_deg < 0)    best_ra_deg += 360;
-
-        // Calculate the total angular offset in degrees (RA in degrees)
-        total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
-
-        // Update closest position if this iteration improves it
-        if (total_offset < min_total_offset) {
-            min_total_offset = total_offset;
-            closest_ra_deg = best_ra_deg;
-            closest_dec = best_dec;
+        // Sanity check: offsets larger than the FOV (~0.5 deg) likely indicate a bad solve
+        if (Math.abs(ra_offset) > 1.0 || Math.abs(dec_offset) > 1.0) {
+            Console.PrintLine("WARNING: Implausibly large offset ("
+                + (ra_offset * 3600).toFixed(0) + " arcsec RA, "
+                + (dec_offset * 3600).toFixed(0) + " arcsec Dec). Likely bad solve. Stopping.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Offset exceeds 1 deg — likely bad solve.");
+            break;
         }
 
-        // Log current position and offset to target with rounding
-        var best_ra_hours = best_ra_deg / 15;
-        Console.PrintLine("Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        Console.PrintLine("Offset from Target: " + total_offset.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_offset.toFixed(3) + " degrees");
+        // ---- Sky-plane angular separation (SPHERICAL GEOMETRY) -------------
+        // RA coordinate difference must be scaled by cos(dec) to obtain the true
+        // sky-plane angular offset.  Without this factor the RA contribution is
+        // over-stated by 1/cos(dec): e.g. at dec=45 deg a 14.4 arcsec RA
+        // coordinate offset is only 10.2 arcsec on the sky.
+        var dec_rad    = target_dec * Math.PI / 180;
+        var ra_sky_off = ra_offset * Math.cos(dec_rad);   // sky-plane RA component (degrees)
+        current_sep    = Math.sqrt(ra_sky_off * ra_sky_off + dec_offset * dec_offset);  // degrees
 
-        // Slew the telescope to the new RA and Dec
-        gotoRADec(best_ra_hours, best_dec);
-        Console.PrintLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
+        Console.PrintLine("  Pointing error: " + (current_sep * 3600).toFixed(1) + " arcsec"
+            + "  (RA_sky=" + (ra_sky_off * 3600).toFixed(1) + " arcsec"
+            + "  Dec=" + (dec_offset * 3600).toFixed(1) + " arcsec)");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing error " + (current_sep * 3600).toFixed(1)
+            + " arcsec  RA_sky=" + (ra_sky_off * 3600).toFixed(1)
+            + " Dec=" + (dec_offset * 3600).toFixed(1));
 
-        // Wait for the telescope to complete slewing
+        // Check convergence before commanding another slew
+        if (current_sep <= TOLERANCE_DEG) {
+            Console.PrintLine("  Within tolerance (" + (TOLERANCE_DEG * 3600).toFixed(0) + " arcsec). Done.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Pointing within tolerance after " + iterations + " iteration(s).");
+            break;
+        }
+
+        // ---- Compute corrected commanded position ---------------------------
+        // Add the raw coordinate-space offset (not sky-plane) scaled by lambda.
+        // Coordinate-space offsets are correct here: the mount accepts RA/Dec
+        // coordinates, not sky-plane angular displacements.
+        var cmd_ra_deg = target_ra_deg + LAMBDA * ra_offset;
+        var cmd_dec    = target_dec    + LAMBDA * dec_offset;
+
+        // RA wrap-around (modulo-safe)
+        cmd_ra_deg = ((cmd_ra_deg % 360) + 360) % 360;
+
+        // Update closest-position tracker
+        if (current_sep < min_sep_deg) {
+            min_sep_deg    = current_sep;
+            closest_ra_deg = cmd_ra_deg;
+            closest_dec    = cmd_dec;
+        }
+
+        // ---- Slew to corrected position ------------------------------------
+        var cmd_ra_hours = cmd_ra_deg / 15;
+        Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
+
+        gotoRADec(cmd_ra_hours, cmd_dec);
+
         while (Telescope.Slewing) {
-            Console.PrintLine("Waiting for telescope to complete slewing...");
-            ts.WriteLine("Waiting for telescope to complete slewing...");
             Util.WaitForMilliseconds(500);
         }
+
+        // Allow mount to settle before next plate solve
+        Util.WaitForMilliseconds(SETTLE_MS);
     }
 
-    // Finalize with either tolerance achieved or fallback to closest position
-    if (total_offset <= tolerance) {
-        Console.PrintLine("Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        return;
+    // ---- Final outcome -----------------------------------------------------
+    if (current_sep <= TOLERANCE_DEG) {
+        Console.PrintLine("Pointing correction achieved within " + (TOLERANCE_DEG * 3600).toFixed(0)
+            + " arcsec after " + iterations + " iteration(s).");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing converged in " + iterations + " iteration(s).");
     } else {
-        // Convert closest RA in degrees to hours for fallback
+        // Max iterations reached or astrometry failed — slew to closest measured position
         var fallback_ra_hours = closest_ra_deg / 15;
+        Console.PrintLine("Pointing did not converge. Best achieved: "
+            + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
+            + ". Slewing to best position.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+            + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
         gotoRADec(fallback_ra_hours, closest_dec);
-        Console.PrintLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
+        while (Telescope.Slewing) {
+            Util.WaitForMilliseconds(500);
+        }
     }
 }
        
