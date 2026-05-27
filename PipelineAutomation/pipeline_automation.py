@@ -653,8 +653,8 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], ph
         raw_processes = {
                 'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
                 'coordsfinder': [f'-d {slashDate(obsdate)}'],
-                'image_stats_dark': [f'-d {slashDate(obsdate)}'],
-                'sensitivity': [f'-d {slashDate(obsdate)}']
+                'image_stats_dark': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)],
+                'sensitivity': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)]
                         }
 
         raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
