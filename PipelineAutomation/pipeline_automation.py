@@ -758,10 +758,12 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], ph
 
     # Check for a stop file
     gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
-    if gat_stop.exists():
+    if gat_stop.exists() and not repro:
         print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
 
     else:
+        if gat_stop.exists() and repro:
+            gat_stop.unlink()
         gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
         print(f"Waiting for the gat_file for {obsdate}...")
         if not wait_for_sentinel(gat_file):
