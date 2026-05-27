@@ -1519,7 +1519,7 @@ function adjustPointing(ra, dec) {
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
     var SH = new ActiveXObject("WScript.Shell");
     // var BS = SH.Exec("python ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
-    var BS = SH.Exec("python ..\\astrometry_correction.py " + ra + " " + dec);
+    var BS = SH.Exec("python ..\\ExtraScripts\\astrometry_correction.py " + ra + " " + dec);
     var python_output = "";
     var python_error = "";
 
