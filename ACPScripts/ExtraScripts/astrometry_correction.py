@@ -263,7 +263,7 @@ def grab_reference_image() -> Path:
     write_dir = BASE_PATH / "tmp"
     write_dir.mkdir(parents=True, exist_ok=True)
     cmd = (
-        f'"{GRAB_EXE}" -n 1 -p pointing_reference -e 1000 -t 0 -f normal '
+        f'"{GRAB_EXE}" -n 1 -p pointing_reference -e 1000 -t -10 -l 0 -f normal '
         f'-w {write_dir}\\'
     )
     verboseprint("Running grab:", cmd)
