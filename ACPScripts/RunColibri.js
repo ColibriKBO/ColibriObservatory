@@ -875,6 +875,9 @@ function adjustPointing(target_ra, target_dec) {
     var iterations  = 0;
     var current_sep = Infinity;     // sky-plane separation after each solve, degrees
 
+    var cmd_ra_deg = target_ra_deg;    // initialize before the loop
+    var cmd_dec = target_dec;
+
     while (current_sep > TOLERANCE_DEG && iterations < MAX_ITERATIONS) {
         iterations++;
         Console.PrintLine(Util.SysUTCDate + " INFO: Pointing iteration " + iterations + "/" + MAX_ITERATIONS);
@@ -958,8 +961,8 @@ function adjustPointing(target_ra, target_dec) {
         // Add the raw coordinate-space offset (not sky-plane) scaled by lambda.
         // Coordinate-space offsets are correct here: the mount accepts RA/Dec
         // coordinates, not sky-plane angular displacements.
-        var cmd_ra_deg = target_ra_deg + LAMBDA * ra_offset;
-        var cmd_dec    = target_dec    + LAMBDA * dec_offset;
+        var cmd_ra_deg = cmd_ra_deg + LAMBDA * ra_offset;
+        var cmd_dec    = cmd_dec    + LAMBDA * dec_offset;
 
         // RA wrap-around (modulo-safe)
         cmd_ra_deg = ((cmd_ra_deg % 360) + 360) % 360;
