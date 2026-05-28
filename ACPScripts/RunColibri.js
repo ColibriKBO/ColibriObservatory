@@ -854,7 +854,7 @@ function parseOffsets(text) {
 function adjustPointing(target_ra, target_dec) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
-    var MAX_ITERATIONS = 5;
+    var MAX_ITERATIONS = 10;
     var LAMBDA = 1.0;               // uniform damping, applied every iteration
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
@@ -926,13 +926,13 @@ function adjustPointing(target_ra, target_dec) {
         var dec_offset = off.dec;
 
         // Sanity check: offsets larger than the FOV (~0.5 deg) likely indicate a bad solve
-        if (Math.abs(ra_offset) > 1.0 || Math.abs(dec_offset) > 1.0) {
-            Console.PrintLine("WARNING: Implausibly large offset ("
-                + (ra_offset * 3600).toFixed(0) + " arcsec RA, "
-                + (dec_offset * 3600).toFixed(0) + " arcsec Dec). Likely bad solve. Stopping.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Offset exceeds 1 deg — likely bad solve.");
-            break;
-        }
+        // if (Math.abs(ra_offset) > 1.0 || Math.abs(dec_offset) > 1.0) {
+        //     Console.PrintLine("WARNING: Implausibly large offset ("
+        //         + (ra_offset * 3600).toFixed(0) + " arcsec RA, "
+        //         + (dec_offset * 3600).toFixed(0) + " arcsec Dec). Likely bad solve. Stopping.");
+        //     ts.WriteLine(Util.SysUTCDate + " WARNING: Offset exceeds 1 deg — likely bad solve.");
+        //     break;
+        // }
 
         // ---- Sky-plane angular separation (SPHERICAL GEOMETRY) -------------
         // RA coordinate difference must be scaled by cos(dec) to obtain the true
