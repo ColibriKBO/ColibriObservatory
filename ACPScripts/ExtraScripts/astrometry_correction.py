@@ -337,7 +337,7 @@ def _parse_args(argv=None):
     p.add_argument("-i", "--image", type=str, default=None,
                    help="Path to an existing reference image (.rcd or .fits). "
                         "If omitted, ColibriGrab.exe is used to acquire one.")
-    p.add_argument("--solver", choices=("local", "online"), default="online",
+    p.add_argument("--solver", choices=("local", "online"), default="local",
                    help="WCS solver backend (default: online).")
     p.add_argument("--verbose", action="store_true",
                    help="Emit progress messages to stderr.")
