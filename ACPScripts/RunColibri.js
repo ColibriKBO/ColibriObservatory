@@ -707,11 +707,44 @@ function getRADEC()
 }
 
 ///////////////////////////////////////////
+// Coordinate sanity checks (defense against corrupted scheduler fields)
+// Returns true only for finite, in-range coordinates.
+///////////////////////////////////////////
+function isFiniteNum(x)
+{
+    return (typeof x === "number") && isFinite(x) && !isNaN(x);
+}
+
+// RA/Dec in DEGREES (as delivered by the scheduler CSV)
+function isValidRaDecDeg(raDeg, decDeg)
+{
+    if (!isFiniteNum(raDeg) || !isFiniteNum(decDeg)) { return false; }
+    if (raDeg < 0 || raDeg >= 360) { return false; }
+    if (decDeg < -90 || decDeg > 90) { return false; }
+    return true;
+}
+
+// RA in HOURS, Dec in DEGREES (as passed into gotoRADec)
+function isValidRaHoursDecDeg(raHours, decDeg)
+{
+    if (!isFiniteNum(raHours) || !isFiniteNum(decDeg)) { return false; }
+    if (raHours < 0 || raHours >= 24) { return false; }
+    if (decDeg < -90 || decDeg > 90) { return false; }
+    return true;
+}
+
+///////////////////////////////////////////
 // Sends scope to a particular Alt and Az
 // MJM
 ///////////////////////////////////////////
 function gotoAltAz(alt, az)
 {
+    if (!isFiniteNum(alt) || !isFiniteNum(az))
+    {
+        Console.PrintLine("WARNING: refusing AltAz slew to non-finite coordinates alt=" + alt + " az=" + az);
+        ts.WriteLine(Util.SysUTCDate + " WARNING: refusing AltAz slew to non-finite coordinates alt=" + alt + " az=" + az);
+        return false;
+    }
 
     breakme: if (ct.Elevation < elevationLimit)
     {
@@ -744,6 +777,13 @@ function gotoAltAz(alt, az)
 ///////////////////////////////////////////
 function gotoRADec(ra, dec)
 {
+    if (!isValidRaHoursDecDeg(ra, dec))
+    {
+        Console.PrintLine("WARNING: refusing to slew to invalid coordinates RA(h)=" + ra + " Dec=" + dec);
+        ts.WriteLine(Util.SysUTCDate + " WARNING: refusing to slew to invalid coordinates RA(h)=" + ra + " Dec=" + dec);
+        return false;
+    }
+
     Console.PrintLine("RA in gotoRADec function " + ra.toFixed(4));
     ts.WriteLine("RA in gotoRADec " + ra.toFixed(4));
     Console.PrintLine("Dec in gotoRADec function " + dec);
@@ -801,7 +841,10 @@ function gotoRADec(ra, dec)
         
         Console.PrintLine("Done slewing.");
         ts.WriteLine("Finished slewing.")
+        return true;
     }
+
+    return false;
 }
 
 function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
@@ -934,6 +977,12 @@ function parseSchedule(text) {
 
         var cols = line.split(",");
         if (cols.length < 10) continue;
+
+        if (!isValidRaDecDeg(parseFloat(cols[1]), parseFloat(cols[2]))) {
+            Console.PrintLine("WARNING: dropping scheduler field '" + cols[0].trim() +
+                "' with invalid coords RA=" + cols[1] + " Dec=" + cols[2]);
+            continue;
+        }
 
         segs.push({
             name:    cols[0].trim(),
@@ -1893,7 +1942,16 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
 
         // Slew to the current field
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+        if (!gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination))
+        {
+            Console.PrintLine("Skipping field '" + currentField[5] + "': slew refused (invalid coords or unsafe elevation). Waiting out this field's window.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Skipping field '" + currentField[5] + "': slew refused. Waiting until end of its window.");
+            while (Util.SysJulianDate < endJD)
+            {
+                Util.WaitForMilliseconds(5000);
+            }
+            continue;
+        }
 
         // Slave the dome to the telescope and wait until they are both in
         // the correct position to begin observing

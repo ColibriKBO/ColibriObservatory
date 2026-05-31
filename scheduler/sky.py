@@ -15,6 +15,8 @@ field table shape the trimmed `Observatory` scheduler expects:
 from __future__ import annotations
 
 import json
+import math
+import warnings
 from types import SimpleNamespace
 from typing import Any, Dict, Tuple
 
@@ -61,9 +63,25 @@ def load_fields(fields_file_loc: str) -> SimpleNamespace:
         if gid_key in table:
             field[gid_key] = np.asarray(table[gid_key])
 
-        centroid = _lookup_centroid(centroids, field_id)
-        ra_deg = float(centroid[0])
-        dec_deg = float(centroid[1])
+        try:
+            centroid = _lookup_centroid(centroids, field_id)
+            ra_deg = float(centroid[0])
+            dec_deg = float(centroid[1])
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            warnings.warn(
+                f"Skipping field {field_id}: could not read a valid centroid ({exc}).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
+        if not _valid_radec(ra_deg, dec_deg):
+            warnings.warn(
+                f"Skipping field {field_id}: centroid out of range or non-finite "
+                f"(ra={ra_deg}, dec={dec_deg}).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
         elon_reg, elat_reg = _icrs_to_geocentric_ecliptic(ra_deg, dec_deg)
         field[constants.FieldDataKeys.ELON_REG] = elon_reg
         field[constants.FieldDataKeys.ELAT_REG] = elat_reg
@@ -71,6 +89,18 @@ def load_fields(fields_file_loc: str) -> SimpleNamespace:
         fields[int(field_id)] = field
 
     return SimpleNamespace(fields=fields, centroids=centroids)
+
+
+def _valid_radec(ra_deg: float, dec_deg: float) -> bool:
+    """Return True iff (ra_deg, dec_deg) are finite and in valid ICRS ranges."""
+    try:
+        ra = float(ra_deg)
+        dec = float(dec_deg)
+    except (TypeError, ValueError):
+        return False
+    if not (math.isfinite(ra) and math.isfinite(dec)):
+        return False
+    return (0.0 <= ra < 360.0) and (-90.0 <= dec <= 90.0)
 
 
 def _lookup_centroid(field_centroids: Any, field_id: int):
