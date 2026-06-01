@@ -518,7 +518,7 @@ function domeOpen()
 
         if (Dome.ShutterStatus == 0)
         {
-            Console.PrintLine("--> Dome shutter is open...");
+            Console.PrintLine("--> Dome shutter is opening...");
         }
         else
             Console.PrintLine("--> Dome is NOT open.");
@@ -707,11 +707,44 @@ function getRADEC()
 }
 
 ///////////////////////////////////////////
+// Coordinate sanity checks (defense against corrupted scheduler fields)
+// Returns true only for finite, in-range coordinates.
+///////////////////////////////////////////
+function isFiniteNum(x)
+{
+    return (typeof x === "number") && isFinite(x) && !isNaN(x);
+}
+
+// RA/Dec in DEGREES (as delivered by the scheduler CSV)
+function isValidRaDecDeg(raDeg, decDeg)
+{
+    if (!isFiniteNum(raDeg) || !isFiniteNum(decDeg)) { return false; }
+    if (raDeg < 0 || raDeg >= 360) { return false; }
+    if (decDeg < -90 || decDeg > 90) { return false; }
+    return true;
+}
+
+// RA in HOURS, Dec in DEGREES (as passed into gotoRADec)
+function isValidRaHoursDecDeg(raHours, decDeg)
+{
+    if (!isFiniteNum(raHours) || !isFiniteNum(decDeg)) { return false; }
+    if (raHours < 0 || raHours >= 24) { return false; }
+    if (decDeg < -90 || decDeg > 90) { return false; }
+    return true;
+}
+
+///////////////////////////////////////////
 // Sends scope to a particular Alt and Az
 // MJM
 ///////////////////////////////////////////
 function gotoAltAz(alt, az)
 {
+    if (!isFiniteNum(alt) || !isFiniteNum(az))
+    {
+        Console.PrintLine("WARNING: refusing AltAz slew to non-finite coordinates alt=" + alt + " az=" + az);
+        ts.WriteLine(Util.SysUTCDate + " WARNING: refusing AltAz slew to non-finite coordinates alt=" + alt + " az=" + az);
+        return false;
+    }
 
     breakme: if (ct.Elevation < elevationLimit)
     {
@@ -744,6 +777,13 @@ function gotoAltAz(alt, az)
 ///////////////////////////////////////////
 function gotoRADec(ra, dec)
 {
+    if (!isValidRaHoursDecDeg(ra, dec))
+    {
+        Console.PrintLine("WARNING: refusing to slew to invalid coordinates RA(h)=" + ra + " Dec=" + dec);
+        ts.WriteLine(Util.SysUTCDate + " WARNING: refusing to slew to invalid coordinates RA(h)=" + ra + " Dec=" + dec);
+        return false;
+    }
+
     Console.PrintLine("RA in gotoRADec function " + ra.toFixed(4));
     ts.WriteLine("RA in gotoRADec " + ra.toFixed(4));
     Console.PrintLine("Dec in gotoRADec function " + dec);
@@ -801,7 +841,10 @@ function gotoRADec(ra, dec)
         
         Console.PrintLine("Done slewing.");
         ts.WriteLine("Finished slewing.")
+        return true;
     }
+
+    return false;
 }
 
 function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
@@ -847,139 +890,277 @@ function parseOffsets(text) {
 }
 
 //////////////////////////////////////////////////////////////
-// Function to adjust telescope pointing. Repeatedly calls the 
-// astrometry_correction.py subprocess to get a new pointing position.
+// Run the Python scheduler (scheduler/run_scheduler.py) once at
+// startup and return its raw stdout. Modeled on execAstrometry:
+// shell out via WScript.Shell.Exec, poll p.Status, accumulate
+// stdout, and enforce a timeout.
+//
+// Path assumption: RunColibri.js runs from ACPScripts/ but the
+// scheduler repo lives under the user's GitHub checkout. We build
+// an absolute path the same way colibriGrabPath is built at the
+// top of this file (line ~218): %USERPROFILE%\Documents\GitHub\
+// ColibriObservatory\scheduler\run_scheduler.py. If the repo is
+// laid out differently on a given telescope, adjust this path.
+//////////////////////////////////////////////////////////////
+
+function getScheduleFromPython(sunsetJD, sunriseJD) {
+    var sh = new ActiveXObject("WScript.Shell");
+    var userProfile = sh.ExpandEnvironmentStrings("%USERPROFILE%");
+    var scriptPath = userProfile +
+        "\\Documents\\GitHub\\ColibriObservatory\\scheduler\\run_scheduler.py";
+
+    var timeoutMs = 120000; // 2 minutes
+
+    var cmd = 'cmd /c python -u "' + scriptPath + '"' +
+              ' --sunset-jd ' + sunsetJD +
+              ' --sunrise-jd ' + sunriseJD +
+              ' --framerate 40 2>&1';
+
+    var p = sh.Exec(cmd);
+    var start = new Date().getTime();
+    var out = "";
+
+    while (p.Status === 0) {
+        while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
+        Util.WaitForMilliseconds(100);
+
+        var elapsed = new Date().getTime() - start;
+        if (elapsed > timeoutMs) {
+            try { sh.Run("taskkill /PID " + p.ProcessID + " /T /F", 0, true); } catch (e) {}
+            throw new Error("run_scheduler timed out after " + Math.floor(timeoutMs/1000) + "s");
+        }
+    }
+
+    while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
+
+    return out;
+}
+
+//////////////////////////////////////////////////////////////
+// Parse the schedule block emitted by run_scheduler.py. The
+// Python prints a delimited block:
+//   === SCHEDULE BEGIN ===
+//   name,ra_deg,dec_deg,start_jd,alt,az,ha,airmass,score,nstars
+//   field5,254.789,-27.225,2460000.5,45.2,180.3,0.5,1.2,1234.5,800
+//   ... one row per segment, time-ordered ...
+//   === SCHEDULE END ===
+// Returns an array of segment objects with named numeric fields.
+//////////////////////////////////////////////////////////////
+
+function parseSchedule(text) {
+    var segs = [];
+    var lines = text.replace(/\r/g, "").split("\n");
+
+    var inBlock = false;
+    var seenHeader = false;
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+
+        if (line === "=== SCHEDULE BEGIN ===") {
+            inBlock = true;
+            seenHeader = false;
+            continue;
+        }
+        if (line === "=== SCHEDULE END ===") {
+            inBlock = false;
+            continue;
+        }
+        if (!inBlock) continue;
+        if (line === "") continue;
+
+        // Skip the header row (first non-empty line inside the block)
+        if (!seenHeader) {
+            seenHeader = true;
+            continue;
+        }
+
+        var cols = line.split(",");
+        if (cols.length < 10) continue;
+
+        if (!isValidRaDecDeg(parseFloat(cols[1]), parseFloat(cols[2]))) {
+            Console.PrintLine("WARNING: dropping scheduler field '" + cols[0].trim() +
+                "' with invalid coords RA=" + cols[1] + " Dec=" + cols[2]);
+            continue;
+        }
+
+        segs.push({
+            name:    cols[0].trim(),
+            ra_deg:  parseFloat(cols[1]),
+            dec_deg: parseFloat(cols[2]),
+            start_jd: parseFloat(cols[3]),
+            alt:     parseFloat(cols[4]),
+            az:      parseFloat(cols[5]),
+            ha:      parseFloat(cols[6]),
+            airmass: parseFloat(cols[7]),
+            score:   parseFloat(cols[8]),
+            nstars:  parseInt(cols[9], 10)
+        });
+    }
+
+    return segs;
+}
+
+//////////////////////////////////////////////////////////////
+// Function to adjust telescope pointing. Repeatedly calls the
+// astrometry_correction.py subprocess to plate-solve and correct.
 //////////////////////////////////////////////////////////////
 
 function adjustPointing(target_ra, target_dec) {
 
-    var tolerance = 10 / 3600; // 10 arcseconds in degrees as the tolerance limit
-    var max_iterations = 5;
-    var iterations = 0;
-    var lambda = 0.8;
+    var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
+    var MAX_ITERATIONS = 10;
+    var LAMBDA = 0.9;               // uniform damping, applied every iteration
+    var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
+    var TIMEOUT_MS = 5 * 60 * 1000;
 
-    // Convert target RA to degrees and store initial values in degrees for astrometry correction
-    var target_ra_deg = target_ra * 15; 
-    var best_ra_deg = target_ra_deg;
-    var best_dec = target_dec;
+    // target_ra arrives in hours (ACP convention); convert to degrees for Python
+    var target_ra_deg = target_ra * 15;
 
-    // Track the closest position
-    var closest_ra_deg = best_ra_deg;
-    var closest_dec = best_dec;
-    var min_total_offset = tolerance + 1;
+    // Track best achieved position for fallback if we never converge
+    var closest_ra_deg = target_ra_deg;
+    var closest_dec    = target_dec;
+    var min_sep_deg    = Infinity;  // sky-plane separation, degrees
 
-    // Run astrometry_correction with a hard timeout (e.g., 2.5 minutes)
-        var TIMEOUT_MS = 5 * 60 * 1000;
-        var res, off;
-
-    // Log target position
     Console.PrintLine("== Pointing Correction ==");
-    ts.WriteLine("== Pointing Correction ==");
+    ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
+    Console.PrintLine("Target: RA " + target_ra.toFixed(4) + " h  Dec " + target_dec.toFixed(4) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" + target_ra.toFixed(4) + "h Dec=" + target_dec.toFixed(4) + "deg");
 
-    Console.PrintLine("Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Target Position -> RA: " + target_ra.toFixed(3) + " hours, Dec: " + target_dec.toFixed(3) + " degrees");
+    var iterations  = 0;
+    var current_sep = Infinity;     // sky-plane separation after each solve, degrees
 
-    var total_offset = tolerance + 1;
+    var cmd_ra_deg = target_ra_deg;    // initialize before the loop
+    var cmd_dec = target_dec;
 
-    // Start the correction loop
-    while (total_offset > tolerance && iterations < max_iterations) {
+    while (current_sep > TOLERANCE_DEG && iterations < MAX_ITERATIONS) {
         iterations++;
-        Console.PrintLine(Util.SysUTCDate + " Iteration: " + iterations);
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing Correction Iteration: " + iterations);
+        Console.PrintLine(Util.SysUTCDate + " INFO: Pointing iteration " + iterations + "/" + MAX_ITERATIONS);
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing iteration " + iterations);
+
+        // ---- Run astrometry ------------------------------------------------
+        var res, off;
+        var astrometry_failed = false;
 
         try {
-            res = execAstrometry(target_ra_deg, target_dec, TIMEOUT_MS); // Running with old targets seems wrong testing with best ra/dec instead.
-            //res = execAstrometry(best_ra_deg, best_dec, TIMEOUT_MS);
-
-
+            // Always pass the science target so Python returns (target - image_center),
+            // which is the exact pointing error we need to correct.
+            res = execAstrometry(target_ra_deg, target_dec, TIMEOUT_MS);
         } catch (e) {
-            Console.PrintLine("Astrometry correction timed out: " + e.message);
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry correction timed out: " + e.message);
-            return; // fall back to closest position later
+            Console.PrintLine("WARNING: Astrometry timed out: " + e.message);
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry timed out: " + e.message);
+            astrometry_failed = true;
         }
 
-        // NEW: Handle null/undefined result safely
-        if (!res) {
-            Console.PrintLine("Astrometry returned null result.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned null result.");
-            return;
+        if (!astrometry_failed) {
+            if (!res || typeof(res.stdout) === "undefined" || res.stdout === null) {
+                Console.PrintLine("WARNING: Astrometry returned no result.");
+                ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned no result.");
+                astrometry_failed = true;
+            }
         }
 
-        // Also guard stdout
-        if (typeof(res.stdout) === "undefined" || res.stdout === null) {
-            Console.PrintLine("Astrometry returned no stdout.");
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry returned no stdout.");
-            return;
+        if (!astrometry_failed) {
+            off = parseOffsets(res.stdout);
+            if (res.code !== 0 || !off) {
+                var tail = res.stdout ? res.stdout.slice(-400) : "";
+                ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry failed. Exit=" + res.code + " tail: " + tail);
+                Console.PrintLine("WARNING: Astrometry failed (exit " + res.code + ").");
+                astrometry_failed = true;
+            }
         }
 
-        // Try to parse two floats from the *last* line that contains numbers
-        off = parseOffsets(res.stdout);
-
-        // If Python exited non-zero or we failed to parse, bail gracefully
-        if (res.code !== 0 || !off) {
-            var tail = res.stdout.slice(-400); // last ~400 chars
-            ts.WriteLine(Util.SysUTCDate + " WARNING: Astrometry failed. Exit=" + res.code + " Tail: " + tail);
-            Console.PrintLine("Astrometry correction failed/timed out. Using original target.");
-            return;
+        if (astrometry_failed) {
+            break;  // fall through to fallback slew below
         }
 
-        var ra_offset = off.ra;
+        // ---- Offsets from Python (coordinate-space degrees) -----------------
+        // ra_offset  = target_ra_deg - image_center_ra_deg  (positive = scope is west of target)
+        // dec_offset = target_dec    - image_center_dec_deg (positive = scope is south of target)
+        var ra_offset  = off.ra;
         var dec_offset = off.dec;
 
-        // Instead of accumulating offsets onto best_ra_deg / best_dec:
-        if ((iterations == 1) || (iterations == 2)) {
-            best_ra_deg = target_ra_deg + ra_offset;
-            best_dec    = target_dec    + dec_offset;
+        // Sanity check: offsets larger than the FOV (~0.5 deg) likely indicate a bad solve
+        // if (Math.abs(ra_offset) > 1.0 || Math.abs(dec_offset) > 1.0) {
+        //     Console.PrintLine("WARNING: Implausibly large offset ("
+        //         + (ra_offset * 3600).toFixed(0) + " arcsec RA, "
+        //         + (dec_offset * 3600).toFixed(0) + " arcsec Dec). Likely bad solve. Stopping.");
+        //     ts.WriteLine(Util.SysUTCDate + " WARNING: Offset exceeds 1 deg — likely bad solve.");
+        //     break;
+        // }
+
+        // ---- Sky-plane angular separation (SPHERICAL GEOMETRY) -------------
+        // RA coordinate difference must be scaled by cos(dec) to obtain the true
+        // sky-plane angular offset.  Without this factor the RA contribution is
+        // over-stated by 1/cos(dec): e.g. at dec=45 deg a 14.4 arcsec RA
+        // coordinate offset is only 10.2 arcsec on the sky.
+        var dec_rad    = target_dec * Math.PI / 180;
+        var ra_sky_off = ra_offset * Math.cos(dec_rad);   // sky-plane RA component (degrees)
+        current_sep    = Math.sqrt(ra_sky_off * ra_sky_off + dec_offset * dec_offset);  // degrees
+
+        Console.PrintLine("  Pointing error: " + (current_sep * 3600).toFixed(1) + " arcsec"
+            + "  (RA_sky=" + (ra_sky_off * 3600).toFixed(1) + " arcsec"
+            + "  Dec=" + (dec_offset * 3600).toFixed(1) + " arcsec)");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing error " + (current_sep * 3600).toFixed(1)
+            + " arcsec  RA_sky=" + (ra_sky_off * 3600).toFixed(1)
+            + " Dec=" + (dec_offset * 3600).toFixed(1));
+
+        // Check convergence before commanding another slew
+        if (current_sep <= TOLERANCE_DEG) {
+            Console.PrintLine("  Within tolerance (" + (TOLERANCE_DEG * 3600).toFixed(0) + " arcsec). Done.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Pointing within tolerance after " + iterations + " iteration(s).");
+            break;
         }
-        else {
-            best_ra_deg = target_ra_deg + lambda * ra_offset;
-            best_dec    = target_dec    + lambda * dec_offset;
+
+        // ---- Compute corrected commanded position ---------------------------
+        // Add the raw coordinate-space offset (not sky-plane) scaled by lambda.
+        // Coordinate-space offsets are correct here: the mount accepts RA/Dec
+        // coordinates, not sky-plane angular displacements.
+        var cmd_ra_deg = cmd_ra_deg + LAMBDA * ra_offset;
+        var cmd_dec    = cmd_dec    + LAMBDA * dec_offset;
+
+        // RA wrap-around (modulo-safe)
+        cmd_ra_deg = ((cmd_ra_deg % 360) + 360) % 360;
+
+        // Update closest-position tracker
+        if (current_sep < min_sep_deg) {
+            min_sep_deg    = current_sep;
+            closest_ra_deg = cmd_ra_deg;
+            closest_dec    = cmd_dec;
         }
 
-        if (best_ra_deg >= 360) best_ra_deg -= 360;
-        if (best_ra_deg < 0)    best_ra_deg += 360;
+        // ---- Slew to corrected position ------------------------------------
+        var cmd_ra_hours = cmd_ra_deg / 15;
+        Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
 
-        // Calculate the total angular offset in degrees (RA in degrees)
-        total_offset = Math.sqrt(Math.pow(target_ra_deg - best_ra_deg, 2) + Math.pow(target_dec - best_dec, 2));
+        gotoRADec(cmd_ra_hours, cmd_dec);
 
-        // Update closest position if this iteration improves it
-        if (total_offset < min_total_offset) {
-            min_total_offset = total_offset;
-            closest_ra_deg = best_ra_deg;
-            closest_dec = best_dec;
-        }
-
-        // Log current position and offset to target with rounding
-        var best_ra_hours = best_ra_deg / 15;
-        Console.PrintLine("Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        Console.PrintLine("Offset from Target: " + total_offset.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Current Position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Offset from Target: " + total_offset.toFixed(3) + " degrees");
-
-        // Slew the telescope to the new RA and Dec
-        gotoRADec(best_ra_hours, best_dec);
-        Console.PrintLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Slewing to adjusted position -> RA: " + best_ra_hours.toFixed(3) + " hours, Dec: " + best_dec.toFixed(3) + " degrees");
-
-        // Wait for the telescope to complete slewing
         while (Telescope.Slewing) {
-            Console.PrintLine("Waiting for telescope to complete slewing...");
-            ts.WriteLine("Waiting for telescope to complete slewing...");
             Util.WaitForMilliseconds(500);
         }
+
+        // Allow mount to settle before next plate solve
+        Util.WaitForMilliseconds(SETTLE_MS);
     }
 
-    // Finalize with either tolerance achieved or fallback to closest position
-    if (total_offset <= tolerance) {
-        Console.PrintLine("Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing correction achieved within tolerance after " + iterations + " iterations.");
-        return;
+    // ---- Final outcome -----------------------------------------------------
+    if (current_sep <= TOLERANCE_DEG) {
+        Console.PrintLine("Pointing correction achieved within " + (TOLERANCE_DEG * 3600).toFixed(0)
+            + " arcsec after " + iterations + " iteration(s).");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Pointing converged in " + iterations + " iteration(s).");
     } else {
-        // Convert closest RA in degrees to hours for fallback
+        // Max iterations reached or astrometry failed — slew to closest measured position
         var fallback_ra_hours = closest_ra_deg / 15;
+        Console.PrintLine("Pointing did not converge. Best achieved: "
+            + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
+            + ". Slewing to best position.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+            + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
         gotoRADec(fallback_ra_hours, closest_dec);
-        Console.PrintLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
-        ts.WriteLine("Max iterations reached. Slewing to closest achievable position -> RA: " + fallback_ra_hours.toFixed(3) + " hours, Dec: " + closest_dec.toFixed(3) + " degrees");
+        while (Telescope.Slewing) {
+            Util.WaitForMilliseconds(500);
+        }
     }
 }
        
@@ -1294,74 +1475,10 @@ var darkInterval = 15; // Number of minutes between dark series collection
 var slewAttempt = 0;
 
 
-// Field coordinates
-var field1  = [273.736, -18.640];
-var field2  = [92.419,  23.902];
-var field3  = [287.740, -17.914];
-var field4  = [105.436, 22.379];
-var field5  = [254.789, -27.225];
-var field6  = [129.972, 19.312];
-var field7  = [75.678,  23.580];
-var field8  = [306.006, -14.551];
-var field9  = [239.923, -25.287];
-var field10 = [56.973,  23.942];
-var field11 = [318.700, -11.365];
-var field12 = [226.499, -22.274];
-var field13 = [334.365, -10.910];
-var field14 = [212.040, -17.675];
-var field15 = [39.313,  17.413];
-var field16 = [143.292, 10.261];
-var field17 = [348.814, -0.699];
-var field18 = [155.530, 5.914];
-var field19 = [1.693,   3.707];
-var field20 = [15.529,  2.557];
-var field21 = [25.171,  14.130];
-var field22 = [198.755, -11.953];
-var field23 = [184.631, -3.816];
-var field24 = [172.488, 0.500];
-
-// Create new coordinate transform objects and fill with RA/Dec for each of the fields
-// ct1 = Util.NewCThereAndNow(); ct1.RightAscension = field1[0] / 15; ct1.Declination = parseFloat(field1[1]);
-// ct2 = Util.NewCThereAndNow(); ct2.RightAscension = field2[0] / 15; ct2.Declination = parseFloat(field2[1]);
-// ct3 = Util.NewCThereAndNow(); ct3.RightAscension = field3[0] / 15; ct3.Declination = parseFloat(field3[1]);
-// ct4 = Util.NewCThereAndNow(); ct4.RightAscension = field4[0] / 15; ct4.Declination = parseFloat(field4[1]);
-// ct5 = Util.NewCThereAndNow(); ct5.RightAscension = field5[0] / 15; ct5.Declination = parseFloat(field5[1]);
-// ct6 = Util.NewCThereAndNow(); ct6.RightAscension = field6[0] / 15; ct6.Declination = parseFloat(field6[1]);
-// ct7 = Util.NewCThereAndNow(); ct7.RightAscension = field7[0] / 15; ct7.Declination = parseFloat(field7[1]);
-// ct8 = Util.NewCThereAndNow(); ct8.RightAscension = field8[0] / 15; ct8.Declination = parseFloat(field8[1]);
-// ct9 = Util.NewCThereAndNow(); ct9.RightAscension = field9[0] / 15; ct9.Declination = parseFloat(field9[1]);
-// ct10 = Util.NewCThereAndNow(); ct10.RightAscension = field10[0] / 15; ct10.Declination = parseFloat(field10[1]);
-// ct11 = Util.NewCThereAndNow(); ct11.RightAscension = field11[0] / 15; ct11.Declination = parseFloat(field11[1]);
-
-// Elevation, Azimuth, field, field name, moon angle, HA, airmass, # of M13 stars, a, b, # of stars visible, rank, ct time #
-// TODO: update a,b parameters for all new fields
-fieldInfo = [
-    [0, 0, field1, "field1",   0, 0, 1.0, 5005, 0.0005, 1.0, 5005, 0, 0],
-    [0, 0, field2, "field2",   0, 0, 1.0, 1696, 0.0005, 1.0, 1696, 0, 0],
-    [0, 0, field3, "field3",   0, 0, 1.0, 1696, 0.0005, 1.0, 1696, 0, 0],
-    [0, 0, field4, "field4",   0, 0, 1.0, 967,  0.0005, 1.0, 967, 0, 0],
-    [0, 0, field5, "field5",   0, 0, 1.0, 2442, 0.0005, 1.0, 2442, 0, 0],
-    [0, 0, field6, "field6",   0, 0, 1.0, 495,  0.0005, 1.0, 495, 0, 0],
-    [0, 0, field7, "field7",   0, 0, 1.0, 840,  0.0005, 1.0, 840, 0, 0],
-    [0, 0, field8, "field8",   0, 0, 1.0, 588,  0.0005, 1.0, 588, 0, 0],
-    [0, 0, field9, "field9",   0, 0, 1.0, 754,  0.0005, 1.0, 754, 0, 0],
-    [0, 0, field10, "field10", 0, 0, 1.0, 489,  0.0005, 1.0, 489, 0, 0],
-    [0, 0, field11, "field11", 0, 0, 1.0, 394,  0.0005, 1.0, 394, 0, 0],
-    [0, 0, field12, "field12", 0, 0, 1.0, 387,  0.0005, 1.0, 387, 0, 0],
-    [0, 0, field13, "field13", 0, 0, 1.0, 251,  0.0005, 1.0, 251, 0, 0],
-    [0, 0, field14, "field14", 0, 0, 1.0, 305,  0.0005, 1.0, 305, 0, 0],
-    [0, 0, field15, "field15", 0, 0, 1.0, 269,  0.0005, 1.0, 269, 0, 0],
-    [0, 0, field16, "field16", 0, 0, 1.0, 258,  0.0005, 1.0, 258, 0, 0],
-    [0, 0, field17, "field17", 0, 0, 1.0, 247,  0.0005, 1.0, 247, 0, 0],
-    [0, 0, field18, "field18", 0, 0, 1.0, 213,  0.0005, 1.0, 213, 0, 0],
-    [0, 0, field19, "field19", 0, 0, 1.0, 226,  0.0005, 1.0, 226, 0, 0],
-    [0, 0, field20, "field20", 0, 0, 1.0, 218,  0.0005, 1.0, 218, 0, 0],
-    [0, 0, field21, "field21", 0, 0, 1.0, 238,  0.0005, 1.0, 238, 0, 0],
-    [0, 0, field22, "field22", 0, 0, 1.0, 231,  0.0005, 1.0, 231, 0, 0],
-    [0, 0, field23, "field23", 0, 0, 1.0, 184,  0.0005, 1.0, 184, 0, 0],
-    [0, 0, field24, "field24", 0, 0, 1.0, 184,  0.0005, 1.0, 184, 0, 0]
-];
-
+// Field coordinates and the hardcoded fieldInfo star-count table have been
+// removed: the observing plan now comes from the Python scheduler
+// (scheduler/run_scheduler.py) via getScheduleFromPython(), which supplies
+// Gaia-backed field centroids, scores, and star counts directly.
 
 
 if (logconsole == true)
@@ -1616,157 +1733,54 @@ function main()
         firstRun = false;
     }
 
-    // Calculate field-moon angle for each field.
-    var moonAngles = [];
-    var moonct = getMoon();
-    for (i = 0; i < fieldInfo.length; i++)
-    {
-        var b = (90 - fieldInfo[i][2][1]) * Math.PI / 180;
-        var c = (90 - moonct.Declination) * Math.PI / 180;
+    // Build the observing plan by calling the Python scheduler once at
+    // startup. It returns the full-night plan (already Moon-cut, altitude-
+    // cut, and contiguous-field-collapsed); JS just maps each segment into
+    // the existing finalFields row format consumed by whichField() and the
+    // observing loop.
+    Console.PrintLine("Requesting observation plan from Python scheduler...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Requesting observation plan from Python scheduler...");
 
-        var aa = Math.abs(fieldInfo[i][2][0] - moonct.RightAscension) * Math.PI / 180;
-
-        var moonAngle = Math.acos((Math.cos(b) * Math.cos(c)) + (Math.sin(b) * Math.sin(c) * Math.cos(aa))) * 180 / Math.PI;
-        moonAngles.push(moonAngle);
-        fieldInfo[i][4] = moonAngle;
+    var sched = "";
+    try {
+        sched = getScheduleFromPython(sunset, sunrise);
+    } catch (e) {
+        Console.PrintLine("ERROR: Python scheduler failed: " + e.message);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: Python scheduler failed: " + e.message);
+        abort();
     }
 
-    var fieldsToObserve = []; // Array containing best field info in 6 minute increments
+    var segs = parseSchedule(sched);
 
-    // Elevation [0], Azimuth [1], field [2], field name [3], moon angle [4], HA [5], airmass [6],
-    // # of M13 stars [7], a [8], b [9], # of stars visible [10], rank [11], start JD [12]
-    
-    // n is the number of samples in one observing block (length = timestep)
-    // that will be computed.
-    var n = Math.round(darkHours.toFixed(2) / timestep);
-    Console.PrintLine("# of samples tonight: " + n);
-
-
-    // Calcuate the local coordinates of each field at each timestep and the
-    // number of visible stars in each field when accounting for extinction
-    var prevField = "";
-    for (k = 0; k < n; k++)
+    // Guard: do not proceed with an empty plan.
+    if (segs.length === 0)
     {
-        // Assume that the moon angle is constant throughout the night
-        // In reality, it will move about 0.5 deg per hour
-        // aa.exe doesn't allow time input from command line, so we'll
-        // fix this later
+        Console.PrintLine("ERROR: Python scheduler returned no segments. Raw output follows:");
+        Console.PrintLine(sched);
+        ts.WriteLine(Util.SysUTCDate + " ERROR: Python scheduler returned no segments.");
+        ts.WriteLine(Util.SysUTCDate + " ERROR: Scheduler raw output: " + sched);
+        abort();
+    }
 
-        // Create a new coordinate transform at intervals of timestep
-        var newLST = parseFloat(sunsetLST) + k * timestep;
-        var newJD  = sunset + k * timestep / 24;
-        var ct = Util.NewCT(Telescope.SiteLatitude, newLST);
+    Console.PrintLine("# of scheduled segments: " + segs.length);
+    ts.WriteLine(Util.SysUTCDate + " INFO: # of scheduled segments: " + segs.length);
 
-        // Start a loop to calculate approximate number of stars in fields
-        for (j = 0; j < fieldInfo.length; j++)
-        {
-            // Set RA and DEC to field 'j' coordinates  
-            ct.RightAscension = fieldInfo[j][2][0] / 15; // in hours
-            ct.Declination = parseFloat(fieldInfo[j][2][1]); // in degrees
-
-            // Field coordinate definitions
-            var lat = ct.Latitude;
-            var alt = ct.Elevation;
-            var LST = ct.SiderealTime;
-            var HA = LST - ct.RightAscension;
-            
-
-            // Set fieldInfo fields for spatial/temporal fields
-            fieldInfo[j][0] = ct.Elevation;
-            fieldInfo[j][1] = ct.Azimuth;
-            fieldInfo[j][5] = HA;
-            fieldInfo[j][12] = newJD;
-
-            // Calculate approx. # of stars in field using airmass/extinction
-            // Know limiting magnitude at zenith (say 12 in 25 ms)
-            // Know # of stars at M12 in each field
-            // Calculate extinction at current airmass
-            // With this new magnitude calculate approx. # of stars
-
-            // Calculate airmass and extinction
-            var airmass = 1 / Math.cos((90 - alt) * Math.PI / 180);
-            fieldInfo[j][6] = airmass;
-            var extinction = (airmass - 1) * extScale;
-
-            // Calculate the true number of visible stars, accounting for extinction
-            var numVisibleStars = parseInt(fieldInfo[j][8] * Math.exp(fieldInfo[j][9] * (magnitudeLimit - extinction)));
-            fieldInfo[j][10] = numVisibleStars;
-            // Console.PrintLine("Airmass: " + airmass)
-            // Console.PrintLine("Number of visible M" + (magnitudeLimit-extinction).toPrecision(3) + " stars: " + numVisibleStars)
-
-        }
-
-        // Create goodFields array to hold fields that are above the horizon
-        // and far enough from the moon
-        var goodFields = [];
-
-        for (j = 0; j < fieldInfo.length; j++)
-        {
-            if (fieldInfo[j][0] > elevationLimit && moonAngles[j] > minMoonOffset)
-            {
-                goodFields.push([fieldInfo[j][0],fieldInfo[j][1],fieldInfo[j][2],fieldInfo[j][3],fieldInfo[j][4],fieldInfo[j][5],fieldInfo[j][6],fieldInfo[j][7],fieldInfo[j][8],fieldInfo[j][9],fieldInfo[j][10],fieldInfo[j][11],fieldInfo[j][12]]);
-            }
-        }
-
-
-
-
-        // Require that any new field be better than the old field by at least
-        // minDiff. Otherwise, continue observing the old field.
-        // TODO: make this if/else more clever
-        sortFields(goodFields);
-        if (sortedFields.length == 1)
-        {
-            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
-            prevField = sortedFields[0][3];
-        }
-        else if ((sortedFields[0][3] != prevField) && (sortedFields[1][3] == prevField) && (sortedFields[0][10] - sortedFields[1][10] < minDiff))
-        {
-            fieldsToObserve.push([sortedFields[1][0],sortedFields[1][1],sortedFields[1][2],sortedFields[1][3],sortedFields[1][4],sortedFields[1][5],sortedFields[1][6],sortedFields[1][7],sortedFields[1][8],sortedFields[1][9],sortedFields[1][10],sortedFields[1][11],sortedFields[1][12]]);
-
-            prevField = sortedFields[1][3];
-        }
-        else
-        {
-            fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
-            prevField = sortedFields[0][3];
-        }
-        
-
-        // Print statements for testing
-        //Console.PrintLine(prevField)
-        //Console.PrintLine(sortedFields[0][3] + " " + sortedFields[0][10] + " / " + sortedFields[1][3] + " " + sortedFields[1][10])
-        //Console.PrintLine("10: " + fieldInfo[9][10] + " 7: " + fieldInfo[6][10])
-        //Console.PrintLine(sortedFields[0])
-        //Console.PrintLine(fieldsToObserve);
-
-        // Default option
-        //fieldsToObserve.push([sortedFields[0][0],sortedFields[0][1],sortedFields[0][2],sortedFields[0][3],sortedFields[0][4],sortedFields[0][5],sortedFields[0][6],sortedFields[0][7],sortedFields[0][8],sortedFields[0][9],sortedFields[0][10],sortedFields[0][11],sortedFields[0][12]]);
-
+    // Build finalFields from the scheduler segments.
+    // Row index map (matches the legacy fieldInfo / whichField contract):
+    //   [0] alt, [1] az, [2] [ra_deg, dec_deg], [3] name, [4] moon angle (0;
+    //   Moon cut already enforced in Python), [5] HA, [6] airmass, [7] 0,
+    //   [8] 0, [9] 0, [10] nstars, [11] score, [12] start JD.
+    // [13] (duration) is appended by the existing loop below.
+    for (i = 0; i < segs.length; i++)
+    {
+        var seg = segs[i];
+        finalFields.push([seg.alt, seg.az, [seg.ra_deg, seg.dec_deg], seg.name,
+                          0, seg.ha, seg.airmass, 0, 0, 0,
+                          seg.nstars, seg.score, seg.start_jd]);
     }
 
 
 /*---------------------------Order & Print Plan------------------------------*/
-
-    // Check length of fields to observe
-    Console.PrintLine("# of selected time blocks: " + fieldsToObserve.length)
-    Console.PrintLine("")
-
-
-    // Push first field, then check if the following field is the same. If it
-    // is, move onto the next field. Repeat until the end of the list and
-    // then push the final field
-    
-    finalFields.push(fieldsToObserve[0]);
-    for (i = 0; i<fieldsToObserve.length - 1; i++)
-    {
-        if (fieldsToObserve[i][3] != fieldsToObserve[i + 1][3])
-        {
-            //finalFields.push([fieldsToObserve[i][0],fieldsToObserve[i][1],fieldsToObserve[i][2],fieldsToObserve[i][3],fieldsToObserve[i][4],fieldsToObserve[i][5],fieldsToObserve[i][6],fieldsToObserve[i][7],fieldsToObserve[i][8],fieldsToObserve[i][9],fieldsToObserve[i][10],fieldsToObserve[i][11],fieldsToObserve[i][12]])
-            finalFields.push(fieldsToObserve[i+1]);
-            // Console.PrintLine(i.toString())
-        }
-    }
 
 
     // Calculate the duration of each field and append it onto the end of its
@@ -1928,7 +1942,16 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
 
         // Slew to the current field
-        gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination);
+        if (!gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination))
+        {
+            Console.PrintLine("Skipping field '" + currentField[5] + "': slew refused (invalid coords or unsafe elevation). Waiting out this field's window.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Skipping field '" + currentField[5] + "': slew refused. Waiting until end of its window.");
+            while (Util.SysJulianDate < endJD)
+            {
+                Util.WaitForMilliseconds(5000);
+            }
+            continue;
+        }
 
         // Slave the dome to the telescope and wait until they are both in
         // the correct position to begin observing
