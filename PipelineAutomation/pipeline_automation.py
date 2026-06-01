@@ -195,6 +195,10 @@ TELESCOPE = get_telescope_name()
 ENVIRONMENT = DEFAULT_ENV
 configure_paths(ENVIRONMENT, TELESCOPE)
 
+# Set to True via --dry-email to force email_timeline.py into --dry mode
+# regardless of ENVIRONMENT (useful for real-mode reprocessing).
+DRY_EMAIL = False
+
 # Misc variables
 TMP_SUFFIX = ['_wcs.fits', '_wcs.axy', '_wcs.corr', '_wcs.match', '_wcs.rdls',
               '_wcs.solved', '_wcs.wcs', '_wcs-indx.xyls', '_corr.axy',
@@ -512,14 +516,15 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
         t_start = time.time()
         try:
             print(f"Initializing subprocess {process + '.py'}...")
-            cmd = ['python', str(SCRIPTS / (process + '.py'))] + [str(a) for a in script_args]
+            cmd = [sys.executable, str(SCRIPTS / (process + '.py'))] + [str(a) for a in script_args]
 
             if pipe_std is not None:
                 log_file = log_dir / (process + '.log')
                 with open(log_file, 'a') as lf:
-                    subp = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
+                    subp = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT,
+                                          cwd=str(SCRIPTS))
             else:
-                subp = subprocess.run(cmd)
+                subp = subprocess.run(cmd, cwd=str(SCRIPTS))
 
             if subp.returncode != 0:
                 err.addError(f"ERROR: {process}.py exited with code {subp.returncode}! Stop file not written.")
@@ -537,7 +542,7 @@ def runProcesses(stopfile_dir, repro=False, new_stop=True, pipe_std=None, **kwar
     return runtime
 
 def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
-                    errors=[], notes=[]):
+                    errors=[], notes=[], output_dir=None):
     """
     Sends a daily status email with the given parameters.
 
@@ -562,13 +567,16 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
 
     # Define the command-line arguments
     script_args = [str(obsdate), '--errors', *errors, '--notes', *notes]
-    if ENVIRONMENT == ENV_SIM:
+    if ENVIRONMENT == ENV_SIM or DRY_EMAIL:
         script_args.append('--dry')
+    if output_dir is not None:
+        script_args += ['--output-dir', str(output_dir)]
 
     # Run the process with appropriate command-line arguments
     try:
         print(f"Sending daily status email...")
-        subp = subprocess.run(['python', str(EMAIL_SCRIPT), *script_args])
+        subp = subprocess.run([sys.executable, str(EMAIL_SCRIPT), *script_args],
+                              cwd=str(EMAIL_SCRIPT.parent))
 
         if subp.returncode != 0:
             err.addError(f"ERROR: {EMAIL_SCRIPT.name} exited with code {subp.returncode}! Stop file not written.")
@@ -628,50 +636,57 @@ def slashDate(obsdate):
 
 #--------------------------------processes------------------------------------#
 
-def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
+def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], phase='full'):
 
-    print("\n" + "#"*30 + f"\n{obsdate}\n" + "#"*30 + "\n")
+    print("\n" + "#"*30 + f"\n{obsdate} [phase={phase}]\n" + "#"*30 + "\n")
 
+    run_base = phase in ('base', 'full')
+    run_post = phase in ('post', 'full')
+
+    if run_base:
 ##############################
 ## Raw Data Processing
 ##############################
 
-    # Run subprocess over all dates in the specified list
-    print(f"\n## Processing raw data from {obsdate}... ##\n")
+        # Run subprocess over all dates in the specified list
+        print(f"\n## Processing raw data from {obsdate}... ##\n")
 
-    # This dictionary defines the *PYTHON* scripts which
-    # handle the raw data. To add a script, just add to this
-    # dictionary. Format is {script_basename : [list_of_cml_args]}.
-    raw_processes = {
-            'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
-            'coordsfinder': [f'-d {slashDate(obsdate)}'],
-            'image_stats_dark': [f'-d {slashDate(obsdate)}'],
-            # 'sensitivity': [f'-d {slashDate(obsdate)}']
-                    }
-    
-    raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
-    tot_runtime += raw_runtime
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the raw data. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        raw_processes = {
+                'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
+                'coordsfinder': [f'-d {slashDate(obsdate)}'],
+                'image_stats_dark': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)],
+                'sensitivity': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)]
+                        }
+
+        raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
+        tot_runtime += raw_runtime
 
 ##############################
 ## Archival Data Processing
 ##############################
 
-    # Run subprocess over all dates in the specified list
-    print(f"\n## Processing archival data from {obsdate}... ##\n")
+        # Run subprocess over all dates in the specified list
+        print(f"\n## Processing archival data from {obsdate}... ##\n")
 
-    # This dictionary defines the *PYTHON* scripts which
-    # handle the archival data. To add a script, just add to this
-    # dictionary. Format is {script_basename : [list_of_cml_args]}.
-    archive_processes = {
-            'wcsmatching': [f'{obsdate}']
-                        }
-    
-    archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
-    tot_runtime += archive_runtime
+        # This dictionary defines the *PYTHON* scripts which
+        # handle the archival data. To add a script, just add to this
+        # dictionary. Format is {script_basename : [list_of_cml_args]}.
+        archive_processes = {
+                'wcsmatching': [f'{obsdate}']
+                            }
 
-    # Signal to peers that this telescope has completed its first-pass processing.
-    # This is the sentinel the other telescopes wait on before running cross-telescope stages.
-    (ARCHIVE_PATH / hyphonateDate(obsdate) / 'done.txt').touch()
+        archive_runtime = processArchive(obsdate, repro=repro, new_stop=True, **archive_processes)
+        tot_runtime += archive_runtime
+
+        # Signal to peers that this telescope has completed its first-pass processing.
+        # This is the sentinel the other telescopes wait on before running cross-telescope stages.
+        (ARCHIVE_PATH / hyphonateDate(obsdate) / 'done.txt').touch()
+
+    if not run_post:
+        return
 
 ##############################
 ## Split-Responsibility Processing
@@ -697,7 +712,12 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
         # dictionary. Format is {script_basename : [list_of_cml_args]}.
         GREEN1_processes =  {
                 'simultaneous_occults': [f'{obsdate}'],
-                'colibri_secondary': [f'-d {slashDate(obsdate)}']
+                # -b explicit so colibri_secondary doesn't fall back to its
+                # hardcoded 'd:' default; BASE_PATH is sim- or real-mode aware.
+                # Flags and values are separate list entries — combining them
+                # ("-b /path") leaks the space into the value.
+                'colibri_secondary': ['-d', slashDate(obsdate),
+                                      '-b', str(BASE_PATH)]
                             }
         
         GREEN1_runtime = processArchive(obsdate, repro=repro, new_stop=True, **GREEN1_processes)
@@ -738,10 +758,12 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
 
     # Check for a stop file
     gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
-    if gat_stop.exists():
+    if gat_stop.exists() and not repro:
         print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
 
     else:
+        if gat_stop.exists() and repro:
+            gat_stop.unlink()
         gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
         print(f"Waiting for the gat_file for {obsdate}...")
         if not wait_for_sentinel(gat_file):
@@ -809,8 +831,11 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[]):
         tot_runtime += end_runtime
 
         # Send status email
+        _pdf_out_env = os.environ.get('COLIBRI_PDF_OUTPUT')
+        pdf_out = Path(_pdf_out_env) if _pdf_out_env else \
+                  (Path.cwd() / 'pipeline_output') if ENVIRONMENT == ENV_SIM else None
         sendStatusEmail(obsdate, DATA_PATH / obsdate, repro=repro, new_stop=True,
-                        errors=err.errors, notes=[])
+                        errors=err.errors, notes=[], output_dir=pdf_out)
 
 
 #----------------------------------main---------------------------------------#
@@ -858,6 +883,11 @@ if __name__ == '__main__':
     arg_parser.add_argument('--telescope', choices=list(TELESCOPE_NAMES),
                             default=TELESCOPE,
                             help='Telescope identity for local/peer path mapping.')
+    arg_parser.add_argument('--phase', choices=['base', 'post', 'full'], default='full',
+                            help='Which slice of the pipeline to run. Used by the single-machine sim driver.')
+    arg_parser.add_argument('--dry-email', action='store_true',
+                            help='Force email_timeline.py to run in --dry mode (generate PDF, do not send). '
+                                 'Useful for real-mode reprocessing without spamming the inbox.')
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
 
@@ -871,7 +901,10 @@ if __name__ == '__main__':
     # Apply path profile for this run
     ENVIRONMENT = cml_args.env
     TELESCOPE = cml_args.telescope
+    DRY_EMAIL = cml_args.dry_email
     configure_paths(ENVIRONMENT, TELESCOPE)
+    if DRY_EMAIL and ENVIRONMENT == ENV_REAL:
+        print("NOTE: --dry-email set; email_timeline.py will generate the PDF but not send.")
 
     # Print resolved runtime configuration for quick verification.
     print("\n## Runtime configuration ##")
@@ -937,7 +970,7 @@ if __name__ == '__main__':
 
     # Process each date specified
     for obsdate in obs_dates:
-        ColibriProcesses(obsdate, repro=repro, sigma_threshold=sigma_threshold)
+        ColibriProcesses(obsdate, repro=repro, sigma_threshold=sigma_threshold, phase=cml_args.phase)
 
 
 ##############################
