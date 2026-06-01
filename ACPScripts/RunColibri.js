@@ -508,7 +508,7 @@ function domeOpen()
         case 1:
         Console.PrintLine("--> Dome shutter is closed.");
         Dome.OpenShutter();
-        Util.WaitForMilliseconds(2000);
+        Util.WaitForMilliseconds(4000);
 
         while (Dome.ShutterStatus == 2)
         {
@@ -518,7 +518,7 @@ function domeOpen()
 
         if (Dome.ShutterStatus == 0)
         {
-            Console.PrintLine("--> Dome shutter is open...");
+            Console.PrintLine("--> Dome shutter is opening...");
         }
         else
             Console.PrintLine("--> Dome is NOT open.");
@@ -1010,7 +1010,7 @@ function adjustPointing(target_ra, target_dec) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
     var MAX_ITERATIONS = 10;
-    var LAMBDA = 1.0;               // uniform damping, applied every iteration
+    var LAMBDA = 0.9;               // uniform damping, applied every iteration
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
 
