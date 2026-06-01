@@ -508,7 +508,7 @@ function domeOpen()
         case 1:
         Console.PrintLine("--> Dome shutter is closed.");
         Dome.OpenShutter();
-        Util.WaitForMilliseconds(4000);
+        Util.WaitForMilliseconds(2000);
 
         while (Dome.ShutterStatus == 2)
         {
@@ -527,7 +527,7 @@ function domeOpen()
         case 2:
         while (Dome.ShutterStatus == 2)
         {
-            Console.PrintLine("*** Dome shutter is open...");
+            Console.PrintLine("*** Dome shutter is opening...");
             Util.WaitForMilliseconds(2000);
         }
         Console.PrintLine("--> Dome shutter is opened...");
