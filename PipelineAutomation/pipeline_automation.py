@@ -195,6 +195,10 @@ TELESCOPE = get_telescope_name()
 ENVIRONMENT = DEFAULT_ENV
 configure_paths(ENVIRONMENT, TELESCOPE)
 
+# Set to True via --dry-email to force email_timeline.py into --dry mode
+# regardless of ENVIRONMENT (useful for real-mode reprocessing).
+DRY_EMAIL = False
+
 # Misc variables
 TMP_SUFFIX = ['_wcs.fits', '_wcs.axy', '_wcs.corr', '_wcs.match', '_wcs.rdls',
               '_wcs.solved', '_wcs.wcs', '_wcs-indx.xyls', '_corr.axy',
@@ -563,7 +567,7 @@ def sendStatusEmail(obsdate, stopfile_dir, repro=False, new_stop=True,
 
     # Define the command-line arguments
     script_args = [str(obsdate), '--errors', *errors, '--notes', *notes]
-    if ENVIRONMENT == ENV_SIM:
+    if ENVIRONMENT == ENV_SIM or DRY_EMAIL:
         script_args.append('--dry')
     if output_dir is not None:
         script_args += ['--output-dir', str(output_dir)]
@@ -653,8 +657,8 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], ph
         raw_processes = {
                 'colibri_main_py3': [COLIBRI_MAIN_BASE_ARG, slashDate(obsdate), f'-s {sigma_threshold}'],
                 'coordsfinder': [f'-d {slashDate(obsdate)}'],
-                'image_stats_dark': [f'-d {slashDate(obsdate)}'],
-                'sensitivity': [f'-d {slashDate(obsdate)}']
+                'image_stats_dark': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)],
+                'sensitivity': ['-d', slashDate(obsdate), '-b', str(BASE_PATH)]
                         }
 
         raw_runtime = processRawData(obsdate, repro=repro, new_stop=True, **raw_processes)
@@ -754,10 +758,12 @@ def ColibriProcesses(obsdate, repro=False, sigma_threshold=4, tot_runtime=[], ph
 
     # Check for a stop file
     gat_stop = DATA_PATH / obsdate / 'generate_specific_lightcurve.txt'
-    if gat_stop.exists():
+    if gat_stop.exists() and not repro:
         print(f"WARNING: generate_specific_lightcurve already preformed. Skipping...")
 
     else:
+        if gat_stop.exists() and repro:
+            gat_stop.unlink()
         gat_file = ARCHIVE_PATH / hyphonateDate(obsdate) / 'generate_artificial.txt'
         print(f"Waiting for the gat_file for {obsdate}...")
         if not wait_for_sentinel(gat_file):
@@ -879,6 +885,9 @@ if __name__ == '__main__':
                             help='Telescope identity for local/peer path mapping.')
     arg_parser.add_argument('--phase', choices=['base', 'post', 'full'], default='full',
                             help='Which slice of the pipeline to run. Used by the single-machine sim driver.')
+    arg_parser.add_argument('--dry-email', action='store_true',
+                            help='Force email_timeline.py to run in --dry mode (generate PDF, do not send). '
+                                 'Useful for real-mode reprocessing without spamming the inbox.')
     #arg_parser.add_argument('-l', '--nolog', help='Print stderr only to screen, instead of to log.', action="store_true")
 
 
@@ -892,7 +901,10 @@ if __name__ == '__main__':
     # Apply path profile for this run
     ENVIRONMENT = cml_args.env
     TELESCOPE = cml_args.telescope
+    DRY_EMAIL = cml_args.dry_email
     configure_paths(ENVIRONMENT, TELESCOPE)
+    if DRY_EMAIL and ENVIRONMENT == ENV_REAL:
+        print("NOTE: --dry-email set; email_timeline.py will generate the PDF but not send.")
 
     # Print resolved runtime configuration for quick verification.
     print("\n## Runtime configuration ##")
