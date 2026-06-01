@@ -1,0 +1,5 @@
+# Colibri scheduler runtime dependencies (Python >= 3.9)
+# The package uses `from __future__ import annotations` and modern typing.
+numpy>=1.24
+astropy>=5.3   # get_body('moon', ...), GeocentricTrueEcliptic, AltAz, FK5, Time
+h5py>=3.8      # temporal-SNR noise model HDF5 loader (noise_model.py)
