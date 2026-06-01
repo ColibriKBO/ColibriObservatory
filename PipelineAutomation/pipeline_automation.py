@@ -41,7 +41,7 @@ from preparedata import is_dir_too_small
 # Environment defaults
 ENV_SIM = 'sim'
 ENV_REAL = 'real'
-DEFAULT_ENV = os.environ.get('COLIBRI_ENV', ENV_SIM).lower()
+DEFAULT_ENV = os.environ.get('COLIBRI_ENV', ENV_REAL).lower()
 
 # Telescope definitions
 TELESCOPE_NAMES = ('REDBIRD', 'GREENBIRD', 'BLUEBIRD')
