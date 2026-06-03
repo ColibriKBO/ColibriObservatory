@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import numba as nb
 import pyqtgraph as pg
+#pg.setConfigOptions(imageAxisOrder='row-major')
 
 import imageio
 import scipy.optimize as opt
@@ -11,10 +12,15 @@ import scipy.ndimage.filters as filters
 
 import matplotlib.pyplot as plt
 
-from alpaca.telescope import *
-from alpaca.camera import *
-from alpaca.focuser import *
-from alpaca.exceptions import *
+from pathlib import Path
+import win32com.client
+import pythoncom
+from astropy.io import fits
+
+#from alpaca.telescope import *
+#from alpaca.camera import *
+#from alpaca.focuser import *
+#from alpaca.exceptions import *
 
 
 #################### PYQT5 LIBRARY/PACKAGE IMPORTS ####################
@@ -30,102 +36,171 @@ class FocusThread(QtCore.QThread):
 	updatePlot = QtCore.pyqtSignal(float,float,float)
 
 	def __init__(self,parent=None):
-		super(FocusThread,self).__init__(parent)
-		self.threadactive = True
+		# MaxIM / FITS capture settings
+		self.exposure = 0.1
+		self.filter_number = 0
+		self.light_frame = True
+		self.temp_fits_path = r"D:\tmp\pyfocus_latest.fit"
+		self.maxim_camera = None
 
 		Zoom = 5
 		x = 0
 		y = 0
 		sizex = 50
 		sizey = 50
+		self.bin_x = 2
+		self.bin_y = 2
+		
+		super(FocusThread,self).__init__(parent)
+		self.threadactive = True
 
 	@QtCore.pyqtSlot()
 	def run(self):
-		sigmax = []
-		sigmay = []
-		sigmaav = []
+		"""
+		Main focus-monitoring loop.
 
-		while self.threadactive:
-			C.StartX = 0
-			C.StartY = 0
-			C.NumX = 150
-			C.NumY = 150
-			exposure = 1.0
+		This runs in a background Qt thread. Each loop captures one FITS image
+		through MaxIM DL, displays it in the GUI, detects star-like peaks,
+		fits Gaussian PSFs to valid stars, and sends the average fitted sigma
+		values to the live plot.
+		"""
 
-			C.StartExposure(exposure, True)
-			while not C.ImageReady:
-				time.sleep(0.1)
-				# print(f'{C.PercentCompleted}% complete')
-			# print('finished')
+		pythoncom.CoInitialize()
 
-			img = C.ImageArray
-			imginfo = C.ImageArrayInfo
-			if imginfo.ImageElementType == ImageArrayElementTypes.Int32:
-				if C.MaxADU <= 65535:
-					imgDataType = np.uint16 # Required for BZERO & BSCALE to be written
-				else:
-					imgDataType = np.int32
-			elif imginfo.ImageElementType == ImageArrayElementTypes.Double:
-				imgDataType = np.float64
-			#
-			# Make a numpy array of he correct shape for astropy.io.fits
-			#
-			if imginfo.Rank == 2:
-				nda = np.array(img, dtype=imgDataType).transpose()
-			else:
-				nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
+		try:
+			while self.threadactive:
+				try:
+					nda = self.captureMaxIMFits()
 
-			self.updateFocusFrame.emit(nda)
+					if nda is None:
+						continue
 
-			global_mean = np.mean(nda)
-			global_stddev = np.std(nda)
-			# print('Image mean = %s +/- %s' % (global_mean, global_stddev))
-			self.newtxt = 'Image mean = ' + str(global_mean) + ' +/- ' + str(global_stddev)
-			
-			data = nda.astype(np.float32)
+				except Exception as e:
+					print(f"ERROR capturing MaxIM FITS image: {str(e)}")
+					time.sleep(1.0)
+					continue
 
-			# Apply a mean filter
-			fx = 2
-			fy = 2
-			data = ndimage.filters.convolve(data, weights=np.full((fx,fy), 1.0/4))
-			
-			# Locate local maxima
-			neighborhood_size = 25
-			intensity_threshold = 30
-			data_max = filters.maximum_filter(data, neighborhood_size)
-			# print(data_max)
-			maxima = (data == data_max)
-			data_min = filters.minimum_filter(data, neighborhood_size+10)
-			diff = ((data_max - data_min) > intensity_threshold)
-			maxima[diff == 0] = 0
+				self.updateFocusFrame.emit(nda)
 
-			# Apply a mask
-			border = 5
-			border_mask = np.ones_like(maxima)*255
-			border_mask[:border,:] = 0
-			border_mask[-border:,:] = 0
-			border_mask[:,:border] = 0
-			border_mask[:,-border:] = 0
+				global_mean = np.mean(nda)
+				global_stddev = np.std(nda)
+				self.newtxt = 'Image mean = ' + str(global_mean) + ' +/- ' + str(global_stddev)
 
-			# Find and label the maxima
-			labeled, num_objects = ndimage.label(maxima)
+				print(self.newtxt)
 
-			# Find centres of mass
-			xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects+1)))
+				data = nda.astype(np.float32)
 
-			# Unpack coordinates
-			y,x = np.hsplit(xy,2)
+				# Apply a small mean filter to reduce pixel-scale noise.
+				fx = 2
+				fy = 2
+				data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
 
-			x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(nda, global_mean, x, y)
+				# Locate local maxima that may correspond to stars.
+				neighborhood_size = 25
+				intensity_threshold = 30
 
-			sigmax = np.mean(sigma_x_fitted)
-			sigmay = np.mean(sigma_y_fitted)
-			sigmaav = (np.mean(sigma_x_fitted) + np.mean(sigma_y_fitted))/2
+				data_max = ndimage.maximum_filter(data, neighborhood_size)
+				maxima = (data == data_max)
 
-			self.updatePlot.emit(sigmax, sigmay, sigmaav)
+				data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
+				diff = ((data_max - data_min) > intensity_threshold)
+				maxima[diff == 0] = 0
+
+				# Mask out the edge of the image to avoid fitting partial stars/noisy borders.
+				border = 5
+				maxima[:border, :] = 0
+				maxima[-border:, :] = 0
+				maxima[:, :border] = 0
+				maxima[:, -border:] = 0
+
+				# Find and label the maxima.
+				labeled, num_objects = ndimage.label(maxima)
+
+				if num_objects == 0:
+					print("No stars found.")
+					continue
+
+				# Find centres of mass for each detected peak.
+				xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects + 1)))
+
+				if xy.size == 0:
+					print("No star centers found.")
+					continue
+
+				# Unpack coordinates.
+				y, x = np.hsplit(xy, 2)
+
+				x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
+					nda, global_mean, x, y
+				)
+
+				print(f"Detected peaks: {num_objects}")
+				print(f"Valid PSF fits: {len(sigma_x_fitted)}")
+
+				if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
+					print("No valid PSF fits.")
+					continue
+
+				sigmax = np.mean(sigma_x_fitted)
+				sigmay = np.mean(sigma_y_fitted)
+				sigmaav = (sigmax + sigmay) / 2.0
+
+				print(f"Sigma X: {sigmax:.3f}, Sigma Y: {sigmay:.3f}, Average: {sigmaav:.3f}")
+
+				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
+
+		finally:
+			self.maxim_camera = None
+			pythoncom.CoUninitialize()
 
 			# for i in range(len(x2)):
 			# 	print('amp: %s  sigma_x: %s   sigma_y: %s  Av: %s' % (amplitude[i], sigma_x_fitted[i], sigma_y_fitted[i], (sigma_y_fitted[i]+sigma_x_fitted[i])/2))
+	
+	def captureMaxIMFits(self):
+		"""
+		Capture one FITS image through MaxIM DL and return it as a NumPy array.
+		"""
+
+		output_path = Path(self.temp_fits_path)
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+
+		# Connect to MaxIM only once
+		if self.maxim_camera is None:
+			self.maxim_camera = win32com.client.Dispatch("MaxIm.CCDCamera")
+			self.maxim_camera.LinkEnabled = True
+
+			if not self.maxim_camera.LinkEnabled:
+				raise RuntimeError("Could not connect to camera through MaxIM DL.")
+
+		cam = self.maxim_camera
+		cam.BinX = int(self.bin_x)
+		cam.BinY = int(self.bin_y)
+
+		print(f"Taking {self.exposure:.2f} s MaxIM exposure at {self.bin_x}x{self.bin_y} binning...")
+
+		# Some MaxIM versions accept filter number as a third argument,
+		# some only need exposure and light/dark flag.
+		try:
+			cam.Expose(float(self.exposure), int(self.light_frame), int(self.filter_number))
+		except TypeError:
+			cam.Expose(float(self.exposure), int(self.light_frame))
+
+		while not cam.ImageReady:
+			if not self.threadactive:
+				return None
+			time.sleep(0.1)
+
+		cam.SaveImage(str(output_path))
+
+		image = fits.getdata(str(output_path))
+
+		# If FITS has extra dimensions, keep first image plane
+		while image.ndim > 2:
+			image = image[0]
+
+		image = np.asarray(image, dtype=np.float32)
+
+		return image
 
 	def stop(self):
 		self.threadactive = False
@@ -330,15 +405,39 @@ class Ui(QtWidgets.QMainWindow):
 		# self.JogEast_button.clicked.connect(self.jogScope)
 		# self.JogWest_button.clicked.connect(self.jogScope)
 
-		windowWidth = 60
-		self.Sx = list(range(windowWidth))
-		self.Sy = [1 for i in range(windowWidth)]
-		self.Syy = [1 for i in range(windowWidth)]
-		self.Sav = [1 for i in range(windowWidth)]
+		self.max_plot_points = 60
+		self.frame_number = 0
 
-		self.x_line = self.Plot.plot(self.Sx, self.Sy, pen = pg.mkPen(color='r'))
-		self.y_line = self.Plot.plot(self.Sx, self.Syy, pen = pg.mkPen(color='g'))
-		self.av_line = self.Plot.plot(self.Sx, self.Sav, pen = pg.mkPen(color='b'))
+		self.Sx = []
+		self.Sy = []
+		self.Syy = []
+		self.Sav = []
+
+		# Configure the live focus metric plot
+		labelStyle = {'color': '#FFFFFF', 'font-size': '9pt'}
+
+		self.Plot.setLabel('left', 'PSF width', units='px', **labelStyle)
+		self.Plot.setLabel('bottom', 'Frame number', **labelStyle)
+		self.Plot.showGrid(x=True, y=True, alpha=0.3)
+		self.Plot.addLegend(offset=(5, 5))
+
+		self.x_line = self.Plot.plot(
+			self.Sx, self.Sy,
+			pen=pg.mkPen(color='r'),
+			name='Sigma X'
+		)
+
+		self.y_line = self.Plot.plot(
+			self.Sx, self.Syy,
+			pen=pg.mkPen(color='g'),
+			name='Sigma Y'
+		)
+
+		self.av_line = self.Plot.plot(
+			self.Sx, self.Sav,
+			pen=pg.mkPen(color='b'),
+			name='Average'
+		)
 
 		self.thread = FocusThread(self)
 
@@ -364,31 +463,31 @@ class Ui(QtWidgets.QMainWindow):
 
 	def updatePlot(self, sigmax, sigmay, average):
 
-		self.Sx = self.Sx[1:]
-		self.Sx.append(self.Sx[-1] + 1)
+		self.frame_number += 1
 
-		self.Sy = self.Sy[1:]
+		self.Sx.append(self.frame_number)
 		self.Sy.append(sigmax)
-
-		self.Syy = self.Syy[1:]
 		self.Syy.append(sigmay)
-
-		self.Sav = self.Sav[1:]
 		self.Sav.append(average)
+
+		# Keep only the most recent N points.
+		if len(self.Sx) > self.max_plot_points:
+			self.Sx = self.Sx[-self.max_plot_points:]
+			self.Sy = self.Sy[-self.max_plot_points:]
+			self.Syy = self.Syy[-self.max_plot_points:]
+			self.Sav = self.Sav[-self.max_plot_points:]
 
 		self.x_line.setData(self.Sx, self.Sy)
 		self.y_line.setData(self.Sx, self.Syy)
 		self.av_line.setData(self.Sx, self.Sav)
 
+		self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
+		self.Plot.enableAutoRange(axis='y', enable=True)
+
 	def connectDevices(self):
 		try:
-			T.Connected = True
-			print('Connected to telescope...')
-			C.Connected = True
-			print('Connected to camera...')
-			# print(C.CanFastReadout)
-			# C.FastReadout = True
-			# print(C.FastReadout)
+			print('Using MaxIM DL for image capture...')
+			print('Camera connection will be handled by MaxIM in FocusThread.')
 		except Exception as e:
 			print(f'ERROR:  {str(e)}')
 
@@ -460,10 +559,64 @@ class Ui(QtWidgets.QMainWindow):
 	# 	return nda
 
 	def updateFocusFrame(self, image):
+		"""
+		Update the live focus image displayed in the GUI.
 
-		self.focus_imagewidget.setImage(image, levels=(0,100))
-		print(np.min(image))
-		print(np.max(image))
+		This function only changes the display version of the image. The focus
+		measurement still uses the original raw image in the focus thread.
+
+		The image is block-averaged for display so that a large FITS frame is not
+		squeezed directly into the small GUI window, which can create ugly
+		row/column aliasing artifacts.
+		"""
+
+		img = np.asarray(image, dtype=np.float32)
+
+		# Make a display-only copy.
+		display_img = img.copy()
+
+		# Downsample for display only.
+		# This prevents high-frequency row/column structure from aliasing into
+		# thick horizontal/vertical stripes in the small PyFocus display window.
+		max_display_size = 300
+		height, width = display_img.shape
+
+		block = max(1, int(max(height, width) / max_display_size))
+
+		if block > 1:
+			new_height = height // block
+			new_width = width // block
+
+			display_img = display_img[:new_height * block, :new_width * block]
+			display_img = display_img.reshape(new_height, block, new_width, block).mean(axis=(1, 3))
+
+		finite = display_img[np.isfinite(display_img)]
+
+		if finite.size == 0:
+			self.focus_imagewidget.setImage(display_img)
+			return
+
+		median = np.nanmedian(finite)
+		std = np.nanstd(finite)
+
+		# Display stretch only.
+		low = median - 1.0 * std
+		high = median + 8.0 * std
+
+		if high <= low:
+			high = low + 1
+
+		self.focus_imagewidget.setImage(
+			display_img,
+			levels=(low, high),
+			autoLevels=False,
+			autoRange=True
+		)
+
+		print("Raw Min:", np.nanmin(img))
+		print("Raw Max:", np.nanmax(img))
+		print("Display shape:", display_img.shape)
+		print("Display low/high:", low, high)
 		# self.focus_imagewidget.setImage(image)
 		# self.focus_imagewidget.autoRange()
 
@@ -511,9 +664,9 @@ def main():
 	window = Ui()                          # create instance of class
 	app.exec_()                            # start the application
 
-T = Telescope('localhost:11111', 0) # Local Omni Simulator
-C = Camera('localhost:11111', 0)
-F = Focuser('localhost:11111', 0)
+#T = Telescope('localhost:11111', 0) # Local Omni Simulator
+#C = Camera('localhost:11111', 0)
+#F = Focuser('localhost:11111', 0)
 
 if __name__ == '__main__':
 	arg_parser = argparse.ArgumentParser(description="""
