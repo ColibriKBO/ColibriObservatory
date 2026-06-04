@@ -30,6 +30,58 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+class ASCOMFocuserController:
+	def __init__(self, driver_id=None):
+		self.driver_id = driver_id
+		self.focuser = None
+
+	def connect(self):
+		if not self.driver_id:
+			chooser = win32com.client.Dispatch("ASCOM.Utilities.Chooser")
+			chooser.DeviceType = "Focuser"
+			self.driver_id = chooser.Choose(None)
+
+		if not self.driver_id:
+			raise RuntimeError("No ASCOM focuser driver selected.")
+
+		self.focuser = win32com.client.Dispatch(self.driver_id)
+		self.focuser.Connected = True
+
+		if not self.focuser.Connected:
+			raise RuntimeError("Could not connect to ASCOM focuser.")
+
+		print(f"Connected to focuser: {self.driver_id}")
+		print(f"Current focuser position: {self.position}")
+
+	def disconnect(self):
+		if self.focuser is not None:
+			try:
+				self.focuser.Connected = False
+			except Exception:
+				pass
+
+	def is_connected(self):
+		return self.focuser is not None and self.focuser.Connected
+
+	@property
+	def position(self):
+		return int(self.focuser.Position)
+
+	def move_to(self, target_position, keep_running_callback=None):
+		target_position = int(target_position)
+
+		print(f"Moving focuser to {target_position}")
+		self.focuser.Move(target_position)
+
+		while self.focuser.IsMoving:
+			if keep_running_callback is not None and not keep_running_callback():
+				print("Autofocus cancelled while focuser was moving.")
+				break
+
+			time.sleep(0.25)
+
+		print(f"Focuser position: {self.position}")
+
 class FocusThread(QtCore.QThread):
 	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
 	updateFocusFrame = QtCore.pyqtSignal(object)
@@ -66,235 +118,238 @@ class FocusThread(QtCore.QThread):
 		self.roundness_threshold = float(settings.get("roundness_threshold", 0.5))
 		self.max_feature_ratio = float(settings.get("max_feature_ratio", 0.8))
 
+		# Autofocus settings
+		self.af_step_size = int(settings.get("af_step_size", 25))
+		self.af_steps_each_side = int(settings.get("af_steps_each_side", 3))
+		self.af_frames_per_position = int(settings.get("af_frames_per_position", 3))
+		self.af_settle_time = float(settings.get("af_settle_time", 1.0))
+		self.focuser_driver_id = settings.get("focuser_driver_id", None)
+
 	@QtCore.pyqtSlot()
 	def run(self):
 		"""
-		Main focus-monitoring loop.
+		Main focus thread entry point.
 
-		This runs in a background Qt thread. Each loop captures one FITS image
-		through MaxIM DL, displays it in the GUI, detects star-like peaks,
-		fits Gaussian PSFs to valid stars, and sends the average fitted sigma
-		values to the live plot.
+		Depending on capture_mode, this either:
+		- takes one focus measurement,
+		- streams focus measurements continuously,
+		- or runs the autofocus sweep routine.
 		"""
 
 		pythoncom.CoInitialize()
 
 		try:
-			while self.threadactive:
-				try:
-					nda = self.captureMaxIMFits()
+			if self.capture_mode == "Autofocus":
+				self.runAutofocus()
 
-					if nda is None:
-						continue
+			elif self.capture_mode == "Single Image":
+				self.measureFocusMetric()
+				self.threadactive = False
 
-				except Exception as e:
-					print(f"ERROR capturing MaxIM FITS image: {str(e)}")
-					time.sleep(1.0)
-					continue
-
-				self.updateFocusFrame.emit(nda)
-
-				global_mean = np.mean(nda)
-				global_stddev = np.std(nda)
-				self.newtxt = 'Image mean = ' + str(global_mean) + ' +/- ' + str(global_stddev)
-
-				print(self.newtxt)
-
-				basic_status = {
-					"state": "Image captured. Searching for stars...",
-					"mean": global_mean,
-					"std": global_stddev,
-					"min": np.nanmin(nda),
-					"max": np.nanmax(nda),
-					"detected_peaks": 0,
-					"valid_fits": 0,
-					"sigma_x": None,
-					"sigma_y": None,
-					"sigma_avg": None,
-					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}",
-					"capture_mode": self.capture_mode,
-				}
-
-				self.updateStatus.emit(basic_status)
-
-				data = nda.astype(np.float32)
-
-				# Apply a small mean filter to reduce pixel-scale noise.
-				fx = 2
-				fy = 2
-				data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
-
-				# Locate local maxima that may correspond to stars.
-				#neighborhood_size = 25
-				#intensity_threshold = 30
-				neighborhood_size = self.neighborhood_size
-				intensity_threshold = self.intensity_threshold
-
-				data_max = ndimage.maximum_filter(data, neighborhood_size)
-				maxima = (data == data_max)
-
-				data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
-				diff = ((data_max - data_min) > intensity_threshold)
-				maxima[diff == 0] = 0
-
-				# Mask out the edge of the image to avoid fitting partial stars/noisy borders.
-				border = 5
-				maxima[:border, :] = 0
-				maxima[-border:, :] = 0
-				maxima[:, :border] = 0
-				maxima[:, -border:] = 0
-
-				# Find and label the maxima.
-				labeled, num_objects = ndimage.label(maxima)
-
-				if num_objects == 0:
-					print("No stars found.")
-
-					no_star_status = basic_status.copy()
-					no_star_status["state"] = "Image captured, but no stars were found."
-					self.updateStatus.emit(no_star_status)
-
-					if self.capture_mode == "Single Image":
-						self.threadactive = False
-						break
-
-					continue
-
-				# Find centres of mass for each detected peak.
-				xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects + 1)))
-
-				if xy.size == 0:
-					print("No star centers found.")
-
-					no_center_status = basic_status.copy()
-					no_center_status["state"] = "Image captured, but no star centers were found."
-					no_center_status["detected_peaks"] = num_objects
-					self.updateStatus.emit(no_center_status)
-
-					if self.capture_mode == "Single Image":
-						self.threadactive = False
-						break
-
-					continue
-
-				# Unpack coordinates.
-				y, x = np.hsplit(xy, 2)
-
-				x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
-					nda, global_mean, x, y
-				)
-
-				print(f"Detected peaks: {num_objects}")
-				print(f"Valid PSF fits: {len(sigma_x_fitted)}")
-
-				if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
-					print("No valid PSF fits.")
-
-					no_fit_status = basic_status.copy()
-					no_fit_status["state"] = "Stars detected, but no valid PSF fits."
-					no_fit_status["detected_peaks"] = num_objects
-					no_fit_status["valid_fits"] = 0
-					self.updateStatus.emit(no_fit_status)
-
-					if self.capture_mode == "Single Image":
-						self.threadactive = False
-						break
-
-					continue
-
-				sigmax = np.mean(sigma_x_fitted)
-				sigmay = np.mean(sigma_y_fitted)
-				sigmaav = (sigmax + sigmay) / 2.0
-
-				status = {
-					"state": "Valid focus measurement.",
-					"mean": global_mean,
-					"std": global_stddev,
-					"min": np.nanmin(nda),
-					"max": np.nanmax(nda),
-					"detected_peaks": num_objects,
-					"valid_fits": len(sigma_x_fitted),
-					"sigma_x": sigmax,
-					"sigma_y": sigmay,
-					"sigma_avg": sigmaav,
-					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}",
-					"capture_mode": self.capture_mode,
-				}
-
-				self.updateStatus.emit(status)
-				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
-
-				if self.capture_mode == "Single Image":
-					print("Single Image mode complete. Stopping capture loop.")
-					self.threadactive = False
-					break
-
-				continue
-
-				if xy.size == 0:
-					print("No star centers found.")
-
-				if self.capture_mode == "Single Image":
-					self.threadactive = False
-					break
-
-				continue
-
-				# Unpack coordinates.
-				y, x = np.hsplit(xy, 2)
-
-				x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
-					nda, global_mean, x, y
-				)
-
-				print(f"Detected peaks: {num_objects}")
-				print(f"Valid PSF fits: {len(sigma_x_fitted)}")
-
-				if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
-					print("No valid PSF fits.")
-
-				if self.capture_mode == "Single Image":
-					self.threadactive = False
-					break
-
-				continue
-
-				sigmax = np.mean(sigma_x_fitted)
-				sigmay = np.mean(sigma_y_fitted)
-				sigmaav = (sigmax + sigmay) / 2.0
-
-				status = {
-					"state": "Valid focus measurement.",
-					"mean": global_mean,
-					"std": global_stddev,
-					"min": np.nanmin(nda),
-					"max": np.nanmax(nda),
-					"detected_peaks": num_objects,
-					"valid_fits": len(sigma_x_fitted),
-					"sigma_x": sigmax,
-					"sigma_y": sigmay,
-					"sigma_avg": sigmaav,
-					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}",
-					"capture_mode": self.capture_mode,
-				}
-
-				self.updateStatus.emit(status)
-				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
-
-				if self.capture_mode == "Single Image":
-					print("Single Image mode complete. Stopping capture loop.")
-					self.threadactive = False
-					break
+			else:
+				# Stream mode
+				while self.threadactive:
+					self.measureFocusMetric()
 
 		finally:
 			self.maxim_camera = None
 			pythoncom.CoUninitialize()
 
-			# for i in range(len(x2)):
-			# 	print('amp: %s  sigma_x: %s   sigma_y: %s  Av: %s' % (amplitude[i], sigma_x_fitted[i], sigma_y_fitted[i], (sigma_y_fitted[i]+sigma_x_fitted[i])/2))
+	def runAutofocus(self):
+		"""
+		Temporary autofocus placeholder.
+
+		This confirms that Autofocus mode is wired into the program before
+		we add focuser movement and sweep logic.
+		"""
+
+		print("Autofocus mode selected, but autofocus sweep is not implemented yet.")
+
+		status = {
+			"state": "Autofocus mode selected. Sweep not implemented yet.",
+			"mean": 0,
+			"std": 0,
+			"min": 0,
+			"max": 0,
+			"detected_peaks": 0,
+			"valid_fits": 0,
+			"sigma_x": None,
+			"sigma_y": None,
+			"sigma_avg": None,
+			"exposure": self.exposure,
+			"binning": f"{self.bin_x}x{self.bin_y}",
+			"capture_mode": self.capture_mode,
+		}
+
+		self.updateStatus.emit(status)
+
+	def measureFocusMetric(self):
+		"""
+		Capture one image, display it, detect stars, fit PSFs, update the GUI,
+		and return a dictionary containing the focus metric.
+
+		Returns:
+			dict if a valid focus metric was measured.
+			None if the image was captured but no usable focus metric was found.
+		"""
+
+		try:
+			nda = self.captureMaxIMFits()
+
+			if nda is None:
+				return None
+
+		except Exception as e:
+			print(f"ERROR capturing MaxIM FITS image: {str(e)}")
+			time.sleep(1.0)
+			return None
+
+		# Display latest image in GUI
+		self.updateFocusFrame.emit(nda)
+
+		global_mean = np.mean(nda)
+		global_stddev = np.std(nda)
+
+		print(f"Image mean = {global_mean} +/- {global_stddev}")
+
+		basic_status = {
+			"state": "Image captured. Searching for stars...",
+			"mean": global_mean,
+			"std": global_stddev,
+			"min": np.nanmin(nda),
+			"max": np.nanmax(nda),
+			"detected_peaks": 0,
+			"valid_fits": 0,
+			"sigma_x": None,
+			"sigma_y": None,
+			"sigma_avg": None,
+			"exposure": self.exposure,
+			"binning": f"{self.bin_x}x{self.bin_y}",
+			"capture_mode": self.capture_mode,
+		}
+
+		self.updateStatus.emit(basic_status)
+
+		data = nda.astype(np.float32)
+
+		# Apply a small mean filter to reduce pixel-scale noise.
+		fx = 2
+		fy = 2
+		data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
+
+		# Locate local maxima that may correspond to stars.
+		neighborhood_size = self.neighborhood_size
+		intensity_threshold = self.intensity_threshold
+
+		data_max = ndimage.maximum_filter(data, neighborhood_size)
+		maxima = (data == data_max)
+
+		data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
+		diff = ((data_max - data_min) > intensity_threshold)
+		maxima[diff == 0] = 0
+
+		# Mask out image edges to avoid partial stars/noisy borders.
+		border = 5
+		maxima[:border, :] = 0
+		maxima[-border:, :] = 0
+		maxima[:, :border] = 0
+		maxima[:, -border:] = 0
+
+		# Find and label local maxima.
+		labeled, num_objects = ndimage.label(maxima)
+
+		if num_objects == 0:
+			print("No stars found.")
+
+			no_star_status = basic_status.copy()
+			no_star_status["state"] = "Image captured, but no stars were found."
+			self.updateStatus.emit(no_star_status)
+
+			return None
+
+		# Find centres of mass for each detected peak.
+		xy = np.array(ndimage.center_of_mass(data, labeled, range(1, num_objects + 1)))
+
+		if xy.size == 0:
+			print("No star centers found.")
+
+			no_center_status = basic_status.copy()
+			no_center_status["state"] = "Image captured, but no star centers were found."
+			no_center_status["detected_peaks"] = num_objects
+			self.updateStatus.emit(no_center_status)
+
+			return None
+
+		# Unpack coordinates.
+		y, x = np.hsplit(xy, 2)
+
+		# Limit PSF fitting to brightest N candidates to improve speed.
+		max_candidates = 30
+
+		if len(x) > max_candidates:
+			peak_values = []
+
+			for yy, xx in zip(y.flatten(), x.flatten()):
+				iy = int(round(yy))
+				ix = int(round(xx))
+
+				if 0 <= iy < nda.shape[0] and 0 <= ix < nda.shape[1]:
+					peak_values.append(nda[iy, ix])
+				else:
+					peak_values.append(0)
+
+			peak_values = np.array(peak_values)
+			best_indices = np.argsort(peak_values)[-max_candidates:]
+
+			x = x[best_indices]
+			y = y[best_indices]
+
+			print(f"Limited PSF fitting to {max_candidates} candidates.")
+
+		x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
+			nda, global_mean, x, y
+		)
+
+		print(f"Detected peaks: {num_objects}")
+		print(f"Valid PSF fits: {len(sigma_x_fitted)}")
+
+		if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
+			print("No valid PSF fits.")
+
+			no_fit_status = basic_status.copy()
+			no_fit_status["state"] = "Stars detected, but no valid PSF fits."
+			no_fit_status["detected_peaks"] = num_objects
+			no_fit_status["valid_fits"] = 0
+			self.updateStatus.emit(no_fit_status)
+
+			return None
+
+		# Use mean for now, matching your current behaviour.
+		# Later we can switch to median for more robustness.
+		sigmax = np.mean(sigma_x_fitted)
+		sigmay = np.mean(sigma_y_fitted)
+		sigmaav = (sigmax + sigmay) / 2.0
+
+		status = {
+			"state": "Valid focus measurement.",
+			"mean": global_mean,
+			"std": global_stddev,
+			"min": np.nanmin(nda),
+			"max": np.nanmax(nda),
+			"detected_peaks": num_objects,
+			"valid_fits": len(sigma_x_fitted),
+			"sigma_x": sigmax,
+			"sigma_y": sigmay,
+			"sigma_avg": sigmaav,
+			"exposure": self.exposure,
+			"binning": f"{self.bin_x}x{self.bin_y}",
+			"capture_mode": self.capture_mode,
+		}
+
+		self.updateStatus.emit(status)
+		self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
+
+		return status
 	
 	def captureMaxIMFits(self):
 		"""
@@ -643,12 +698,33 @@ class Ui(QtWidgets.QMainWindow):
 		settings_layout = QtWidgets.QFormLayout()
 
 		self.CaptureMode_combo = QtWidgets.QComboBox()
-		self.CaptureMode_combo.addItems(["Single Image", "Stream"])
+		self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
 
 		settings_layout.addRow("Capture mode:", self.CaptureMode_combo)
 		settings_layout.addRow("Exposure (s):", self.Exposure_spinbox)
 		settings_layout.addRow("Binning:", self.Binning_spinbox)
 		settings_layout.addRow("Display zoom:", self.Zoom_slider)
+		self.AFStep_spin = QtWidgets.QSpinBox()
+		self.AFStep_spin.setRange(1, 10000)
+		self.AFStep_spin.setValue(50)
+
+		self.AFStepsEachSide_spin = QtWidgets.QSpinBox()
+		self.AFStepsEachSide_spin.setRange(1, 10)
+		self.AFStepsEachSide_spin.setValue(3)
+
+		self.AFFramesPerPosition_spin = QtWidgets.QSpinBox()
+		self.AFFramesPerPosition_spin.setRange(1, 10)
+		self.AFFramesPerPosition_spin.setValue(3)
+
+		self.AFSettleTime_spin = QtWidgets.QDoubleSpinBox()
+		self.AFSettleTime_spin.setRange(0.0, 30.0)
+		self.AFSettleTime_spin.setDecimals(1)
+		self.AFSettleTime_spin.setValue(1.0)
+
+		settings_layout.addRow("AF step size:", self.AFStep_spin)
+		settings_layout.addRow("AF steps each side:", self.AFStepsEachSide_spin)
+		settings_layout.addRow("AF frames/position:", self.AFFramesPerPosition_spin)
+		settings_layout.addRow("AF settle time (s):", self.AFSettleTime_spin)
 
 		settings_group.setLayout(settings_layout)
 		right_column.addWidget(settings_group)
@@ -685,6 +761,11 @@ class Ui(QtWidgets.QMainWindow):
 			"intensity_threshold": 30,
 			"temp_fits_path": r"D:\tmp\pyfocus_latest.fit",
 			"light_frame": True,
+			"af_step_size": self.AFStep_spin.value(),
+			"af_steps_each_side": self.AFStepsEachSide_spin.value(),
+			"af_frames_per_position": self.AFFramesPerPosition_spin.value(),
+			"af_settle_time": self.AFSettleTime_spin.value(),
+			"focuser_driver_id": None,
 		}
 
 	def watchthread(self, worker):
