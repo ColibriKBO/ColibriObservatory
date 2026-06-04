@@ -39,9 +39,11 @@ class FocusThread(QtCore.QThread):
 	def __init__(self, parent=None, settings=None):
 		super(FocusThread,self).__init__(parent)
 		self.threadactive = True
-
+		
 		if settings is None:
 			settings = {}
+		
+		self.capture_mode = settings.get("capture_mode", "Stream")
 
 		# MaxIM / FITS capture settings
 		self.exposure = float(settings.get("exposure", 0.1))
@@ -98,6 +100,24 @@ class FocusThread(QtCore.QThread):
 
 				print(self.newtxt)
 
+				basic_status = {
+					"state": "Image captured. Searching for stars...",
+					"mean": global_mean,
+					"std": global_stddev,
+					"min": np.nanmin(nda),
+					"max": np.nanmax(nda),
+					"detected_peaks": 0,
+					"valid_fits": 0,
+					"sigma_x": None,
+					"sigma_y": None,
+					"sigma_avg": None,
+					"exposure": self.exposure,
+					"binning": f"{self.bin_x}x{self.bin_y}",
+					"capture_mode": self.capture_mode,
+				}
+
+				self.updateStatus.emit(basic_status)
+
 				data = nda.astype(np.float32)
 
 				# Apply a small mean filter to reduce pixel-scale noise.
@@ -130,6 +150,15 @@ class FocusThread(QtCore.QThread):
 
 				if num_objects == 0:
 					print("No stars found.")
+
+					no_star_status = basic_status.copy()
+					no_star_status["state"] = "Image captured, but no stars were found."
+					self.updateStatus.emit(no_star_status)
+
+					if self.capture_mode == "Single Image":
+						self.threadactive = False
+						break
+
 					continue
 
 				# Find centres of mass for each detected peak.
@@ -137,6 +166,16 @@ class FocusThread(QtCore.QThread):
 
 				if xy.size == 0:
 					print("No star centers found.")
+
+					no_center_status = basic_status.copy()
+					no_center_status["state"] = "Image captured, but no star centers were found."
+					no_center_status["detected_peaks"] = num_objects
+					self.updateStatus.emit(no_center_status)
+
+					if self.capture_mode == "Single Image":
+						self.threadactive = False
+						break
+
 					continue
 
 				# Unpack coordinates.
@@ -151,6 +190,17 @@ class FocusThread(QtCore.QThread):
 
 				if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
 					print("No valid PSF fits.")
+
+					no_fit_status = basic_status.copy()
+					no_fit_status["state"] = "Stars detected, but no valid PSF fits."
+					no_fit_status["detected_peaks"] = num_objects
+					no_fit_status["valid_fits"] = 0
+					self.updateStatus.emit(no_fit_status)
+
+					if self.capture_mode == "Single Image":
+						self.threadactive = False
+						break
+
 					continue
 
 				sigmax = np.mean(sigma_x_fitted)
@@ -158,6 +208,7 @@ class FocusThread(QtCore.QThread):
 				sigmaav = (sigmax + sigmay) / 2.0
 
 				status = {
+					"state": "Valid focus measurement.",
 					"mean": global_mean,
 					"std": global_stddev,
 					"min": np.nanmin(nda),
@@ -168,11 +219,75 @@ class FocusThread(QtCore.QThread):
 					"sigma_y": sigmay,
 					"sigma_avg": sigmaav,
 					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}"
+					"binning": f"{self.bin_x}x{self.bin_y}",
+					"capture_mode": self.capture_mode,
 				}
 
 				self.updateStatus.emit(status)
 				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
+
+				if self.capture_mode == "Single Image":
+					print("Single Image mode complete. Stopping capture loop.")
+					self.threadactive = False
+					break
+
+				continue
+
+				if xy.size == 0:
+					print("No star centers found.")
+
+				if self.capture_mode == "Single Image":
+					self.threadactive = False
+					break
+
+				continue
+
+				# Unpack coordinates.
+				y, x = np.hsplit(xy, 2)
+
+				x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
+					nda, global_mean, x, y
+				)
+
+				print(f"Detected peaks: {num_objects}")
+				print(f"Valid PSF fits: {len(sigma_x_fitted)}")
+
+				if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
+					print("No valid PSF fits.")
+
+				if self.capture_mode == "Single Image":
+					self.threadactive = False
+					break
+
+				continue
+
+				sigmax = np.mean(sigma_x_fitted)
+				sigmay = np.mean(sigma_y_fitted)
+				sigmaav = (sigmax + sigmay) / 2.0
+
+				status = {
+					"state": "Valid focus measurement.",
+					"mean": global_mean,
+					"std": global_stddev,
+					"min": np.nanmin(nda),
+					"max": np.nanmax(nda),
+					"detected_peaks": num_objects,
+					"valid_fits": len(sigma_x_fitted),
+					"sigma_x": sigmax,
+					"sigma_y": sigmay,
+					"sigma_avg": sigmaav,
+					"exposure": self.exposure,
+					"binning": f"{self.bin_x}x{self.bin_y}",
+					"capture_mode": self.capture_mode,
+				}
+
+				self.updateStatus.emit(status)
+				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
+
+				if self.capture_mode == "Single Image":
+					print("Single Image mode complete. Stopping capture loop.")
+					self.threadactive = False
+					break
 
 		finally:
 			self.maxim_camera = None
@@ -408,22 +523,56 @@ class Ui(QtWidgets.QMainWindow):
 		uic.loadUi('PyFocus.ui', self)                
 		self.title = "PyFocus Automated Focusing"
 
+		# Detach widgets loaded from PyFocus.ui before replacing the central widget.
+		# Otherwise setCentralWidget() may delete the old central widget and its children.
+		self.Plot.setParent(None)
+		self.Exposure_spinbox.setParent(None)
+		self.Binning_spinbox.setParent(None)
+		self.Zoom_slider.setParent(None)
+		self.Start_button.setParent(None)
+		self.Stop_button.setParent(None)
 
-		width = 320
-		height = 800
-		# setting  the fixed size of window
-		self.setFixedSize(width, height)
 
-		# display the GUI 
-		self.show()
+		# Make the GUI wider for a two-column layout.
+		self.setWindowTitle("PyFocus Automated Focusing")
+		self.resize(950, 750)
+		self.setMinimumSize(850, 650)
 
-		####### GUI Modifications
+		# Build a new two-column central layout.
+		central = QtWidgets.QWidget(self)
+		self.setCentralWidget(central)
+
+		main_layout = QtWidgets.QHBoxLayout(central)
+		main_layout.setContentsMargins(8, 8, 8, 8)
+		main_layout.setSpacing(8)
+
+		left_column = QtWidgets.QVBoxLayout()
+		right_column = QtWidgets.QVBoxLayout()
+
+		main_layout.addLayout(left_column, stretch=3)
+		main_layout.addLayout(right_column, stretch=2)
+
+		# ---------------- Left column: live image ----------------
+		image_group = QtWidgets.QGroupBox("Live FITS Image")
+		image_layout = QtWidgets.QVBoxLayout()
+
 		self.focus_imagewidget = pg.ImageView()
-		self.Focus_layout.addWidget(self.focus_imagewidget, 0, 0)
-		self.focus_imagewidget.show()
 		self.focus_imagewidget.ui.histogram.hide()
 		self.focus_imagewidget.ui.roiBtn.hide()
 		self.focus_imagewidget.ui.menuBtn.hide()
+
+		image_layout.addWidget(self.focus_imagewidget)
+		image_group.setLayout(image_layout)
+
+		left_column.addWidget(image_group)
+
+		# ---------------- Right column: plot ----------------
+		plot_group = QtWidgets.QGroupBox("Focus Metric")
+		plot_layout = QtWidgets.QVBoxLayout()
+		plot_layout.addWidget(self.Plot)
+		plot_group.setLayout(plot_layout)
+
+		right_column.addWidget(plot_group, stretch=2)
 
 		##### Button triggers
 		self.Start_button.clicked.connect(self.startFocus)
@@ -467,6 +616,10 @@ class Ui(QtWidgets.QMainWindow):
 			pen=pg.mkPen(color='b'),
 			name='Average'
 		)
+		# ---------------- Right column: status / metrics ----------------
+		status_group = QtWidgets.QGroupBox("Current Focus Metrics")
+		status_layout = QtWidgets.QVBoxLayout()
+
 		self.status_label = QtWidgets.QLabel()
 		self.status_label.setWordWrap(True)
 		self.status_label.setStyleSheet("""
@@ -474,15 +627,48 @@ class Ui(QtWidgets.QMainWindow):
 				color: white;
 				background-color: #202020;
 				border: 1px solid #555555;
-				padding: 6px;
+				padding: 8px;
 				font-size: 9pt;
 			}
 		""")
-		self.status_label.setText("Focus metrics will appear here.")
+		self.status_label.setText("No Stars detected...Focus metrics will appear here.")
 
-		self.Focus_layout.addWidget(self.status_label, 2, 0)
+		status_layout.addWidget(self.status_label)
+		status_group.setLayout(status_layout)
+
+		right_column.addWidget(status_group, stretch=1)
+
+		# ---------------- Right column: capture settings ----------------
+		settings_group = QtWidgets.QGroupBox("Capture Settings")
+		settings_layout = QtWidgets.QFormLayout()
+
+		self.CaptureMode_combo = QtWidgets.QComboBox()
+		self.CaptureMode_combo.addItems(["Single Image", "Stream"])
+
+		settings_layout.addRow("Capture mode:", self.CaptureMode_combo)
+		settings_layout.addRow("Exposure (s):", self.Exposure_spinbox)
+		settings_layout.addRow("Binning:", self.Binning_spinbox)
+		settings_layout.addRow("Display zoom:", self.Zoom_slider)
+
+		settings_group.setLayout(settings_layout)
+		right_column.addWidget(settings_group)
+
+		# ---------------- Right column: buttons ----------------
+		button_group = QtWidgets.QGroupBox("Controls")
+		button_layout = QtWidgets.QHBoxLayout()
+
+		self.Clear_button = QtWidgets.QPushButton("Clear Display")
+		self.Clear_button.clicked.connect(self.clearDisplay)
+
+		button_layout.addWidget(self.Start_button)
+		button_layout.addWidget(self.Clear_button)
+		button_layout.addWidget(self.Stop_button)
+
+		button_group.setLayout(button_layout)
+		right_column.addWidget(button_group)
 
 		self.thread = FocusThread(self)
+		self.show()
 
 	def getFocusSettings(self):
 		binning = self.Binning_spinbox.value()
@@ -490,6 +676,7 @@ class Ui(QtWidgets.QMainWindow):
 		max_display_size = 100 + zoom * 50
 
 		return {
+			"capture_mode": self.CaptureMode_combo.currentText(),
 			"exposure": self.Exposure_spinbox.value(),
 			"bin_x": binning,
 			"bin_y": binning,
@@ -514,6 +701,35 @@ class Ui(QtWidgets.QMainWindow):
 	def killthread(self):
 		self.thread.stop()
 		# print('Say what?')
+
+	def clearDisplay(self):
+		print("Clearing PyFocus display.")
+
+		# Clear plot data
+		self.frame_number = 0
+		self.Sx = []
+		self.Sy = []
+		self.Syy = []
+		self.Sav = []
+
+		self.x_line.setData(self.Sx, self.Sy)
+		self.y_line.setData(self.Sx, self.Syy)
+		self.av_line.setData(self.Sx, self.Sav)
+
+		# Clear image display
+		blank_image = np.zeros((100, 100), dtype=np.float32)
+		self.focus_imagewidget.setImage(
+			blank_image,
+			levels=(0, 1),
+			autoLevels=False,
+			autoRange=True
+		)
+
+		# Reset status panel
+		self.status_label.setText(
+			"No image loaded.\n"
+			"Focus metrics will appear here after capture."
+		)
 
 	def plot(self, hour, temperature):
 		labelStyle = {'color': '#FFF', 'font-size': '12px', 'padding': '0px'}
@@ -543,20 +759,35 @@ class Ui(QtWidgets.QMainWindow):
 		self.y_line.setData(self.Sx, self.Syy)
 		self.av_line.setData(self.Sx, self.Sav)
 
-		self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
+		if len(self.Sx) >= 2:
+			self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
+
 		self.Plot.enableAutoRange(axis='y', enable=True)
 	
 	def updateStatus(self, status):
+		sigma_x = status.get("sigma_x")
+		sigma_y = status.get("sigma_y")
+		sigma_avg = status.get("sigma_avg")
+
+		if sigma_avg is None:
+			sigma_text = "Sigma X: -- px   Sigma Y: -- px   Average: -- px"
+		else:
+			sigma_text = (
+				f"Sigma X: {sigma_x:.3f} px   "
+				f"Sigma Y: {sigma_y:.3f} px   "
+				f"Average: {sigma_avg:.3f} px"
+			)
+
 		text = (
+			f"Mode: {status.get('capture_mode', 'Unknown')}\n"
+			f"Status: {status.get('state', 'Running')}\n"
 			f"Exposure: {status['exposure']:.3f} s   "
 			f"Binning: {status['binning']}\n"
 			f"Mean: {status['mean']:.1f} ± {status['std']:.1f}   "
 			f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
 			f"Detected peaks: {status['detected_peaks']}   "
 			f"Valid PSF fits: {status['valid_fits']}\n"
-			f"Sigma X: {status['sigma_x']:.3f} px   "
-			f"Sigma Y: {status['sigma_y']:.3f} px   "
-			f"Average: {status['sigma_avg']:.3f} px"
+			f"{sigma_text}"
 		)
 
 		self.status_label.setText(text)
@@ -598,7 +829,14 @@ class Ui(QtWidgets.QMainWindow):
 		    self.killthread()
 
 	def stopFocus(self):
-		self.killthread()
+		print("Exit button pressed.")
+
+		# Stop the focus/capture thread if it is running.
+		if self.thread is not None and self.thread.isRunning():
+			self.thread.stop()
+
+		# Close the GUI window.
+		self.close()
 	# def grabImage(self,x,y,sizex,sizey, exposure):
 	# 	C.StartX = x
 	# 	C.StartY = y
@@ -736,7 +974,9 @@ class Ui(QtWidgets.QMainWindow):
 	# 	return image
 
 def main():
+	print("Starting PyFocus GUI...")
 	app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
+	print("Finished initializing PyFocus GUI...")
 	window = Ui()                          # create instance of class
 	app.exec_()                            # start the application
 
