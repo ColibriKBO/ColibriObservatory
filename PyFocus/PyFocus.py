@@ -34,25 +34,35 @@ class FocusThread(QtCore.QThread):
 	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
 	updateFocusFrame = QtCore.pyqtSignal(object)
 	updatePlot = QtCore.pyqtSignal(float,float,float)
+	updateStatus = QtCore.pyqtSignal(object)
 
-	def __init__(self,parent=None):
-		# MaxIM / FITS capture settings
-		self.exposure = 0.1
-		self.filter_number = 0
-		self.light_frame = True
-		self.temp_fits_path = r"D:\tmp\pyfocus_latest.fit"
-		self.maxim_camera = None
-
-		Zoom = 5
-		x = 0
-		y = 0
-		sizex = 50
-		sizey = 50
-		self.bin_x = 2
-		self.bin_y = 2
-		
+	def __init__(self, parent=None, settings=None):
 		super(FocusThread,self).__init__(parent)
 		self.threadactive = True
+
+		if settings is None:
+			settings = {}
+
+		# MaxIM / FITS capture settings
+		self.exposure = float(settings.get("exposure", 0.1))
+		self.filter_number = int(settings.get("filter_number", 0))
+		self.light_frame = bool(settings.get("light_frame", True))
+		self.temp_fits_path = settings.get("temp_fits_path", r"D:\tmp\pyfocus_latest.fit")
+		self.maxim_camera = None
+
+		# Camera/binning settings
+		self.bin_x = int(settings.get("bin_x", 2))
+		self.bin_y = int(settings.get("bin_y", 2))
+
+		# Display settings
+		self.max_display_size = int(settings.get("max_display_size", 300))
+
+		# Star detection / fitting settings
+		self.neighborhood_size = int(settings.get("neighborhood_size", 25))
+		self.intensity_threshold = float(settings.get("intensity_threshold", 30))
+		self.segment_radius = int(settings.get("segment_radius", 25))
+		self.roundness_threshold = float(settings.get("roundness_threshold", 0.5))
+		self.max_feature_ratio = float(settings.get("max_feature_ratio", 0.8))
 
 	@QtCore.pyqtSlot()
 	def run(self):
@@ -96,8 +106,10 @@ class FocusThread(QtCore.QThread):
 				data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
 
 				# Locate local maxima that may correspond to stars.
-				neighborhood_size = 25
-				intensity_threshold = 30
+				#neighborhood_size = 25
+				#intensity_threshold = 30
+				neighborhood_size = self.neighborhood_size
+				intensity_threshold = self.intensity_threshold
 
 				data_max = ndimage.maximum_filter(data, neighborhood_size)
 				maxima = (data == data_max)
@@ -145,8 +157,21 @@ class FocusThread(QtCore.QThread):
 				sigmay = np.mean(sigma_y_fitted)
 				sigmaav = (sigmax + sigmay) / 2.0
 
-				print(f"Sigma X: {sigmax:.3f}, Sigma Y: {sigmay:.3f}, Average: {sigmaav:.3f}")
+				status = {
+					"mean": global_mean,
+					"std": global_stddev,
+					"min": np.nanmin(nda),
+					"max": np.nanmax(nda),
+					"detected_peaks": num_objects,
+					"valid_fits": len(sigma_x_fitted),
+					"sigma_x": sigmax,
+					"sigma_y": sigmay,
+					"sigma_avg": sigmaav,
+					"exposure": self.exposure,
+					"binning": f"{self.bin_x}x{self.bin_y}"
+				}
 
+				self.updateStatus.emit(status)
 				self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
 
 		finally:
@@ -207,7 +232,7 @@ class FocusThread(QtCore.QThread):
 		self.wait()
 
 	def twoDGaussian(self, params, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
-	    """ Defines a 2D Gaussian distribution. 
+		""" Defines a 2D Gaussian distribution. 
 	    
 	    Arguments:
 	        params: [tuple of floats] 
@@ -226,30 +251,34 @@ class FocusThread(QtCore.QThread):
 
 	    """
 
-	    x, y, saturation = params
+		x, y, saturation = params
 
-	    if isinstance(saturation, np.ndarray):
-	        saturation = saturation[0, 0]
+		if isinstance(saturation, np.ndarray):
+			saturation = saturation[0, 0]
 	    
-	    xo = float(xo)
-	    yo = float(yo)
+		xo = float(xo)
+		yo = float(yo)
 
-	    a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
-	    b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
-	    c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
-	    g = offset + amplitude*np.exp(-(a*((x - xo)**2) + 2*b*(x - xo)*(y - yo) + c*((y - yo)**2)))
+		a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+		b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+		c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+		g = offset + amplitude*np.exp(-(a*((x - xo)**2) + 2*b*(x - xo)*(y - yo) + c*((y - yo)**2)))
 
-	    # Limit values to saturation level
-	    g[g > saturation] = saturation
+		# Limit values to saturation level
+		g[g > saturation] = saturation
 
-	    return g.ravel()
+		return g.ravel()
 
 	def fitPSF(self, imarray, avepixel_mean, x2, y2):
 
 		# The following variables are in the config file
-		segment_radius = 25
-		roundness_threshold = 0.5
-		max_feature_ratio = 0.8
+		segment_radius = self.segment_radius
+		roundness_threshold = self.roundness_threshold
+		max_feature_ratio = self.max_feature_ratio
+		
+		#segment_radius = 25
+		#roundness_threshold = 0.5
+		#max_feature_ratio = 0.8
 
 		x_fitted = []
 		y_fitted = []
@@ -417,7 +446,7 @@ class Ui(QtWidgets.QMainWindow):
 		labelStyle = {'color': '#FFFFFF', 'font-size': '9pt'}
 
 		self.Plot.setLabel('left', 'PSF width', units='px', **labelStyle)
-		self.Plot.setLabel('bottom', 'Frame number', **labelStyle)
+		self.Plot.setLabel('bottom', 'Focus measurement frame number', **labelStyle)
 		self.Plot.showGrid(x=True, y=True, alpha=0.3)
 		self.Plot.addLegend(offset=(5, 5))
 
@@ -438,13 +467,46 @@ class Ui(QtWidgets.QMainWindow):
 			pen=pg.mkPen(color='b'),
 			name='Average'
 		)
+		self.status_label = QtWidgets.QLabel()
+		self.status_label.setWordWrap(True)
+		self.status_label.setStyleSheet("""
+			QLabel {
+				color: white;
+				background-color: #202020;
+				border: 1px solid #555555;
+				padding: 6px;
+				font-size: 9pt;
+			}
+		""")
+		self.status_label.setText("Focus metrics will appear here.")
+
+		self.Focus_layout.addWidget(self.status_label, 2, 0)
 
 		self.thread = FocusThread(self)
 
-	def watchthread(self,worker):
-		self.thread = worker(self)
+	def getFocusSettings(self):
+		binning = self.Binning_spinbox.value()
+		zoom = self.Zoom_slider.value()
+		max_display_size = 100 + zoom * 50
+
+		return {
+			"exposure": self.Exposure_spinbox.value(),
+			"bin_x": binning,
+			"bin_y": binning,
+			"filter_number": 0,
+			"max_display_size": max_display_size,
+			"intensity_threshold": 30,
+			"temp_fits_path": r"D:\tmp\pyfocus_latest.fit",
+			"light_frame": True,
+		}
+
+	def watchthread(self, worker):
+		settings = self.getFocusSettings()
+
+		self.thread = worker(self, settings=settings)
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
 		self.thread.updatePlot.connect(self.updatePlot)
+		self.thread.updateStatus.connect(self.updateStatus)
 
 	def startthread(self):
 		self.thread.start()
@@ -483,6 +545,21 @@ class Ui(QtWidgets.QMainWindow):
 
 		self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
 		self.Plot.enableAutoRange(axis='y', enable=True)
+	
+	def updateStatus(self, status):
+		text = (
+			f"Exposure: {status['exposure']:.3f} s   "
+			f"Binning: {status['binning']}\n"
+			f"Mean: {status['mean']:.1f} ± {status['std']:.1f}   "
+			f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
+			f"Detected peaks: {status['detected_peaks']}   "
+			f"Valid PSF fits: {status['valid_fits']}\n"
+			f"Sigma X: {status['sigma_x']:.3f} px   "
+			f"Sigma Y: {status['sigma_y']:.3f} px   "
+			f"Average: {status['sigma_avg']:.3f} px"
+		)
+
+		self.status_label.setText(text)
 
 	def connectDevices(self):
 		try:
@@ -522,7 +599,6 @@ class Ui(QtWidgets.QMainWindow):
 
 	def stopFocus(self):
 		self.killthread()
-
 	# def grabImage(self,x,y,sizex,sizey, exposure):
 	# 	C.StartX = x
 	# 	C.StartY = y
@@ -578,7 +654,7 @@ class Ui(QtWidgets.QMainWindow):
 		# Downsample for display only.
 		# This prevents high-frequency row/column structure from aliasing into
 		# thick horizontal/vertical stripes in the small PyFocus display window.
-		max_display_size = 300
+		max_display_size = 100 + self.Zoom_slider.value() * 50
 		height, width = display_img.shape
 
 		block = max(1, int(max(height, width) / max_display_size))
