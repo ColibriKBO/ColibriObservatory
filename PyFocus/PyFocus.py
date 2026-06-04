@@ -157,31 +157,158 @@ class FocusThread(QtCore.QThread):
 
 	def runAutofocus(self):
 		"""
-		Temporary autofocus placeholder.
+		Run a simple autofocus sweep.
 
-		This confirms that Autofocus mode is wired into the program before
-		we add focuser movement and sweep logic.
+		The routine:
+		1. Connects to the ASCOM/Seletek focuser.
+		2. Reads the current focuser position.
+		3. Tests positions around the current position.
+		4. Takes several focus measurements at each position.
+		5. Uses the median Average sigma as the score for each position.
+		6. Moves the focuser to the position with the lowest score.
 		"""
 
-		print("Autofocus mode selected, but autofocus sweep is not implemented yet.")
+		print("Starting autofocus sweep.")
 
-		status = {
-			"state": "Autofocus mode selected. Sweep not implemented yet.",
-			"mean": 0,
-			"std": 0,
-			"min": 0,
-			"max": 0,
-			"detected_peaks": 0,
-			"valid_fits": 0,
-			"sigma_x": None,
-			"sigma_y": None,
-			"sigma_avg": None,
-			"exposure": self.exposure,
-			"binning": f"{self.bin_x}x{self.bin_y}",
-			"capture_mode": self.capture_mode,
-		}
+		focuser = ASCOMFocuserController(self.focuser_driver_id)
 
-		self.updateStatus.emit(status)
+		try:
+			focuser.connect()
+
+			start_pos = focuser.position
+			print(f"Starting focuser position: {start_pos}")
+
+			offsets = range(-self.af_steps_each_side, self.af_steps_each_side + 1)
+
+			test_positions = [
+				start_pos + offset * self.af_step_size
+				for offset in offsets
+			]
+
+			results = []
+
+			for pos in test_positions:
+				if not self.threadactive:
+					print("Autofocus cancelled.")
+					break
+
+				move_status = {
+					"state": f"Autofocus: moving to position {pos}",
+					"mean": 0,
+					"std": 0,
+					"min": 0,
+					"max": 0,
+					"detected_peaks": 0,
+					"valid_fits": 0,
+					"sigma_x": None,
+					"sigma_y": None,
+					"sigma_avg": None,
+					"exposure": self.exposure,
+					"binning": f"{self.bin_x}x{self.bin_y}",
+					"capture_mode": self.capture_mode,
+				}
+
+				self.updateStatus.emit(move_status)
+
+				focuser.move_to(
+					pos,
+					keep_running_callback=lambda: self.threadactive
+				)
+
+				time.sleep(self.af_settle_time)
+
+				position_metrics = []
+
+				for frame_index in range(self.af_frames_per_position):
+					if not self.threadactive:
+						break
+
+					measure_status = move_status.copy()
+					measure_status["state"] = (
+						f"Autofocus: measuring position {pos} "
+						f"({frame_index + 1}/{self.af_frames_per_position})"
+					)
+					self.updateStatus.emit(measure_status)
+
+					metric = self.measureFocusMetric()
+
+					if metric is not None:
+						position_metrics.append(metric["sigma_avg"])
+
+				if len(position_metrics) == 0:
+					print(f"Position {pos}: no valid focus measurements.")
+					continue
+
+				score = float(np.median(position_metrics))
+				results.append((pos, score))
+
+				print(f"Position {pos}: median average sigma = {score:.4f}")
+
+			if len(results) == 0:
+				print("Autofocus failed: no valid focus measurements.")
+
+				fail_status = {
+					"state": "Autofocus failed: no valid focus measurements.",
+					"mean": 0,
+					"std": 0,
+					"min": 0,
+					"max": 0,
+					"detected_peaks": 0,
+					"valid_fits": 0,
+					"sigma_x": None,
+					"sigma_y": None,
+					"sigma_avg": None,
+					"exposure": self.exposure,
+					"binning": f"{self.bin_x}x{self.bin_y}",
+					"capture_mode": self.capture_mode,
+				}
+
+				self.updateStatus.emit(fail_status)
+				return
+
+			best_pos, best_score = min(results, key=lambda item: item[1])
+
+			print("Autofocus results:")
+			for pos, score in results:
+				print(f"  Position {pos}: {score:.4f}")
+
+			print(f"Best focus position: {best_pos}, score = {best_score:.4f}")
+
+			done_status = {
+				"state": f"Autofocus complete. Moving to best position {best_pos}.",
+				"mean": 0,
+				"std": 0,
+				"min": 0,
+				"max": 0,
+				"detected_peaks": 0,
+				"valid_fits": 0,
+				"sigma_x": None,
+				"sigma_y": None,
+				"sigma_avg": best_score,
+				"exposure": self.exposure,
+				"binning": f"{self.bin_x}x{self.bin_y}",
+				"capture_mode": self.capture_mode,
+			}
+
+			self.updateStatus.emit(done_status)
+
+			focuser.move_to(
+				best_pos,
+				keep_running_callback=lambda: self.threadactive
+			)
+
+			final_status = done_status.copy()
+			final_status["state"] = (
+				f"Autofocus finished. Best position: {best_pos}, "
+				f"score: {best_score:.3f}"
+			)
+			self.updateStatus.emit(final_status)
+
+			print("Autofocus sweep finished.")
+
+		finally:
+			focuser.disconnect()
+			self.threadactive = False
 
 	def measureFocusMetric(self):
 		"""
@@ -592,6 +719,79 @@ class Ui(QtWidgets.QMainWindow):
 		self.setWindowTitle("PyFocus Automated Focusing")
 		self.resize(950, 750)
 		self.setMinimumSize(850, 650)
+
+		self.setStyleSheet("""
+			QMainWindow {
+				background-color: #f4f5f7;
+			}
+
+			QGroupBox {
+				font-weight: bold;
+				border: 1px solid #c7ccd4;
+				border-radius: 8px;
+				margin-top: 10px;
+				padding: 8px;
+				background-color: #ffffff;
+			}
+
+			QGroupBox::title {
+				subcontrol-origin: margin;
+				left: 10px;
+				padding: 0 4px;
+				color: #1f2a44;
+			}
+
+			QLabel {
+				color: #1f2a44;
+				font-size: 9pt;
+			}
+
+			QPushButton {
+				background-color: #e9edf5;
+				border: 1px solid #aeb7c7;
+				border-radius: 6px;
+				padding: 6px 10px;
+				font-weight: bold;
+				color: #1f2a44;
+			}
+
+			QPushButton:hover {
+				background-color: #dce5f5;
+			}
+
+			QPushButton:pressed {
+				background-color: #cbd8ec;
+			}
+
+			QPushButton:checked {
+				background-color: #2f6fed;
+				color: white;
+				border: 1px solid #2457bd;
+			}
+
+			QSpinBox, QDoubleSpinBox, QComboBox {
+				background-color: white;
+				border: 1px solid #aeb7c7;
+				border-radius: 4px;
+				padding: 3px;
+				color: #1f2a44;
+			}
+
+			QSlider::groove:horizontal {
+				border: 1px solid #aeb7c7;
+				height: 6px;
+				background: #e9edf5;
+				border-radius: 3px;
+			}
+
+			QSlider::handle:horizontal {
+				background: #2f6fed;
+				border: 1px solid #2457bd;
+				width: 14px;
+				margin: -5px 0;
+				border-radius: 7px;
+			}
+		""")
 
 		# Build a new two-column central layout.
 		central = QtWidgets.QWidget(self)
