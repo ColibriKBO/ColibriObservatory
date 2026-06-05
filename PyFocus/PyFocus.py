@@ -99,6 +99,7 @@ class FocusThread(QtCore.QThread):
 
 		# MaxIM / FITS capture settings
 		self.exposure = float(settings.get("exposure", 0.1))
+		self.gain = float(settings.get("gain", 25.0))
 		self.filter_number = int(settings.get("filter_number", 0))
 		self.light_frame = bool(settings.get("light_frame", True))
 		self.temp_fits_path = settings.get("temp_fits_path", r"D:\tmp\pyfocus_latest.fit")
@@ -334,10 +335,45 @@ class FocusThread(QtCore.QThread):
 		# Display latest image in GUI
 		self.updateFocusFrame.emit(nda)
 
+		# Basic image statistics
 		global_mean = np.mean(nda)
 		global_stddev = np.std(nda)
 
 		print(f"Image mean = {global_mean} +/- {global_stddev}")
+
+		# Convert to float for analysis
+		data = nda.astype(np.float32)
+
+		# Apply a small mean filter to reduce pixel-scale noise.
+		fx = 2
+		fy = 2
+		data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
+
+		# Robust background/noise estimate for peak detection.
+		finite = data[np.isfinite(data)]
+
+		if finite.size == 0:
+			print("No finite pixels found.")
+			return None
+
+		median = np.median(finite)
+		mad = np.median(np.abs(finite - median))
+		robust_sigma = 1.4826 * mad
+
+		if robust_sigma <= 0:
+			robust_sigma = np.std(finite)
+
+		# Use a sigma-based threshold instead of only the fixed intensity threshold.
+		# This prevents closed-dome noise/hot pixels from being counted as thousands of stars.
+		sigma_threshold = 8.0
+		intensity_threshold = max(self.intensity_threshold, sigma_threshold * robust_sigma)
+		peak_floor = median + sigma_threshold * robust_sigma
+
+		print(
+			f"Background median={median:.1f}, "
+			f"robust sigma={robust_sigma:.1f}, "
+			f"peak floor={peak_floor:.1f}"
+		)
 
 		basic_status = {
 			"state": "Image captured. Searching for stars...",
@@ -351,25 +387,21 @@ class FocusThread(QtCore.QThread):
 			"sigma_y": None,
 			"sigma_avg": None,
 			"exposure": self.exposure,
+			"gain": self.gain,
 			"binning": f"{self.bin_x}x{self.bin_y}",
 			"capture_mode": self.capture_mode,
 		}
 
 		self.updateStatus.emit(basic_status)
 
-		data = nda.astype(np.float32)
-
-		# Apply a small mean filter to reduce pixel-scale noise.
-		fx = 2
-		fy = 2
-		data = ndimage.convolve(data, weights=np.full((fx, fy), 1.0 / 4.0))
-
 		# Locate local maxima that may correspond to stars.
 		neighborhood_size = self.neighborhood_size
-		intensity_threshold = self.intensity_threshold
 
 		data_max = ndimage.maximum_filter(data, neighborhood_size)
 		maxima = (data == data_max)
+
+		# Reject local maxima that are not bright enough above the background.
+		maxima[data < peak_floor] = 0
 
 		data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
 		diff = ((data_max - data_min) > intensity_threshold)
@@ -451,8 +483,8 @@ class FocusThread(QtCore.QThread):
 
 			return None
 
-		# Use mean for now, matching your current behaviour.
-		# Later we can switch to median for more robustness.
+		# Use mean for now, matching current behaviour.
+		# Later this can be changed to median for more robustness.
 		sigmax = np.mean(sigma_x_fitted)
 		sigmay = np.mean(sigma_y_fitted)
 		sigmaav = (sigmax + sigmay) / 2.0
@@ -469,6 +501,7 @@ class FocusThread(QtCore.QThread):
 			"sigma_y": sigmay,
 			"sigma_avg": sigmaav,
 			"exposure": self.exposure,
+			"gain": self.gain,
 			"binning": f"{self.bin_x}x{self.bin_y}",
 			"capture_mode": self.capture_mode,
 		}
@@ -498,7 +531,17 @@ class FocusThread(QtCore.QThread):
 		cam.BinX = int(self.bin_x)
 		cam.BinY = int(self.bin_y)
 
-		print(f"Taking {self.exposure:.2f} s MaxIM exposure at {self.bin_x}x{self.bin_y} binning...")
+		# Try to set gain through MaxIM if the camera driver exposes it.
+		try:
+			cam.Gain = float(self.gain)
+			print(f"Set MaxIM gain to {self.gain:.2f}")
+		except Exception as e:
+			print(f"WARNING: Could not set MaxIM gain through COM: {e}")
+
+		print(
+			f"Taking {self.exposure:.2f} s MaxIM exposure "
+			f"at {self.bin_x}x{self.bin_y} binning, gain={self.gain:.2f}..."
+		)
 
 		# Some MaxIM versions accept filter number as a third argument,
 		# some only need exposure and light/dark flag.
@@ -717,8 +760,8 @@ class Ui(QtWidgets.QMainWindow):
 
 		# Make the GUI wider for a two-column layout.
 		self.setWindowTitle("PyFocus Automated Focusing")
-		self.resize(950, 750)
-		self.setMinimumSize(850, 650)
+		self.resize(1250, 800)
+		self.setMinimumSize(1100, 700)
 
 		self.setStyleSheet("""
 			QMainWindow {
@@ -791,6 +834,30 @@ class Ui(QtWidgets.QMainWindow):
 				margin: -5px 0;
 				border-radius: 7px;
 			}
+
+			QLabel:disabled {
+				color: #a8afbd;
+			}
+
+			QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+				color: #9aa3b2;
+				background-color: #eef1f5;
+				border: 1px solid #d0d5dd;
+			}
+
+			QSlider:disabled {
+				color: #9aa3b2;
+			}
+
+			QSlider::groove:horizontal:disabled {
+				background: #eef1f5;
+				border: 1px solid #d0d5dd;
+			}
+
+			QSlider::handle:horizontal:disabled {
+				background: #b8c0cc;
+				border: 1px solid #a8afbd;
+			}
 		""")
 
 		# Build a new two-column central layout.
@@ -804,7 +871,7 @@ class Ui(QtWidgets.QMainWindow):
 		left_column = QtWidgets.QVBoxLayout()
 		right_column = QtWidgets.QVBoxLayout()
 
-		main_layout.addLayout(left_column, stretch=3)
+		main_layout.addLayout(left_column, stretch=4)
 		main_layout.addLayout(right_column, stretch=2)
 
 		# ---------------- Left column: live image ----------------
@@ -815,6 +882,13 @@ class Ui(QtWidgets.QMainWindow):
 		self.focus_imagewidget.ui.histogram.hide()
 		self.focus_imagewidget.ui.roiBtn.hide()
 		self.focus_imagewidget.ui.menuBtn.hide()
+		self.focus_imagewidget.setMinimumSize(650, 650)
+
+		self.last_display_img = None
+
+		self.Zoom_slider.setRange(1, 9)
+		self.Zoom_slider.setValue(1)
+		self.Zoom_slider.valueChanged.connect(self.applyImageZoom)
 
 		image_layout.addWidget(self.focus_imagewidget)
 		image_group.setLayout(image_layout)
@@ -899,11 +973,19 @@ class Ui(QtWidgets.QMainWindow):
 
 		self.CaptureMode_combo = QtWidgets.QComboBox()
 		self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
+		self.CaptureMode_combo.currentTextChanged.connect(self.updateAutofocusControls)
+
+		self.Gain_spinbox = QtWidgets.QDoubleSpinBox()
+		self.Gain_spinbox.setRange(0.0, 100.0)
+		self.Gain_spinbox.setDecimals(2)
+		self.Gain_spinbox.setSingleStep(0.5)
+		self.Gain_spinbox.setValue(25.0)
 
 		settings_layout.addRow("Capture mode:", self.CaptureMode_combo)
 		settings_layout.addRow("Exposure (s):", self.Exposure_spinbox)
+		settings_layout.addRow("Gain:", self.Gain_spinbox)
 		settings_layout.addRow("Binning:", self.Binning_spinbox)
-		settings_layout.addRow("Display zoom:", self.Zoom_slider)
+		settings_layout.addRow("Image zoom:", self.Zoom_slider)
 		self.AFStep_spin = QtWidgets.QSpinBox()
 		self.AFStep_spin.setRange(1, 10000)
 		self.AFStep_spin.setValue(50)
@@ -921,11 +1003,29 @@ class Ui(QtWidgets.QMainWindow):
 		self.AFSettleTime_spin.setDecimals(1)
 		self.AFSettleTime_spin.setValue(1.0)
 
-		settings_layout.addRow("AF step size:", self.AFStep_spin)
-		settings_layout.addRow("AF steps each side:", self.AFStepsEachSide_spin)
-		settings_layout.addRow("AF frames/position:", self.AFFramesPerPosition_spin)
-		settings_layout.addRow("AF settle time (s):", self.AFSettleTime_spin)
+		self.AFStep_label = QtWidgets.QLabel("AF step size:")
+		self.AFStepsEachSide_label = QtWidgets.QLabel("AF steps each side:")
+		self.AFFramesPerPosition_label = QtWidgets.QLabel("AF frames/position:")
+		self.AFSettleTime_label = QtWidgets.QLabel("AF settle time (s):")
 
+		settings_layout.addRow(self.AFStep_label, self.AFStep_spin)
+		settings_layout.addRow(self.AFStepsEachSide_label, self.AFStepsEachSide_spin)
+		settings_layout.addRow(self.AFFramesPerPosition_label, self.AFFramesPerPosition_spin)
+		settings_layout.addRow(self.AFSettleTime_label, self.AFSettleTime_spin)
+
+		self.autofocus_controls = [
+			self.AFStep_label,
+			self.AFStep_spin,
+			self.AFStepsEachSide_label,
+			self.AFStepsEachSide_spin,
+			self.AFFramesPerPosition_label,
+			self.AFFramesPerPosition_spin,
+			self.AFSettleTime_label,
+			self.AFSettleTime_spin,
+		]
+
+		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
+		
 		settings_group.setLayout(settings_layout)
 		right_column.addWidget(settings_group)
 
@@ -954,6 +1054,7 @@ class Ui(QtWidgets.QMainWindow):
 		return {
 			"capture_mode": self.CaptureMode_combo.currentText(),
 			"exposure": self.Exposure_spinbox.value(),
+			"gain": self.Gain_spinbox.value(),
 			"bin_x": binning,
 			"bin_y": binning,
 			"filter_number": 0,
@@ -1044,6 +1145,16 @@ class Ui(QtWidgets.QMainWindow):
 			self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
 
 		self.Plot.enableAutoRange(axis='y', enable=True)
+
+	def updateAutofocusControls(self, mode):
+		"""
+		Enable autofocus-only settings only when Autofocus mode is selected.
+		"""
+
+		autofocus_enabled = (mode == "Autofocus")
+
+		for widget in self.autofocus_controls:
+			widget.setEnabled(autofocus_enabled)
 	
 	def updateStatus(self, status):
 		sigma_x = status.get("sigma_x")
@@ -1063,6 +1174,7 @@ class Ui(QtWidgets.QMainWindow):
 			f"Mode: {status.get('capture_mode', 'Unknown')}\n"
 			f"Status: {status.get('state', 'Running')}\n"
 			f"Exposure: {status['exposure']:.3f} s   "
+			f"Gain: {status.get('gain', 0):.2f}   "
 			f"Binning: {status['binning']}\n"
 			f"Mean: {status['mean']:.1f} ± {status['std']:.1f}   "
 			f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
@@ -1153,6 +1265,41 @@ class Ui(QtWidgets.QMainWindow):
 
 	# 	return nda
 
+	def applyImageZoom(self):
+		"""
+		Apply view zoom to the current displayed image.
+
+		This changes the pyqtgraph view range immediately, similar to using the
+		mouse wheel, without waiting for a new camera exposure.
+		"""
+
+		if self.last_display_img is None:
+			return
+
+		height, width = self.last_display_img.shape
+
+		zoom = max(1, self.Zoom_slider.value())
+
+		# Slider value 1 = full image.
+		# Slider value 9 = zoomed in by roughly 9x.
+		view_width = width / zoom
+		view_height = height / zoom
+
+		center_x = width / 2.0
+		center_y = height / 2.0
+
+		x_min = center_x - view_width / 2.0
+		x_max = center_x + view_width / 2.0
+		y_min = center_y - view_height / 2.0
+		y_max = center_y + view_height / 2.0
+
+		view = self.focus_imagewidget.getView()
+		view.setRange(
+			xRange=(x_min, x_max),
+			yRange=(y_min, y_max),
+			padding=0
+		)
+
 	def updateFocusFrame(self, image):
 		"""
 		Update the live focus image displayed in the GUI.
@@ -1170,10 +1317,9 @@ class Ui(QtWidgets.QMainWindow):
 		# Make a display-only copy.
 		display_img = img.copy()
 
-		# Downsample for display only.
-		# This prevents high-frequency row/column structure from aliasing into
-		# thick horizontal/vertical stripes in the small PyFocus display window.
-		max_display_size = 100 + self.Zoom_slider.value() * 50
+		# Fixed display downsample size.
+		# The slider now controls view zoom, not downsample resolution.
+		max_display_size = 700
 		height, width = display_img.shape
 
 		block = max(1, int(max(height, width) / max_display_size))
@@ -1201,12 +1347,16 @@ class Ui(QtWidgets.QMainWindow):
 		if high <= low:
 			high = low + 1
 
+		self.last_display_img = display_img
+
 		self.focus_imagewidget.setImage(
 			display_img,
 			levels=(low, high),
 			autoLevels=False,
 			autoRange=True
 		)
+
+		self.applyImageZoom()
 
 		print("Raw Min:", np.nanmin(img))
 		print("Raw Max:", np.nanmax(img))
