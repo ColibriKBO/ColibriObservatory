@@ -1116,6 +1116,9 @@ function adjustPointing(target_ra, target_dec) {
         // Add the raw coordinate-space offset (not sky-plane) scaled by lambda.
         // Coordinate-space offsets are correct here: the mount accepts RA/Dec
         // coordinates, not sky-plane angular displacements.
+        var prev_cmd_ra_deg = cmd_ra_deg;
+        var prev_cmd_dec    = cmd_dec;
+
         var cmd_ra_deg = cmd_ra_deg + LAMBDA * ra_offset;
         var cmd_dec    = cmd_dec    + LAMBDA * dec_offset;
 
@@ -1123,14 +1126,52 @@ function adjustPointing(target_ra, target_dec) {
         cmd_ra_deg = ((cmd_ra_deg % 360) + 360) % 360;
 
         // Update closest-position tracker
+        //if (current_sep < min_sep_deg) {
+        //    min_sep_deg    = current_sep;
+        //    closest_ra_deg = cmd_ra_deg;
+        //    closest_dec    = cmd_dec;
+        //}
+
+        // Convert the solved pointing error back into the telescope's actual solved RA/Dec.
+        // Store it as the best position, since it is the last real plate-solved location,
+        // not the next corrected command we are about to try.
+        var solved_ra_deg  = target_ra_deg - ra_offset;
+        var solved_dec_deg = target_dec    - dec_offset;
+
         if (current_sep < min_sep_deg) {
             min_sep_deg    = current_sep;
-            closest_ra_deg = cmd_ra_deg;
-            closest_dec    = cmd_dec;
+            closest_ra_deg = solved_ra_deg;
+            closest_dec    = solved_dec_deg;
         }
 
         // ---- Slew to corrected position ------------------------------------
+        //var cmd_ra_hours = cmd_ra_deg / 15;
+        //Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
+        //ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
+
+        //gotoRADec(cmd_ra_hours, cmd_dec);
+
+        //while (Telescope.Slewing) {
+        //    Util.WaitForMilliseconds(500);
+        //}
         var cmd_ra_hours = cmd_ra_deg / 15;
+        var prev_cmd_ra_hours = prev_cmd_ra_deg / 15;
+        Console.PrintLine("  Previous commanded position: RA " + prev_cmd_ra_hours.toFixed(4) + " h  Dec " + prev_cmd_dec.toFixed(4) + " deg");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Previous commanded position: RA=" + prev_cmd_ra_hours.toFixed(4) + "h Dec=" + prev_cmd_dec.toFixed(4));
+
+        var testCt = Util.NewCThereAndNow();
+        testCt.RightAscension = cmd_ra_hours;
+        testCt.Declination = cmd_dec;
+
+        if (testCt.Elevation < elevationLimit) {
+            Console.PrintLine("WARNING: corrective slew rejected; unsafe elevation "
+                + testCt.Elevation.toFixed(4) + " deg");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: corrective slew rejected; unsafe elevation "
+                + testCt.Elevation.toFixed(4) + " deg");
+
+            break;   // stop iterating and fall through to fallback logic
+        }
+
         Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
         ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
 
@@ -1149,21 +1190,57 @@ function adjustPointing(target_ra, target_dec) {
         Console.PrintLine("Pointing correction achieved within " + (TOLERANCE_DEG * 3600).toFixed(0)
             + " arcsec after " + iterations + " iteration(s).");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing converged in " + iterations + " iteration(s).");
-    } else {
+     //else {
         // Max iterations reached or astrometry failed — slew to closest measured position
+      //  var fallback_ra_hours = closest_ra_deg / 15;
+      //  Console.PrintLine("Pointing did not converge. Best achieved: "
+      //      + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
+      //      + ". Slewing to best position.");
+      //  ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+      //      + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
+      //  gotoRADec(fallback_ra_hours, closest_dec);
+      //  while (Telescope.Slewing) {
+      //      Util.WaitForMilliseconds(500);
+      //  }
+    } else {
         var fallback_ra_hours = closest_ra_deg / 15;
         Console.PrintLine("Pointing did not converge. Best achieved: "
             + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
-            + ". Slewing to best position.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+            + ". Attempting slew to best safe position.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Best achieved: "
             + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
-        gotoRADec(fallback_ra_hours, closest_dec);
-        while (Telescope.Slewing) {
-            Util.WaitForMilliseconds(500);
+
+        var fallbackCt = Util.NewCThereAndNow();
+        fallbackCt.RightAscension = fallback_ra_hours;
+        fallbackCt.Declination = closest_dec;
+
+        if (fallbackCt.Elevation >= elevationLimit) {
+            gotoRADec(fallback_ra_hours, closest_dec);
+            while (Telescope.Slewing) {
+                Util.WaitForMilliseconds(500);
+            }
+        } else {
+            Console.PrintLine("WARNING: best-position fallback is below elevation limit. Staying on current/original position.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: best-position fallback is below elevation limit.");
+
+            var targetCt = Util.NewCThereAndNow();
+            targetCt.RightAscension = target_ra;
+            targetCt.Declination = target_dec;
+
+            if (targetCt.Elevation >= elevationLimit) {
+                Console.PrintLine("Attempting return to original target coordinates instead.");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Returning to original target coordinates.");
+                gotoRADec(target_ra, target_dec);
+                while (Telescope.Slewing) {
+                    Util.WaitForMilliseconds(500);
+                }
+            } else {
+                Console.PrintLine("Original target is also below elevation limit. No corrective slew performed.");
+                ts.WriteLine(Util.SysUTCDate + " WARNING: original target also below elevation limit. No corrective slew performed.");
+            }
         }
     }
-}
-       
+}    
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
