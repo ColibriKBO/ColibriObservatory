@@ -17,6 +17,9 @@ import win32com.client
 import pythoncom
 from astropy.io import fits
 
+import threading
+from pywinauto import Desktop
+
 #from alpaca.telescope import *
 #from alpaca.camera import *
 #from alpaca.focuser import *
@@ -443,7 +446,10 @@ class FocusThread(QtCore.QThread):
 		y, x = np.hsplit(xy, 2)
 
 		# Limit PSF fitting to brightest N candidates to improve speed.
-		max_candidates = 30
+		if self.capture_mode == "Autofocus":
+			max_candidates = 20
+		else:
+			max_candidates = 10
 
 		if len(x) > max_candidates:
 			peak_values = []
@@ -511,6 +517,108 @@ class FocusThread(QtCore.QThread):
 
 		return status
 	
+	def startMaxImGainPopupWatcher(self):
+		"""
+		Watch for MaxIm's ASCOM Gain/Offset popup and set the gain automatically.
+
+		This targets the small window that appears when MaxIm connects to the camera,
+		not the ASCOM Camera Chooser.
+		"""
+
+		requested_gain = str(int(round(float(self.gain))))
+
+		def worker():
+			deadline = time.time() + 20.0
+			last_error = None
+
+			while time.time() < deadline and self.threadactive:
+				try:
+					desktop = Desktop(backend="uia")
+
+					for win in desktop.windows():
+						title = win.window_text() or ""
+						title_lower = title.lower()
+
+						# This is the window you have been seeing from MaxIm.
+						if (
+							"gain" in title_lower
+							and "offset" in title_lower
+						):
+							print(f"Hybrid gain: found popup: {title}")
+
+							try:
+								win.set_focus()
+							except Exception:
+								pass
+
+							# Try ComboBox controls first. Usually the first combo is Gain.
+							combos = win.descendants(control_type="ComboBox")
+
+							if len(combos) > 0:
+								gain_combo = combos[0]
+
+								try:
+									gain_combo.select(requested_gain)
+									print(f"Hybrid gain: selected gain {requested_gain} using ComboBox.select().")
+								except Exception:
+									try:
+										gain_combo.set_focus()
+										gain_combo.type_keys("^a{BACKSPACE}" + requested_gain + "{ENTER}")
+										print(f"Hybrid gain: typed gain {requested_gain} into ComboBox.")
+									except Exception as e:
+										last_error = e
+										print(f"Hybrid gain: could not set ComboBox gain: {e}")
+
+							else:
+								# Fall back to Edit controls if the gain box appears as an editable field.
+								edits = win.descendants(control_type="Edit")
+
+								if len(edits) > 0:
+									try:
+										edits[0].set_edit_text(requested_gain)
+										print(f"Hybrid gain: set gain edit field to {requested_gain}.")
+									except Exception as e:
+										last_error = e
+										print(f"Hybrid gain: could not set edit-field gain: {e}")
+								else:
+									print("Hybrid gain: found popup, but no ComboBox/Edit controls were detected.")
+
+							# Try to accept/close the popup if it has an OK/Apply/Set button.
+							buttons = win.descendants(control_type="Button")
+							clicked_button = False
+
+							for button in buttons:
+								text = (button.window_text() or "").lower()
+
+								if text in ["ok", "apply", "set"]:
+									try:
+										button.click_input()
+										print(f"Hybrid gain: clicked {button.window_text()} button.")
+										clicked_button = True
+										break
+									except Exception as e:
+										last_error = e
+
+							# If no obvious button exists, press Enter as a fallback.
+							if not clicked_button:
+								try:
+									win.type_keys("{ENTER}")
+									print("Hybrid gain: pressed Enter to accept popup.")
+								except Exception:
+									pass
+
+							return
+
+				except Exception as e:
+					last_error = e
+
+				time.sleep(0.25)
+
+			print(f"Hybrid gain: gain popup was not found before timeout. Last error: {last_error}")
+
+		t = threading.Thread(target=worker, daemon=True)
+		t.start()
+	
 	def captureMaxIMFits(self):
 		"""
 		Capture one FITS image through MaxIM DL and return it as a NumPy array.
@@ -519,8 +627,11 @@ class FocusThread(QtCore.QThread):
 		output_path = Path(self.temp_fits_path)
 		output_path.parent.mkdir(parents=True, exist_ok=True)
 
-		# Connect to MaxIM only once
+		# Connect to MaxIM only once.
+		# Start a watcher first because MaxIm may open the gain popup while LinkEnabled=True is running.
 		if self.maxim_camera is None:
+			self.startMaxImGainPopupWatcher()
+
 			self.maxim_camera = win32com.client.Dispatch("MaxIm.CCDCamera")
 			self.maxim_camera.LinkEnabled = True
 
@@ -530,18 +641,6 @@ class FocusThread(QtCore.QThread):
 		cam = self.maxim_camera
 		cam.BinX = int(self.bin_x)
 		cam.BinY = int(self.bin_y)
-
-		# Try to set gain through MaxIM if the camera driver exposes it.
-		try:
-			cam.Gain = float(self.gain)
-			print(f"Set MaxIM gain to {self.gain:.2f}")
-		except Exception as e:
-			print(f"WARNING: Could not set MaxIM gain through COM: {e}")
-
-		print(
-			f"Taking {self.exposure:.2f} s MaxIM exposure "
-			f"at {self.bin_x}x{self.bin_y} binning, gain={self.gain:.2f}..."
-		)
 
 		# Some MaxIM versions accept filter number as a third argument,
 		# some only need exposure and light/dark flag.
@@ -555,9 +654,8 @@ class FocusThread(QtCore.QThread):
 				return None
 			time.sleep(0.1)
 
-		cam.SaveImage(str(output_path))
-
-		image = fits.getdata(str(output_path))
+		image = np.array(cam.ImageArray, dtype=np.float32)
+		image = image.T
 
 		# If FITS has extra dimensions, keep first image plane
 		while image.ndim > 2:
@@ -762,6 +860,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.setWindowTitle("PyFocus Automated Focusing")
 		self.resize(1250, 800)
 		self.setMinimumSize(1100, 700)
+		
 
 		self.setStyleSheet("""
 			QMainWindow {
@@ -1024,6 +1123,8 @@ class Ui(QtWidgets.QMainWindow):
 			self.AFSettleTime_spin,
 		]
 
+		self.plot_update_stride = 2
+
 		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
 		
 		settings_group.setLayout(settings_layout)
@@ -1130,21 +1231,28 @@ class Ui(QtWidgets.QMainWindow):
 		self.Syy.append(sigmay)
 		self.Sav.append(average)
 
-		# Keep only the most recent N points.
 		if len(self.Sx) > self.max_plot_points:
 			self.Sx = self.Sx[-self.max_plot_points:]
 			self.Sy = self.Sy[-self.max_plot_points:]
 			self.Syy = self.Syy[-self.max_plot_points:]
 			self.Sav = self.Sav[-self.max_plot_points:]
 
-		self.x_line.setData(self.Sx, self.Sy)
-		self.y_line.setData(self.Sx, self.Syy)
-		self.av_line.setData(self.Sx, self.Sav)
+		# Only redraw plot every N valid measurements.
+		if self.frame_number % self.plot_update_stride != 0:
+			return
 
 		if len(self.Sx) >= 2:
 			self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
 
-		self.Plot.enableAutoRange(axis='y', enable=True)
+		#self.Plot.enableAutoRange(axis='y', enable=True)
+
+		all_y = self.Sy + self.Syy + self.Sav
+		if len(all_y) > 0:
+			ymin = min(all_y)
+			ymax = max(all_y)
+			if ymax > ymin:
+				pad = 0.1 * (ymax - ymin)
+				self.Plot.setYRange(ymin - pad, ymax + pad, padding=0)
 
 	def updateAutofocusControls(self, mode):
 		"""
@@ -1319,7 +1427,7 @@ class Ui(QtWidgets.QMainWindow):
 
 		# Fixed display downsample size.
 		# The slider now controls view zoom, not downsample resolution.
-		max_display_size = 700
+		max_display_size = 600
 		height, width = display_img.shape
 
 		block = max(1, int(max(height, width) / max_display_size))
@@ -1353,9 +1461,12 @@ class Ui(QtWidgets.QMainWindow):
 			display_img,
 			levels=(low, high),
 			autoLevels=False,
-			autoRange=True
+			autoRange=False
 		)
 
+		self.last_display_img = display_img
+
+		# Only apply zoom/range manually, instead of forcing pyqtgraph to autorange every frame.
 		self.applyImageZoom()
 
 		print("Raw Min:", np.nanmin(img))
