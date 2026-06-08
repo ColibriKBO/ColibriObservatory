@@ -1132,16 +1132,12 @@ function adjustPointing(target_ra, target_dec) {
         //    closest_dec    = cmd_dec;
         //}
 
-        // Convert the solved pointing error back into the telescope's actual solved RA/Dec.
-        // Store it as the best position, since it is the last real plate-solved location,
-        // not the next corrected command we are about to try.
-        var solved_ra_deg  = target_ra_deg - ra_offset;
-        var solved_dec_deg = target_dec    - dec_offset;
 
+        // Store the commanded position that produced the best solved result.
         if (current_sep < min_sep_deg) {
             min_sep_deg    = current_sep;
-            closest_ra_deg = solved_ra_deg;
-            closest_dec    = solved_dec_deg;
+            closest_ra_deg = prev_cmd_ra_deg;
+            closest_dec    = prev_cmd_dec;
         }
 
         // ---- Slew to corrected position ------------------------------------
