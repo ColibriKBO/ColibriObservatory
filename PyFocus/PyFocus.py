@@ -17,9 +17,6 @@ import win32com.client
 import pythoncom
 from astropy.io import fits
 
-import threading
-from pywinauto import Desktop
-
 #from alpaca.telescope import *
 #from alpaca.camera import *
 #from alpaca.focuser import *
@@ -90,6 +87,7 @@ class FocusThread(QtCore.QThread):
 	updateFocusFrame = QtCore.pyqtSignal(object)
 	updatePlot = QtCore.pyqtSignal(float,float,float)
 	updateStatus = QtCore.pyqtSignal(object)
+	updateStarOverlay = QtCore.pyqtSignal(object, object)
 
 	def __init__(self, parent=None, settings=None):
 		super(FocusThread,self).__init__(parent)
@@ -406,6 +404,12 @@ class FocusThread(QtCore.QThread):
 		# Reject local maxima that are not bright enough above the background.
 		maxima[data < peak_floor] = 0
 
+		# Reject saturated/hot-pixel-like peaks.
+		# A saturated point cannot give a reliable focus measurement.
+		saturation_level = np.nanmax(nda)
+		saturation_cut = 0.98 * saturation_level
+		maxima[data >= saturation_cut] = 0
+
 		data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
 		diff = ((data_max - data_min) > intensity_threshold)
 		maxima[diff == 0] = 0
@@ -423,6 +427,8 @@ class FocusThread(QtCore.QThread):
 		if num_objects == 0:
 			print("No stars found.")
 
+			self.updateStarOverlay.emit([], [])
+
 			no_star_status = basic_status.copy()
 			no_star_status["state"] = "Image captured, but no stars were found."
 			self.updateStatus.emit(no_star_status)
@@ -434,6 +440,8 @@ class FocusThread(QtCore.QThread):
 
 		if xy.size == 0:
 			print("No star centers found.")
+
+			self.updateStarOverlay.emit([], [])
 
 			no_center_status = basic_status.copy()
 			no_center_status["state"] = "Image captured, but no star centers were found."
@@ -475,16 +483,33 @@ class FocusThread(QtCore.QThread):
 			nda, global_mean, x, y
 		)
 
+		# Send star locations to the GUI overlay.
+		# Candidate points are the stars selected for fitting.
+		# Fitted points are stars that passed the PSF fit filters.
+		candidate_points = np.column_stack((x.flatten(), y.flatten()))
+
+		if len(x2) > 0:
+			fitted_points = np.column_stack((np.asarray(x2), np.asarray(y2)))
+		else:
+			fitted_points = np.empty((0, 2))
+
+		self.updateStarOverlay.emit(candidate_points, fitted_points)
+
 		print(f"Detected peaks: {num_objects}")
 		print(f"Valid PSF fits: {len(sigma_x_fitted)}")
 
-		if len(sigma_x_fitted) == 0 or len(sigma_y_fitted) == 0:
-			print("No valid PSF fits.")
+		min_valid_fits = 5
+
+		if len(sigma_x_fitted) < min_valid_fits or len(sigma_y_fitted) < min_valid_fits:
+			print(f"Not enough valid PSF fits: {len(sigma_x_fitted)} / {min_valid_fits}")
 
 			no_fit_status = basic_status.copy()
-			no_fit_status["state"] = "Stars detected, but no valid PSF fits."
+			no_fit_status["state"] = (
+				f"Not enough valid PSF fits "
+				f"({len(sigma_x_fitted)}/{min_valid_fits})."
+			)
 			no_fit_status["detected_peaks"] = num_objects
-			no_fit_status["valid_fits"] = 0
+			no_fit_status["valid_fits"] = len(sigma_x_fitted)
 			self.updateStatus.emit(no_fit_status)
 
 			return None
@@ -517,108 +542,6 @@ class FocusThread(QtCore.QThread):
 
 		return status
 	
-	def startMaxImGainPopupWatcher(self):
-		"""
-		Watch for MaxIm's ASCOM Gain/Offset popup and set the gain automatically.
-
-		This targets the small window that appears when MaxIm connects to the camera,
-		not the ASCOM Camera Chooser.
-		"""
-
-		requested_gain = str(int(round(float(self.gain))))
-
-		def worker():
-			deadline = time.time() + 20.0
-			last_error = None
-
-			while time.time() < deadline and self.threadactive:
-				try:
-					desktop = Desktop(backend="uia")
-
-					for win in desktop.windows():
-						title = win.window_text() or ""
-						title_lower = title.lower()
-
-						# This is the window you have been seeing from MaxIm.
-						if (
-							"gain" in title_lower
-							and "offset" in title_lower
-						):
-							print(f"Hybrid gain: found popup: {title}")
-
-							try:
-								win.set_focus()
-							except Exception:
-								pass
-
-							# Try ComboBox controls first. Usually the first combo is Gain.
-							combos = win.descendants(control_type="ComboBox")
-
-							if len(combos) > 0:
-								gain_combo = combos[0]
-
-								try:
-									gain_combo.select(requested_gain)
-									print(f"Hybrid gain: selected gain {requested_gain} using ComboBox.select().")
-								except Exception:
-									try:
-										gain_combo.set_focus()
-										gain_combo.type_keys("^a{BACKSPACE}" + requested_gain + "{ENTER}")
-										print(f"Hybrid gain: typed gain {requested_gain} into ComboBox.")
-									except Exception as e:
-										last_error = e
-										print(f"Hybrid gain: could not set ComboBox gain: {e}")
-
-							else:
-								# Fall back to Edit controls if the gain box appears as an editable field.
-								edits = win.descendants(control_type="Edit")
-
-								if len(edits) > 0:
-									try:
-										edits[0].set_edit_text(requested_gain)
-										print(f"Hybrid gain: set gain edit field to {requested_gain}.")
-									except Exception as e:
-										last_error = e
-										print(f"Hybrid gain: could not set edit-field gain: {e}")
-								else:
-									print("Hybrid gain: found popup, but no ComboBox/Edit controls were detected.")
-
-							# Try to accept/close the popup if it has an OK/Apply/Set button.
-							buttons = win.descendants(control_type="Button")
-							clicked_button = False
-
-							for button in buttons:
-								text = (button.window_text() or "").lower()
-
-								if text in ["ok", "apply", "set"]:
-									try:
-										button.click_input()
-										print(f"Hybrid gain: clicked {button.window_text()} button.")
-										clicked_button = True
-										break
-									except Exception as e:
-										last_error = e
-
-							# If no obvious button exists, press Enter as a fallback.
-							if not clicked_button:
-								try:
-									win.type_keys("{ENTER}")
-									print("Hybrid gain: pressed Enter to accept popup.")
-								except Exception:
-									pass
-
-							return
-
-				except Exception as e:
-					last_error = e
-
-				time.sleep(0.25)
-
-			print(f"Hybrid gain: gain popup was not found before timeout. Last error: {last_error}")
-
-		t = threading.Thread(target=worker, daemon=True)
-		t.start()
-	
 	def captureMaxIMFits(self):
 		"""
 		Capture one FITS image through MaxIM DL and return it as a NumPy array.
@@ -628,10 +551,7 @@ class FocusThread(QtCore.QThread):
 		output_path.parent.mkdir(parents=True, exist_ok=True)
 
 		# Connect to MaxIM only once.
-		# Start a watcher first because MaxIm may open the gain popup while LinkEnabled=True is running.
 		if self.maxim_camera is None:
-			self.startMaxImGainPopupWatcher()
-
 			self.maxim_camera = win32com.client.Dispatch("MaxIm.CCDCamera")
 			self.maxim_camera.LinkEnabled = True
 
@@ -776,6 +696,46 @@ class FocusThread(QtCore.QThread):
 
 			# Unpack fitted gaussian parameters
 			amplitude, yo, xo, sigma_y, sigma_x, theta, offset = popt
+
+			# Reject invalid or suspicious fit values.
+			if not np.isfinite([amplitude, xo, yo, sigma_x, sigma_y, offset]).all():
+				continue
+
+			# Reject negative or tiny amplitudes.
+			if amplitude <= 0:
+				continue
+
+			# Reject hot-pixel-like fits that are too narrow.
+			if sigma_x < 0.7 or sigma_y < 0.7:
+				continue
+
+			# Reject very broad artifacts.
+			if sigma_x > 8.0 or sigma_y > 8.0:
+				continue
+
+			# Estimate local background/noise from this star segment.
+			finite_seg = star_seg[np.isfinite(star_seg)]
+
+			if finite_seg.size < 10:
+				continue
+
+			local_median = np.median(finite_seg)
+			local_mad = np.median(np.abs(finite_seg - local_median))
+			local_sigma = 1.4826 * local_mad
+
+			if local_sigma <= 0:
+				local_sigma = np.std(finite_seg)
+
+			if local_sigma <= 0:
+				continue
+
+			# Peak SNR estimate for this candidate.
+			# This is not formal photometric SNR; it is a practical rejection test.
+			peak_value = np.nanmax(star_seg)
+			peak_snr = (peak_value - local_median) / local_sigma
+
+			if peak_snr < 8.0:
+				continue
 
 			# Filter hot pixels
 			if min(sigma_y/sigma_x, sigma_x/sigma_y) < roundness_threshold:
@@ -983,15 +943,63 @@ class Ui(QtWidgets.QMainWindow):
 		self.focus_imagewidget.ui.menuBtn.hide()
 		self.focus_imagewidget.setMinimumSize(650, 650)
 
+		self.last_raw_img = None
 		self.last_display_img = None
+		self.display_block = 1
+
+		# Star overlays:
+		# Yellow X = detected candidate stars
+		# Green circle = stars with valid PSF fits
+		self.candidate_scatter = pg.ScatterPlotItem(
+			size=9,
+			pen=pg.mkPen('y', width=2),
+			brush=None,
+			symbol='x'
+		)
+
+		self.fitted_scatter = pg.ScatterPlotItem(
+			size=11,
+			pen=pg.mkPen('g', width=2),
+			brush=None,
+			symbol='o'
+		)
+
+		image_view = self.focus_imagewidget.getView()
+		image_view.addItem(self.candidate_scatter)
+		image_view.addItem(self.fitted_scatter)
+
+		# Cursor statistics over the image view
+		self.image_proxy = pg.SignalProxy(
+			self.focus_imagewidget.getView().scene().sigMouseMoved,
+			rateLimit=30,
+			slot=self.updateCursorStats
+		)
 
 		self.Zoom_slider.setRange(1, 9)
 		self.Zoom_slider.setValue(1)
 		self.Zoom_slider.valueChanged.connect(self.applyImageZoom)
 
 		image_layout.addWidget(self.focus_imagewidget)
-		image_group.setLayout(image_layout)
 
+		self.cursor_stats_label = QtWidgets.QLabel(
+			"Cursor: --   Pixel: --   Local mean/std: --   Local min/max: --   SNR: --"
+		)
+		self.cursor_stats_label.setWordWrap(True)
+		self.cursor_stats_label.setStyleSheet("""
+			QLabel {
+				color: #f4f7fb;
+				background-color: #182033;
+				border: 1px solid #303b52;
+				border-radius: 6px;
+				padding: 8px;
+				font-family: Consolas, Courier New, monospace;
+				font-size: 12pt;
+			}
+		""")
+
+		image_layout.addWidget(self.cursor_stats_label)
+
+		image_group.setLayout(image_layout)
 		left_column.addWidget(image_group)
 
 		# ---------------- Right column: plot ----------------
@@ -1074,15 +1082,12 @@ class Ui(QtWidgets.QMainWindow):
 		self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
 		self.CaptureMode_combo.currentTextChanged.connect(self.updateAutofocusControls)
 
-		self.Gain_spinbox = QtWidgets.QDoubleSpinBox()
-		self.Gain_spinbox.setRange(0.0, 100.0)
-		self.Gain_spinbox.setDecimals(2)
-		self.Gain_spinbox.setSingleStep(0.5)
-		self.Gain_spinbox.setValue(25.0)
+		self.Gain_note_label = QtWidgets.QLabel("Set manually in the ASCOM Gain and Offset window.")
+		self.Gain_note_label.setWordWrap(True)
 
 		settings_layout.addRow("Capture mode:", self.CaptureMode_combo)
 		settings_layout.addRow("Exposure (s):", self.Exposure_spinbox)
-		settings_layout.addRow("Gain:", self.Gain_spinbox)
+		settings_layout.addRow("Gain:", self.Gain_note_label)
 		settings_layout.addRow("Binning:", self.Binning_spinbox)
 		settings_layout.addRow("Image zoom:", self.Zoom_slider)
 		self.AFStep_spin = QtWidgets.QSpinBox()
@@ -1155,7 +1160,6 @@ class Ui(QtWidgets.QMainWindow):
 		return {
 			"capture_mode": self.CaptureMode_combo.currentText(),
 			"exposure": self.Exposure_spinbox.value(),
-			"gain": self.Gain_spinbox.value(),
 			"bin_x": binning,
 			"bin_y": binning,
 			"filter_number": 0,
@@ -1177,6 +1181,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
 		self.thread.updatePlot.connect(self.updatePlot)
 		self.thread.updateStatus.connect(self.updateStatus)
+		self.thread.updateStarOverlay.connect(self.updateStarOverlay)
 
 	def startthread(self):
 		self.thread.start()
@@ -1198,6 +1203,8 @@ class Ui(QtWidgets.QMainWindow):
 		self.x_line.setData(self.Sx, self.Sy)
 		self.y_line.setData(self.Sx, self.Syy)
 		self.av_line.setData(self.Sx, self.Sav)
+		self.candidate_scatter.setData([])
+		self.fitted_scatter.setData([])
 
 		# Clear image display
 		blank_image = np.zeros((100, 100), dtype=np.float32)
@@ -1212,6 +1219,12 @@ class Ui(QtWidgets.QMainWindow):
 		self.status_label.setText(
 			"No image loaded.\n"
 			"Focus metrics will appear here after capture."
+		)
+
+		self.last_raw_img = None
+		self.last_display_img = None
+		self.cursor_stats_label.setText(
+			"Cursor: --   Pixel: --   Local mean/std: --   Local min/max: --   SNR: --"
 		)
 
 	def plot(self, hour, temperature):
@@ -1407,6 +1420,121 @@ class Ui(QtWidgets.QMainWindow):
 			yRange=(y_min, y_max),
 			padding=0
 		)
+		
+	def updateCursorStats(self, event):
+		"""
+		Update the cursor statistics readout below the FITS image.
+
+		The displayed image may be downsampled relative to the raw camera image.
+		Mouse coordinates are converted back into raw-image coordinates using
+		self.display_block.
+		"""
+
+		if self.last_raw_img is None or self.last_display_img is None:
+			return
+
+		# SignalProxy passes arguments as a tuple.
+		pos = event[0]
+
+		view = self.focus_imagewidget.getView()
+
+		if not view.sceneBoundingRect().contains(pos):
+			return
+
+		# getView() already returns the ViewBox, so call mapSceneToView directly.
+		mouse_point = view.mapSceneToView(pos)
+
+		display_x = int(round(mouse_point.x()))
+		display_y = int(round(mouse_point.y()))
+
+		display_height, display_width = self.last_display_img.shape
+
+		if (
+			display_x < 0 or display_x >= display_width or
+			display_y < 0 or display_y >= display_height
+		):
+			return
+
+		block = max(1, int(getattr(self, "display_block", 1)))
+
+		raw_x = int(display_x * block)
+		raw_y = int(display_y * block)
+
+		raw_height, raw_width = self.last_raw_img.shape
+
+		if (
+			raw_x < 0 or raw_x >= raw_width or
+			raw_y < 0 or raw_y >= raw_height
+		):
+			return
+
+		pixel_value = float(self.last_raw_img[raw_y, raw_x])
+
+		# Local statistics window around the cursor.
+		radius = 5
+
+		y0 = max(0, raw_y - radius)
+		y1 = min(raw_height, raw_y + radius + 1)
+		x0 = max(0, raw_x - radius)
+		x1 = min(raw_width, raw_x + radius + 1)
+
+		region = self.last_raw_img[y0:y1, x0:x1]
+		region = region[np.isfinite(region)]
+
+		if region.size == 0:
+			return
+
+		local_mean = float(np.mean(region))
+		local_median = float(np.median(region))
+		local_std = float(np.std(region))
+		local_min = float(np.min(region))
+		local_max = float(np.max(region))
+
+		if local_std > 0:
+			snr = (pixel_value - local_median) / local_std
+		else:
+			snr = 0.0
+
+		self.cursor_stats_label.setText(
+			f"Cursor raw: x={raw_x}, y={raw_y}   "
+			f"Pixel={pixel_value:.1f} ADU   "
+			f"Mean={local_mean:.1f}   "
+			f"Median={local_median:.1f}   "
+			f"Std={local_std:.1f}   "
+			f"Min/Max={local_min:.0f}/{local_max:.0f}   "
+			f"SNR~{snr:.1f}"
+		)
+	
+	def updateStarOverlay(self, candidate_points, fitted_points):
+		"""
+		Update star markers on top of the displayed image.
+
+		Coordinates from the focus thread are in raw-image pixels.
+		The displayed image is downsampled by self.display_block, so we scale
+		the marker positions to match the preview image.
+		"""
+
+		block = max(1, int(getattr(self, "display_block", 1)))
+
+		def make_spots(points, size):
+			arr = np.asarray(points, dtype=float)
+
+			if arr.size == 0:
+				return []
+
+			arr = arr.reshape(-1, 2)
+
+			spots = []
+			for px, py in arr:
+				spots.append({
+					"pos": (float(px) / block, float(py) / block),
+					"size": size,
+				})
+
+			return spots
+
+		self.candidate_scatter.setData(make_spots(candidate_points, 9))
+		self.fitted_scatter.setData(make_spots(fitted_points, 11))
 
 	def updateFocusFrame(self, image):
 		"""
@@ -1421,6 +1549,7 @@ class Ui(QtWidgets.QMainWindow):
 		"""
 
 		img = np.asarray(image, dtype=np.float32)
+		self.last_raw_img = img
 
 		# Make a display-only copy.
 		display_img = img.copy()
@@ -1431,6 +1560,7 @@ class Ui(QtWidgets.QMainWindow):
 		height, width = display_img.shape
 
 		block = max(1, int(max(height, width) / max_display_size))
+		self.display_block = block
 
 		if block > 1:
 			new_height = height // block
