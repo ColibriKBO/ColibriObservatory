@@ -818,104 +818,171 @@ class Ui(QtWidgets.QMainWindow):
 
 		# Make the GUI wider for a two-column layout.
 		self.setWindowTitle("PyFocus Automated Focusing")
-		self.resize(1250, 800)
-		self.setMinimumSize(1100, 700)
+		self.resize(1350, 825)
+		self.setMinimumSize(1200, 750)
 		
 
 		self.setStyleSheet("""
 			QMainWindow {
-				background-color: #f4f5f7;
+				background-color: #101418;
+			}
+
+			QWidget {
+				font-family: Segoe UI, Arial, sans-serif;
+				font-size: 9pt;
 			}
 
 			QGroupBox {
 				font-weight: bold;
-				border: 1px solid #c7ccd4;
-				border-radius: 8px;
-				margin-top: 10px;
-				padding: 8px;
-				background-color: #ffffff;
+				border: 1px solid #2c3440;
+				border-radius: 10px;
+				margin-top: 12px;
+				padding: 10px;
+				background-color: #171d24;
+				color: #e8edf3;
 			}
 
 			QGroupBox::title {
 				subcontrol-origin: margin;
-				left: 10px;
-				padding: 0 4px;
-				color: #1f2a44;
+				left: 12px;
+				padding: 0 6px;
+				color: #d7e3f4;
 			}
 
 			QLabel {
-				color: #1f2a44;
+				color: #d7dee8;
 				font-size: 9pt;
 			}
 
 			QPushButton {
-				background-color: #e9edf5;
-				border: 1px solid #aeb7c7;
-				border-radius: 6px;
-				padding: 6px 10px;
+				background-color: #243044;
+				border: 1px solid #3b4a63;
+				border-radius: 7px;
+				padding: 7px 11px;
 				font-weight: bold;
-				color: #1f2a44;
+				color: #e8edf3;
 			}
 
 			QPushButton:hover {
-				background-color: #dce5f5;
+				background-color: #2e3b53;
 			}
 
 			QPushButton:pressed {
-				background-color: #cbd8ec;
+				background-color: #1d2636;
 			}
 
 			QPushButton:checked {
 				background-color: #2f6fed;
 				color: white;
-				border: 1px solid #2457bd;
+				border: 1px solid #5b8cff;
+			}
+
+			QPushButton#runButton {
+				background-color: #2f6fed;
+				color: white;
+				border: 1px solid #5b8cff;
+			}
+					 
+			QPushButton#runButton:hover {
+				background-color: #4f86ff;
+				border: 1px solid #9bb8ff;
+			}
+
+			QPushButton#runButton:pressed {
+				background-color: #1747a6;
+				border: 1px solid #9bb8ff;
+				padding-top: 9px;
+				padding-left: 12px;
+				padding-bottom: 5px;
+				padding-right: 10px;
+			}
+					 
+			QPushButton#runButton:checked {
+				background-color: #1f9d55;
+				border: 1px solid #58d68d;
+				color: white;
+			}
+
+			QPushButton#clearButton {
+				background-color: #293241;
+				color: #d7dee8;
+			}
+					 
+			QPushButton#clearButton:hover {
+				background-color: #3a4658;
+				border: 1px solid #52627a;
+			}
+
+			QPushButton#clearButton:pressed {
+				background-color: #1b2433;
+				border: 1px solid #52627a;
+				padding-top: 9px;
+				padding-left: 12px;
+				padding-bottom: 5px;
+				padding-right: 10px;
+			}
+
+			QPushButton#exitButton {
+				background-color: #3a2428;
+				border: 1px solid #71404a;
+				color: #ffd7dc;
+			}
+					 
+			QPushButton#exitButton:hover {
+				background-color: #5a2d35;
+				border: 1px solid #a95a66;
+			}
+
+			QPushButton#exitButton:pressed {
+				background-color: #2a1519;
+				border: 1px solid #a95a66;
+				padding-top: 9px;
+				padding-left: 12px;
+				padding-bottom: 5px;
+				padding-right: 10px;
 			}
 
 			QSpinBox, QDoubleSpinBox, QComboBox {
-				background-color: white;
-				border: 1px solid #aeb7c7;
-				border-radius: 4px;
-				padding: 3px;
-				color: #1f2a44;
+				background-color: #0f141a;
+				border: 1px solid #3b4a63;
+				border-radius: 5px;
+				padding: 4px;
+				color: #e8edf3;
+			}
+
+			QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+				color: #697586;
+				background-color: #171d24;
+				border: 1px solid #293241;
+			}
+
+			QLabel:disabled {
+				color: #697586;
 			}
 
 			QSlider::groove:horizontal {
-				border: 1px solid #aeb7c7;
+				border: 1px solid #3b4a63;
 				height: 6px;
-				background: #e9edf5;
+				background: #0f141a;
 				border-radius: 3px;
 			}
 
 			QSlider::handle:horizontal {
-				background: #2f6fed;
-				border: 1px solid #2457bd;
+				background: #5b8cff;
+				border: 1px solid #8fb0ff;
 				width: 14px;
 				margin: -5px 0;
 				border-radius: 7px;
 			}
 
-			QLabel:disabled {
-				color: #a8afbd;
-			}
-
-			QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
-				color: #9aa3b2;
-				background-color: #eef1f5;
-				border: 1px solid #d0d5dd;
-			}
-
-			QSlider:disabled {
-				color: #9aa3b2;
-			}
-
 			QSlider::groove:horizontal:disabled {
-				background: #eef1f5;
-				border: 1px solid #d0d5dd;
+				background: #171d24;
+				border: 1px solid #293241;
 			}
 
 			QSlider::handle:horizontal:disabled {
-				background: #b8c0cc;
-				border: 1px solid #a8afbd;
+				background: #697586;
+				border: 1px solid #697586;
 			}
 		""")
 
@@ -930,11 +997,11 @@ class Ui(QtWidgets.QMainWindow):
 		left_column = QtWidgets.QVBoxLayout()
 		right_column = QtWidgets.QVBoxLayout()
 
-		main_layout.addLayout(left_column, stretch=4)
-		main_layout.addLayout(right_column, stretch=2)
+		main_layout.addLayout(left_column, stretch=5)
+		main_layout.addLayout(right_column, stretch=3)
 
 		# ---------------- Left column: live image ----------------
-		image_group = QtWidgets.QGroupBox("Live FITS Image")
+		image_group = QtWidgets.QGroupBox("Live FITS View")
 		image_layout = QtWidgets.QVBoxLayout()
 
 		self.focus_imagewidget = pg.ImageView()
@@ -1003,7 +1070,7 @@ class Ui(QtWidgets.QMainWindow):
 		left_column.addWidget(image_group)
 
 		# ---------------- Right column: plot ----------------
-		plot_group = QtWidgets.QGroupBox("Focus Metric")
+		plot_group = QtWidgets.QGroupBox("Focus Trend")
 		plot_layout = QtWidgets.QVBoxLayout()
 		plot_layout.addWidget(self.Plot)
 		plot_group.setLayout(plot_layout)
@@ -1146,6 +1213,10 @@ class Ui(QtWidgets.QMainWindow):
 		button_layout.addWidget(self.Clear_button)
 		button_layout.addWidget(self.Stop_button)
 
+		self.Start_button.setObjectName("runButton")
+		self.Clear_button.setObjectName("clearButton")
+		self.Stop_button.setObjectName("exitButton")
+
 		button_group.setLayout(button_layout)
 		right_column.addWidget(button_group)
 
@@ -1173,6 +1244,22 @@ class Ui(QtWidgets.QMainWindow):
 			"af_settle_time": self.AFSettleTime_spin.value(),
 			"focuser_driver_id": None,
 		}
+	
+	def onFocusThreadFinished(self):
+		"""
+		Reset the Run button after a capture sequence finishes naturally.
+
+		This is mainly needed for Single Image and Autofocus modes, where the
+		thread stops by itself. Stream mode usually stops when the user toggles
+		Run off manually.
+		"""
+
+		self.Start_button.blockSignals(True)
+		self.Start_button.setChecked(False)
+		self.Start_button.blockSignals(False)
+
+		self.Start_button.setText("Start")
+		print("Focus thread finished.")
 
 	def watchthread(self, worker):
 		settings = self.getFocusSettings()
@@ -1182,6 +1269,9 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread.updatePlot.connect(self.updatePlot)
 		self.thread.updateStatus.connect(self.updateStatus)
 		self.thread.updateStarOverlay.connect(self.updateStarOverlay)
+
+		# Reset the Run button when Single Image / Autofocus finishes naturally.
+		self.thread.finished.connect(self.onFocusThreadFinished)
 
 	def startthread(self):
 		self.thread.start()
@@ -1299,8 +1389,8 @@ class Ui(QtWidgets.QMainWindow):
 			f"Binning: {status['binning']}\n"
 			f"Mean: {status['mean']:.1f} ± {status['std']:.1f}   "
 			f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
-			f"Detected peaks: {status['detected_peaks']}   "
-			f"Valid PSF fits: {status['valid_fits']}\n"
+			f"Candidate peaks: {status['detected_peaks']}   "
+			f"Accepted PSFs: {status['valid_fits']}\n"
 			f"{sigma_text}"
 		)
 
@@ -1332,15 +1422,13 @@ class Ui(QtWidgets.QMainWindow):
 
 		# print(self.Start_button.isChecked())
 		if self.Start_button.isChecked():
+			self.Start_button.setText("Running...")
 			self.connectDevices()
 			self.watchthread(FocusThread)
 			self.startthread()
-
-		    # print(self.ctrl)
-		    # self.ctrl['break'] = False
-		    # self.start()
 		else:
-		    self.killthread()
+			self.Start_button.setText("Start")
+			self.killthread()
 
 	def stopFocus(self):
 		print("Exit button pressed.")
