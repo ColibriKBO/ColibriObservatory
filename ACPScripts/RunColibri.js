@@ -1199,6 +1199,26 @@ function adjustPointing(target_ra, target_dec) {
       //      Util.WaitForMilliseconds(500);
       //  }
     } else {
+
+        // No valid plate solve was obtained.
+        // If this occured on Iter 1. then the telescope is already at the position reached
+        // by the initial slew or pier flip. Do not issue another slew to the original target,
+        // especially near the meridian where that could retrigger flip logic.
+        if (min_sep_deg === Infinity) {
+            Console.PrintLine(
+                "Pointing correction failed before any valid solve. " +
+                "Staying at the current telescope position."
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " WARNING: Pointing correction obtained no valid astrometric solve. " +
+                "No fallback slew performed."
+            );
+
+            return false;
+
+
         var fallback_ra_hours = closest_ra_deg / 15;
         Console.PrintLine("Pointing did not converge. Best achieved: "
             + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
