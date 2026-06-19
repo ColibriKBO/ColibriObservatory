@@ -906,8 +906,12 @@ function parseOffsets(text) {
 function getScheduleFromPython(sunsetJD, sunriseJD) {
     var sh = new ActiveXObject("WScript.Shell");
     var userProfile = sh.ExpandEnvironmentStrings("%USERPROFILE%");
-    var scriptPath = userProfile +
-        "\\Documents\\GitHub\\ColibriObservatory\\scheduler\\run_scheduler.py";
+    var repoBase    = userProfile + "\\Documents\\GitHub\\ColibriObservatory";
+    var scriptPath  = repoBase + "\\scheduler\\run_scheduler.py";
+
+    // Converts Gaia J2016.0 field centroids to J2000.0 (required by ACP mount).
+    // Lives alongside RunColibri.js in the ACPScripts folder.
+    var convertPath = repoBase + "\\ACPScripts\\gaia_to_j2000.py";
 
     var timeoutMs = 120000; // 2 minutes
 
@@ -933,7 +937,20 @@ function getScheduleFromPython(sunsetJD, sunriseJD) {
 
     while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
 
-    return out;
+    // Precess all field coordinates from Gaia J2016.0 to J2000.0 via AstroPy.
+    // The converter reads the raw schedule block from stdin and writes the
+    // identical block with ra_deg/dec_deg replaced by J2000.0 values.
+    var conv = sh.Exec('cmd /c python -u "' + convertPath + '"');
+    conv.StdIn.Write(out);
+    conv.StdIn.Close();
+    var converted = "";
+    while (conv.Status === 0) {
+        while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+        Util.WaitForMilliseconds(50);
+    }
+    while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+
+    return converted;
 }
 
 //////////////////////////////////////////////////////////////
