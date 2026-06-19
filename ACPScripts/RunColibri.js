@@ -1217,7 +1217,7 @@ function adjustPointing(target_ra, target_dec) {
             );
 
             return false;
-
+        }
 
         var fallback_ra_hours = closest_ra_deg / 15;
         Console.PrintLine("Pointing did not converge. Best achieved: "
@@ -1323,6 +1323,7 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 {
     lat = Telescope.SiteLatitude;
     lon = Telescope.SiteLongitude;
+    var SunAltitudeDeg = -6;
 
     n = Math.floor(jDate - 2451545.0 + 0.0008);
     Jstar = n - (lon / 360.0);
@@ -1333,7 +1334,7 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 
     sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
 
-    cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat)) * sindec)) / (Math.cos(Util.Degrees_Radians(lat)) * Math.cos(Math.asin(sindec)));
+    cosHA = (Math.sin(Util.Degrees_Radians(SunAltitudeDeg)) - (Math.sin(Util.Degrees_Radians(lat)) * sindec)) / (Math.cos(Util.Degrees_Radians(lat)) * Math.cos(Math.asin(sindec)));
 
     Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
     Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
