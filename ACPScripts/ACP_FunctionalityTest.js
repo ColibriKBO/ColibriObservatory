@@ -129,9 +129,18 @@ function main() {
         }
     }
 
+    Console.PrintLine("EquatorialSystem = " + Telescope.EquatorialSystem);
+    Console.PrintLine("DoLocalTopo = " + Prefs.DoLocalTopo);
+    Console.PrintLine("Site latitude = " + Telescope.SiteLatitude);
+    Console.PrintLine("Site longitude = " + Telescope.SiteLongitude);
+    Console.PrintLine("Mount UTC = " + Telescope.UTCDate);
+    Console.PrintLine("Mount RA = " + Telescope.RightAscension);
+    Console.PrintLine("Mount Dec = " + Telescope.Declination);
+    Console.PrintLine("Pier side = " + Telescope.SideOfPier);
+
     // Move the dome and capture images
-    moveDomeToOtherSide();  // Start dome movement (blocking until done)
-    captureImage();         // Start capturing the image (independently)
+    //moveDomeToOtherSide();  // Start dome movement (blocking until done)
+    //captureImage();         // Start capturing the image (independently)
 
     // Optionally, you can check status or log while waiting
 }
