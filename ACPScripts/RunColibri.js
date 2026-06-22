@@ -2019,6 +2019,15 @@ function main()
             Telescope.Unpark()
             Console.PrintLine("Telescope Unparked.");
 
+            Console.PrintLine("EquatorialSystem = " + Telescope.EquatorialSystem);
+            Console.PrintLine("DoLocalTopo = " + Prefs.DoLocalTopo);
+            Console.PrintLine("Site latitude = " + Telescope.SiteLatitude);
+            Console.PrintLine("Site longitude = " + Telescope.SiteLongitude);
+            Console.PrintLine("Mount UTC = " + Telescope.UTCDate);
+            Console.PrintLine("Mount RA = " + Telescope.RightAscension);
+            Console.PrintLine("Mount Dec = " + Telescope.Declination);
+            Console.PrintLine("Pier side = " + Telescope.SideOfPier);
+
             // Camera reset and start-up before imaging at start-up may ultimately unnecessary commenting this out to test.
             //setOutletState(1,false); // Turn off the camera
             //Util.WaitForMilliseconds(5000); // wait for 5 seconds
@@ -2031,6 +2040,13 @@ function main()
 
             // Append the camera start up log file.
             //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+        }
+
+        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
+        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
+        {
+            Console.PrintLine("*** Dome shutter is still opening...");
+            Util.WaitForMilliseconds(2000);
         }
 
         // Turn on sidereal telescope tracking
@@ -2082,13 +2098,6 @@ function main()
         {
             Console.PrintLine("Dome is still slewing. Give me a minute...");
             Util.WaitForMilliseconds(500);
-        }
-
-        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
-        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
-        {
-            Console.PrintLine("*** Dome shutter is still opening...");
-            Util.WaitForMilliseconds(2000);
         }
 
         Console.PrintLine("At target.");
