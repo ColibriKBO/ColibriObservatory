@@ -37,6 +37,11 @@ var SUP;
 var ForReading = 1;
 var ForAppending = 8;
 var finalFields = [];
+
+// false = existing behaviour: send J2000 numbers directly to the mount
+// true  = convert J2000 to current topocentric before mount commands
+var USE_TOPOCENTRIC_SLEWS = true;
+
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -692,7 +697,7 @@ function getRADEC()
     var ras, des;
     if(Prefs.DoLocalTopo)                               // Get scope J2000 RA/Dec
     {
-        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declnation);
+        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declination);
         ras = SUP.J2000RA;
         des = SUP.J2000Dec;
     }
@@ -808,19 +813,62 @@ function gotoRADec(ra, dec)
     }
 
     if (Telescope.tracking)
-    {   
-        Console.PrintLine("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-
-        // Need to put a check in for 'incomplete' coordinates. Not sure what this means as it doesn't
-        // seem to be a problem with ACP, but a problem with the AP driver. Let's try either restarting
-        // script after error or just repeating this function on error return, if possible. Try/catch/finally
-        // statement.
+    {
+        var mountCoords;
 
         try
         {
-            Telescope.SlewToCoordinates(ra.toFixed(4), dec.toFixed(4));
+            mountCoords = getMountCoordinates(ra, dec);
         }
+        catch (conversionError)
+        {
+            Console.PrintLine(
+                "ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            return false;
+        }
+
+        Console.PrintLine("Slew coordinate mode: " + mountCoords.mode);
+        Console.PrintLine(
+            "J2000 request: RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        Console.PrintLine(
+            "Mount command: RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Slew coordinate mode: " + mountCoords.mode
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: J2000 request RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Mount command RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        try
+        {
+            Telescope.SlewToCoordinates(
+                mountCoords.ra,
+                mountCoords.dec
+            );
+        }
+        
         catch(e)
         {
             if (slewAttempt < 10)
@@ -845,6 +893,97 @@ function gotoRADec(ra, dec)
     }
 
     return false;
+}
+
+function convertJ2000ToTopocentric(raJ2000, decJ2000)
+{
+    var transform = null;
+
+    try
+    {
+        transform = new ActiveXObject(
+            "ASCOM.Astrometry.Transform.Transform"
+        );
+
+        transform.SiteLatitude  = Telescope.SiteLatitude;
+        transform.SiteLongitude = Telescope.SiteLongitude;
+
+        try
+        {
+            transform.SiteElevation = Telescope.SiteElevation;
+        }
+        catch (e)
+        {
+            // Elevation is a minor contribution for distant stellar fields.
+            transform.SiteElevation = 0;
+        }
+
+        // Use the current UTC time.
+        transform.JulianDateUTC = Util.SysJulianDate;
+
+        // ASCOM topocentric coordinates normally exclude refraction.
+        transform.Refraction = false;
+
+        // Input RA is hours; Dec is degrees.
+        transform.SetJ2000(raJ2000, decJ2000);
+
+        var result = {
+            ra:  Number(transform.RATopocentric),
+            dec: Number(transform.DECTopocentric)
+        };
+
+        if (!isValidRaHoursDecDeg(result.ra, result.dec))
+        {
+            throw new Error(
+                "Invalid transformed coordinates: RA=" +
+                result.ra + " Dec=" + result.dec
+            );
+        }
+
+        return result;
+    }
+    finally
+    {
+        if (transform != null)
+        {
+            try
+            {
+                transform.Dispose();
+            }
+            catch (e) {}
+        }
+    }
+}
+
+function getMountCoordinates(raJ2000, decJ2000)
+{
+    // Preserve the current behaviour for the baseline test.
+    if (!USE_TOPOCENTRIC_SLEWS)
+    {
+        return {
+            ra: raJ2000,
+            dec: decJ2000,
+            mode: "DIRECT J2000"
+        };
+    }
+
+    // The conversion test is only appropriate when the driver reports
+    // that it expects topocentric coordinates.
+    if (Number(Telescope.EquatorialSystem) != 1)
+    {
+        throw new Error(
+            "Topocentric slew requested, but EquatorialSystem=" +
+            Telescope.EquatorialSystem
+        );
+    }
+
+    var topo = convertJ2000ToTopocentric(raJ2000, decJ2000);
+
+    return {
+        ra: topo.ra,
+        dec: topo.dec,
+        mode: "TOPOCENTRIC"
+    };
 }
 
 function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
@@ -876,16 +1015,32 @@ function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
 }
 
 function parseOffsets(text) {
-    // Find the last line that contains at least two floats
+    // Find the last line that contains at least two floats also added functionality in case scientific notation is detected it can now handle this
     var lines = text.replace(/\r/g, "").split("\n");
+    var numberPattern =
+        "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
+
+    var offsetPattern = new RegExp(
+        "^\\s*(" + numberPattern + ")\\s+(" + numberPattern + ")\\s*$"
+    );
+
     for (var i = lines.length - 1; i >= 0; i--) {
-        var nums = lines[i].match(/-?\d+(?:\.\d+)?/g);
-        if (nums && nums.length >= 2) {
-            var raOff = parseFloat(nums[0]);
-            var decOff = parseFloat(nums[1]);
-            if (!isNaN(raOff) && !isNaN(decOff)) return { ra: raOff, dec: decOff };
+        var match = lines[i].match(offsetPattern);
+        if (match)
+        {
+            var raOff  = parseFloat(match[1]);
+            var decOff = parseFloat(match[2]);
+
+            if (isFinite(raOff) && isFinite(decOff))
+            {
+                return {
+                    ra: raOff,
+                    dec: decOff
+                };
+            }
         }
     }
+
     return null;
 }
 
@@ -1027,7 +1182,7 @@ function adjustPointing(target_ra, target_dec) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
     var MAX_ITERATIONS = 10;
-    var LAMBDA = 0.9;               // uniform damping, applied every iteration
+    var LAMBDA = 1.0;               // uniform damping, applied every iteration
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -2068,6 +2223,40 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
 
+        var topoTest = convertJ2000ToTopocentric(
+            currentFieldCt.RightAscension,
+            currentFieldCt.Declination
+        );
+
+        Console.PrintLine(
+            "J2000 target: RA=" +
+            currentFieldCt.RightAscension.toFixed(8) +
+            "h Dec=" +
+            currentFieldCt.Declination.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Topocentric equivalent: RA=" +
+            topoTest.ra.toFixed(8) +
+            "h Dec=" +
+            topoTest.dec.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Coordinate difference: RA=" +
+            (
+                (topoTest.ra - currentFieldCt.RightAscension) *
+                15 * 3600 *
+                Math.cos(currentFieldCt.Declination * Math.PI / 180)
+            ).toFixed(1) +
+            " arcsec sky, Dec=" +
+            (
+                (topoTest.dec - currentFieldCt.Declination) *
+                3600
+            ).toFixed(1) +
+            " arcsec"
+        );
+
         // Slew to the current field
         if (!gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination))
         {
@@ -2166,9 +2355,32 @@ function main()
 
         while (Util.SysJulianDate < endJD)
         {
+            var destinationCoords;
+            try
+            {
+                destinationCoords = getMountCoordinates(
+                    currentFieldCt.RightAscension,
+                    currentFieldCt.Declination
+                );
+            }
+            catch (destinationError)
+            {
+                Console.PrintLine(
+                    "ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                ts.WriteLine(
+                    Util.SysUTCDate +
+                    " ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                break;
+            }
 
             // Check pier side
-            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
+            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(destinationCoords.ra, destinationCoords.dec))
             {
                 Console.PrintLine("Flipping sides of pier...");
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");

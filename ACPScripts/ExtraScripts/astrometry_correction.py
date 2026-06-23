@@ -371,7 +371,7 @@ def main(argv=None) -> int:
         ra_off, dec_off, _, _ = correct_pointing(
             target_ra, target_dec, image_path, args.solver, args.plot,
         )
-        print(f"{ra_off} {dec_off}", flush=True)
+        print(f"{ra_off:.12f} {dec_off:.12f}", flush=True)
         return 0
 
     except SystemExit:
