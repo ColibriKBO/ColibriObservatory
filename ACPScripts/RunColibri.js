@@ -42,6 +42,8 @@ var finalFields = [];
 // true  = convert J2000 to current topocentric before mount commands
 var USE_TOPOCENTRIC_SLEWS = true;
 
+var USE_GAIA_TO_J2000 = false;
+
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -1091,6 +1093,18 @@ function getScheduleFromPython(sunsetJD, sunriseJD) {
     }
 
     while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
+
+    // Test mode: use the raw coordinates supplied by the scheduler. 
+    if (!USE_GAIA_TO_J2000) { 
+        Console.PrintLine( "Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        return out; 
+    }
+
+    // Existing behaviour: pass the scheduler output through 
+    // gaia_to_j2000.py before parsing the schedule.
+    Console.PrintLine( "Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
+    ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
 
     // Precess all field coordinates from Gaia J2016.0 to J2000.0 via AstroPy.
     // The converter reads the raw schedule block from stdin and writes the
