@@ -4,7 +4,7 @@ import numpy as np
 import numba as nb
 import pyqtgraph as pg
 import threading
-#pg.setConfigOptions(imageAxisOrder='row-major')
+pg.setConfigOptions(imageAxisOrder='row-major')
 
 import imageio
 import scipy.optimize as opt
@@ -453,7 +453,7 @@ class FocusThread(QtCore.QThread):
 
 		# Use a sigma-based threshold instead of only the fixed intensity threshold.
 		# This prevents closed-dome noise/hot pixels from being counted as thousands of stars.
-		sigma_threshold = 8.0
+		sigma_threshold = 4.0
 		intensity_threshold = max(self.intensity_threshold, sigma_threshold * robust_sigma)
 		peak_floor = median + sigma_threshold * robust_sigma
 
@@ -482,8 +482,13 @@ class FocusThread(QtCore.QThread):
 
 		self.updateStatus.emit(basic_status)
 
-		# Locate local maxima that may correspond to stars.
-		neighborhood_size = self.neighborhood_size
+		# Keep approximately the same angular detection footprint at each binning.
+		bin_factor = max(1, int(max(self.bin_x, self.bin_y)))
+
+		neighborhood_size = max(
+			5,
+			int(round(self.neighborhood_size / bin_factor))
+		)
 
 		data_max = ndimage.maximum_filter(data, neighborhood_size)
 		maxima = (data == data_max)
@@ -491,11 +496,20 @@ class FocusThread(QtCore.QThread):
 		# Reject local maxima that are not bright enough above the background.
 		maxima[data < peak_floor] = 0
 
-		# Reject saturated/hot-pixel-like peaks.
-		# A saturated point cannot give a reliable focus measurement.
-		saturation_level = np.nanmax(nda)
-		saturation_cut = 0.98 * saturation_level
-		maxima[data >= saturation_cut] = 0
+		# MaxIM is currently returning values up to the 16-bit ceiling.
+		sensor_saturation = 65535.0
+		saturation_cut = 0.98 * sensor_saturation
+
+		# Use the raw image, not the smoothed detection image, to identify
+		# saturated pixels. Dilate the mask so we reject candidates adjacent
+		# to a saturated core as well.
+		saturated_mask = nda >= saturation_cut
+		saturated_mask = ndimage.maximum_filter(
+			saturated_mask.astype(np.uint8),
+			size=3
+		) > 0
+
+		maxima[saturated_mask] = 0
 
 		data_min = ndimage.minimum_filter(data, neighborhood_size + 10)
 		diff = ((data_max - data_min) > intensity_threshold)
@@ -603,8 +617,8 @@ class FocusThread(QtCore.QThread):
 
 		# Use mean for now, matching current behaviour.
 		# Later this can be changed to median for more robustness.
-		sigmax = np.mean(sigma_x_fitted)
-		sigmay = np.mean(sigma_y_fitted)
+		sigmax = float(np.median(sigma_x_fitted))
+		sigmay = float(np.median(sigma_y_fitted))
 		sigmaav = (sigmax + sigmay) / 2.0
 
 		status = {
@@ -731,7 +745,16 @@ class FocusThread(QtCore.QThread):
 	def fitPSF(self, imarray, avepixel_mean, x2, y2):
 
 		# The following variables are in the config file
-		segment_radius = self.segment_radius
+		bin_factor = max(1, int(max(self.bin_x, self.bin_y)))
+
+		# Keep approximately the same sensor/sky footprint at different binning.
+		segment_radius = max(
+			8,
+			int(round(self.segment_radius / bin_factor))
+		)
+
+		# A real sharp star becomes narrower in binned-pixel units.
+		min_valid_sigma = max(0.30, 0.70 / bin_factor)
 		roundness_threshold = self.roundness_threshold
 		max_feature_ratio = self.max_feature_ratio
 		
@@ -746,8 +769,7 @@ class FocusThread(QtCore.QThread):
 		sigma_y_fitted = []
 		sigma_x_fitted = []
 
-		# Set the initial guess
-		initial_guess = (30.0, segment_radius, segment_radius, 1.0, 1.0, 0.0, avepixel_mean)
+
 
 		# Loop over all stars
 		for star in zip(list(y2), list(x2)):
@@ -781,18 +803,81 @@ class FocusThread(QtCore.QThread):
 			# Extract an image segment around each star
 			star_seg = imarray[y_min:y_max,x_min:x_max]
 
+			if star_seg.size == 0 or not np.isfinite(star_seg).any():
+				continue
+
+			# Do not fit stars with a saturated core.
+			sensor_saturation = 65535.0
+
+			if np.nanmax(star_seg) >= 0.98 * sensor_saturation:
+				continue
+
+			local_background = float(np.nanmedian(star_seg))
+
+			peak_y, peak_x = np.unravel_index(
+				np.nanargmax(star_seg),
+				star_seg.shape
+			)
+
+			initial_amplitude = float(
+				np.nanmax(star_seg) - local_background
+			)
+
+			if initial_amplitude <= 0:
+				continue
+
+			initial_sigma = max(0.8, 1.2 / bin_factor)
+
+			initial_guess = (
+				initial_amplitude,
+				float(peak_y),
+				float(peak_x),
+				initial_sigma,
+				initial_sigma,
+				0.0,
+				local_background
+			)
+
 			# Create x and y indices
 			y_ind, x_ind = np.indices(star_seg.shape)
 
 			# Estimate saturation level from image type
-			saturation = (2**(8*star_seg.itemsize) - 1)*np.ones_like(y_ind)
+			saturation = np.full(
+				y_ind.shape,
+				sensor_saturation,
+				dtype=np.float32
+			)
 
-			# Fit PSF to star
+			lower_bounds = (
+				0.0,                         # amplitude
+				0.0,                         # centre y
+				0.0,                         # centre x
+				0.20,                        # sigma y
+				0.20,                        # sigma x
+				-np.pi / 2.0,                # rotation
+				-np.inf,                     # background
+			)
+
+			upper_bounds = (
+				np.inf,
+				float(star_seg.shape[0] - 1),
+				float(star_seg.shape[1] - 1),
+				8.0,
+				8.0,
+				np.pi / 2.0,
+				np.inf,
+			)
+
 			try:
-				popt, pcov = opt.curve_fit(self.twoDGaussian, (y_ind, x_ind, saturation), star_seg.ravel(), \
-					p0=initial_guess, maxfev=200)
-
-			except RuntimeError:
+				popt, pcov = opt.curve_fit(
+					self.twoDGaussian,
+					(y_ind, x_ind, saturation),
+					star_seg.ravel(),
+					p0=initial_guess,
+					bounds=(lower_bounds, upper_bounds),
+					maxfev=1000
+				)
+			except (RuntimeError, ValueError):
 				continue
 
 			# Unpack fitted gaussian parameters
@@ -806,8 +891,7 @@ class FocusThread(QtCore.QThread):
 			if amplitude <= 0:
 				continue
 
-			# Reject hot-pixel-like fits that are too narrow.
-			if sigma_x < 0.7 or sigma_y < 0.7:
+			if sigma_x < min_valid_sigma or sigma_y < min_valid_sigma:
 				continue
 
 			# Reject very broad artifacts.
@@ -849,7 +933,9 @@ class FocusThread(QtCore.QThread):
 
 			# Crop segment to 3 sigma around star
 			crop_y_min = int(yo - 3*sigma_y) + 1
-			if crop_y_min < 0: crop_y_min = 70
+			if crop_y_min < 0:
+				crop_y_min = 0
+
 
 			crop_y_max = int(yo + 3*sigma_y) + 1
 			if crop_y_max >= star_seg.shape[0]: crop_y_max = star_seg.shape[0] - 1
@@ -1471,7 +1557,6 @@ class Ui(QtWidgets.QMainWindow):
 		self.Plot.autoRange(padding=0)
 
 	def updatePlot(self, sigmax, sigmay, average):
-
 		self.frame_number += 1
 
 		self.Sx.append(self.frame_number)
@@ -1485,22 +1570,35 @@ class Ui(QtWidgets.QMainWindow):
 			self.Syy = self.Syy[-self.max_plot_points:]
 			self.Sav = self.Sav[-self.max_plot_points:]
 
-		# Only redraw plot every N valid measurements.
-		if self.frame_number % self.plot_update_stride != 0:
-			return
+		# Update all three plotted curves.
+		self.x_line.setData(self.Sx, self.Sy)
+		self.y_line.setData(self.Sx, self.Syy)
+		self.av_line.setData(self.Sx, self.Sav)
 
 		if len(self.Sx) >= 2:
-			self.Plot.setXRange(self.Sx[0], self.Sx[-1], padding=0.05)
-
-		#self.Plot.enableAutoRange(axis='y', enable=True)
+			self.Plot.setXRange(
+				self.Sx[0],
+				self.Sx[-1],
+				padding=0.05
+			)
 
 		all_y = self.Sy + self.Syy + self.Sav
+
 		if len(all_y) > 0:
 			ymin = min(all_y)
 			ymax = max(all_y)
+
 			if ymax > ymin:
 				pad = 0.1 * (ymax - ymin)
-				self.Plot.setYRange(ymin - pad, ymax + pad, padding=0)
+			else:
+				# Give a visible range when all values are initially identical.
+				pad = max(0.1, abs(ymin) * 0.05)
+
+			self.Plot.setYRange(
+				ymin - pad,
+				ymax + pad,
+				padding=0
+			)
 
 	def updateAutofocusControls(self, mode):
 		"""
@@ -1766,8 +1864,11 @@ class Ui(QtWidgets.QMainWindow):
 
 			spots = []
 			for px, py in arr:
+				display_x = (float(px) + 0.5) / block - 0.5
+				display_y = (float(py) + 0.5) / block - 0.5
+				
 				spots.append({
-					"pos": (float(px) / block, float(py) / block),
+					"pos": (display_x, display_y),
 					"size": size,
 				})
 
@@ -1790,6 +1891,16 @@ class Ui(QtWidgets.QMainWindow):
 
 		img = np.asarray(image, dtype=np.float32)
 		self.last_raw_img = img
+
+		bright_y, bright_x = np.unravel_index(
+			np.nanargmax(img),
+			img.shape
+		)
+
+		print(
+			f"Brightest raw pixel: "
+			f"x={bright_x}, y={bright_y}, value={img[bright_y, bright_x]:.1f}"
+		)
 
 		# Whole-frame values. These remain fixed until the next image arrives.
 		finite_raw = img[np.isfinite(img)]
