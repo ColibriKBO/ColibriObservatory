@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import numba as nb
 import pyqtgraph as pg
+import threading
 #pg.setConfigOptions(imageAxisOrder='row-major')
 
 import imageio
@@ -88,10 +89,18 @@ class FocusThread(QtCore.QThread):
 	updatePlot = QtCore.pyqtSignal(float,float,float)
 	updateStatus = QtCore.pyqtSignal(object)
 	updateStarOverlay = QtCore.pyqtSignal(object, object)
+	sessionFinished = QtCore.pyqtSignal()
 
 	def __init__(self, parent=None, settings=None):
 		super(FocusThread,self).__init__(parent)
 		self.threadactive = True
+		# Persistent worker state
+		self.shutdown_requested = False
+		self.session_active = False
+		self.command_event = threading.Event()
+
+		# Protect settings that may be changed by the GUI while this thread runs.
+		self.settings_lock = threading.Lock()
 		
 		if settings is None:
 			settings = {}
@@ -129,33 +138,111 @@ class FocusThread(QtCore.QThread):
 
 	@QtCore.pyqtSlot()
 	def run(self):
-		"""
-		Main focus thread entry point.
-
-		Depending on capture_mode, this either:
-		- takes one focus measurement,
-		- streams focus measurements continuously,
-		- or runs the autofocus sweep routine.
-		"""
-
 		pythoncom.CoInitialize()
 
 		try:
-			if self.capture_mode == "Autofocus":
-				self.runAutofocus()
+			self.maxim_camera = win32com.client.Dispatch("MaxIm.CCDCamera")
+			self.maxim_camera.LinkEnabled = True
 
-			elif self.capture_mode == "Single Image":
-				self.measureFocusMetric()
-				self.threadactive = False
+			while not self.shutdown_requested:
+				self.command_event.wait()
+				self.command_event.clear()
 
-			else:
-				# Stream mode
-				while self.threadactive:
+				if self.shutdown_requested:
+					break
+
+				if self.capture_mode == "Single Image":
 					self.measureFocusMetric()
 
+				elif self.capture_mode == "Stream":
+					while self.session_active and not self.shutdown_requested:
+						self.measureFocusMetric()
+
+				elif self.capture_mode == "Autofocus":
+					self.runAutofocus()
+
+				self.session_active = False
+				self.sessionFinished.emit()
+
 		finally:
+			if self.maxim_camera is not None:
+				try:
+					self.maxim_camera.LinkEnabled = False
+				except Exception:
+					pass
+
 			self.maxim_camera = None
 			pythoncom.CoUninitialize()
+
+	def startSession(self, settings):
+		"""
+		Start a Single Image, Stream, or Autofocus operation without terminating
+		the persistent MaxIM worker afterward.
+		"""
+
+		self.updateCaptureSettings(settings)
+		self.threadactive = True
+		self.session_active = True
+		self.command_event.set()
+
+
+	def stopSession(self):
+		"""
+		Stop the current operation but keep the worker and MaxIM connection alive.
+		"""
+
+		self.threadactive = False
+		self.session_active = False
+
+
+	def shutdown(self):
+		"""
+		Stop the current operation and terminate the persistent worker.
+		"""
+
+		self.threadactive = False
+		self.session_active = False
+		self.shutdown_requested = True
+		self.command_event.set()
+		self.wait()
+		
+	def updateCaptureSettings(self, settings):
+		"""
+		Update camera and autofocus settings while the worker thread remains alive.
+
+		The next exposure uses the new values. An exposure already underway keeps
+		the settings with which it started.
+		"""
+
+		with self.settings_lock:
+			self.capture_mode = settings.get("capture_mode", self.capture_mode)
+			self.exposure = float(settings.get("exposure", self.exposure))
+
+			self.bin_x = int(settings.get("bin_x", self.bin_x))
+			self.bin_y = int(settings.get("bin_y", self.bin_y))
+
+			self.filter_number = int(
+				settings.get("filter_number", self.filter_number)
+			)
+			self.light_frame = bool(
+				settings.get("light_frame", self.light_frame)
+			)
+
+			self.af_step_size = int(
+				settings.get("af_step_size", self.af_step_size)
+			)
+			self.af_steps_each_side = int(
+				settings.get("af_steps_each_side", self.af_steps_each_side)
+			)
+			self.af_frames_per_position = int(
+				settings.get(
+					"af_frames_per_position",
+					self.af_frames_per_position
+				)
+			)
+			self.af_settle_time = float(
+				settings.get("af_settle_time", self.af_settle_time)
+			)
 
 	def runAutofocus(self):
 		"""
@@ -559,15 +646,30 @@ class FocusThread(QtCore.QThread):
 				raise RuntimeError("Could not connect to camera through MaxIM DL.")
 
 		cam = self.maxim_camera
-		cam.BinX = int(self.bin_x)
-		cam.BinY = int(self.bin_y)
+
+		# Copy current settings under the lock. This exposure will use one consistent
+		# settings snapshot even if the GUI changes during acquisition.
+		with self.settings_lock:
+			exposure = float(self.exposure)
+			bin_x = int(self.bin_x)
+			bin_y = int(self.bin_y)
+			light_frame = int(self.light_frame)
+			filter_number = int(self.filter_number)
+
+		cam.BinX = bin_x
+		cam.BinY = bin_y
 
 		# Some MaxIM versions accept filter number as a third argument,
 		# some only need exposure and light/dark flag.
+		print(
+			f"Taking {exposure:.3f} s exposure at "
+			f"{bin_x}x{bin_y} binning..."
+		)
+
 		try:
-			cam.Expose(float(self.exposure), int(self.light_frame), int(self.filter_number))
+			cam.Expose(exposure, light_frame, filter_number)
 		except TypeError:
-			cam.Expose(float(self.exposure), int(self.light_frame))
+			cam.Expose(exposure, light_frame)
 
 		while not cam.ImageReady:
 			if not self.threadactive:
@@ -586,8 +688,7 @@ class FocusThread(QtCore.QThread):
 		return image
 
 	def stop(self):
-		self.threadactive = False
-		self.wait()
+		self.stopSession()
 
 	def twoDGaussian(self, params, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
 		""" Defines a 2D Gaussian distribution. 
@@ -1013,6 +1114,8 @@ class Ui(QtWidgets.QMainWindow):
 		self.last_raw_img = None
 		self.last_display_img = None
 		self.display_block = 1
+		self.global_min = None
+		self.global_max = None
 
 		# Star overlays:
 		# Yellow X = detected candidate stars
@@ -1063,6 +1166,7 @@ class Ui(QtWidgets.QMainWindow):
 				font-size: 12pt;
 			}
 		""")
+
 
 		image_layout.addWidget(self.cursor_stats_label)
 
@@ -1195,6 +1299,29 @@ class Ui(QtWidgets.QMainWindow):
 			self.AFSettleTime_spin,
 		]
 
+		self.Exposure_spinbox.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+		self.Binning_spinbox.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+		self.CaptureMode_combo.currentTextChanged.connect(
+			self.updateWorkerSettings
+		)
+
+		self.AFStep_spin.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+		self.AFStepsEachSide_spin.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+		self.AFFramesPerPosition_spin.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+		self.AFSettleTime_spin.valueChanged.connect(
+			self.updateWorkerSettings
+		)
+
 		self.plot_update_stride = 2
 
 		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
@@ -1220,7 +1347,8 @@ class Ui(QtWidgets.QMainWindow):
 		button_group.setLayout(button_layout)
 		right_column.addWidget(button_group)
 
-		self.thread = FocusThread(self)
+		self.thread = None
+		self.createPersistentWorker()
 		self.show()
 
 	def getFocusSettings(self):
@@ -1245,7 +1373,20 @@ class Ui(QtWidgets.QMainWindow):
 			"focuser_driver_id": None,
 		}
 	
-	def onFocusThreadFinished(self):
+	def updateWorkerSettings(self):
+		"""
+		Send the current GUI settings to the persistent worker.
+
+		If an exposure is already underway, the new values begin with the next
+		exposure.
+		"""
+
+		if self.thread is None:
+			return
+
+		self.thread.updateCaptureSettings(self.getFocusSettings())
+	
+	def onFocusSessionFinished(self):
 		"""
 		Reset the Run button after a capture sequence finishes naturally.
 
@@ -1261,17 +1402,17 @@ class Ui(QtWidgets.QMainWindow):
 		self.Start_button.setText("Start")
 		print("Focus thread finished.")
 
-	def watchthread(self, worker):
+	def createPersistentWorker(self):
 		settings = self.getFocusSettings()
 
-		self.thread = worker(self, settings=settings)
+		self.thread = FocusThread(self, settings=settings)
 		self.thread.updateFocusFrame.connect(self.updateFocusFrame)
 		self.thread.updatePlot.connect(self.updatePlot)
 		self.thread.updateStatus.connect(self.updateStatus)
 		self.thread.updateStarOverlay.connect(self.updateStarOverlay)
+		self.thread.sessionFinished.connect(self.onFocusSessionFinished)
 
-		# Reset the Run button when Single Image / Autofocus finishes naturally.
-		self.thread.finished.connect(self.onFocusThreadFinished)
+		self.thread.start()
 
 	def startthread(self):
 		self.thread.start()
@@ -1310,11 +1451,15 @@ class Ui(QtWidgets.QMainWindow):
 			"No image loaded.\n"
 			"Focus metrics will appear here after capture."
 		)
+		self.global_min = None
+		self.global_max = None
 
 		self.last_raw_img = None
 		self.last_display_img = None
 		self.cursor_stats_label.setText(
-			"Cursor: --   Pixel: --   Local mean/std: --   Local min/max: --   SNR: --"
+			"Cursor: --   Pixel: --\n"
+			"Local statistics: --\n"
+			"Global Min/Max: -- / --"
 		)
 
 	def plot(self, hour, temperature):
@@ -1415,27 +1560,26 @@ class Ui(QtWidgets.QMainWindow):
 		T.SlewToAltAz()
 
 	def startFocus(self):
-		# self.connectDevices()
+		if self.thread is None:
+			return
 
-		# self.watchthread(FocusThread)
-		# self.startthread()
-
-		# print(self.Start_button.isChecked())
 		if self.Start_button.isChecked():
 			self.Start_button.setText("Running...")
 			self.connectDevices()
-			self.watchthread(FocusThread)
-			self.startthread()
+
+			settings = self.getFocusSettings()
+			self.thread.startSession(settings)
+
 		else:
 			self.Start_button.setText("Start")
-			self.killthread()
+			self.thread.stopSession()
 
 	def stopFocus(self):
 		print("Exit button pressed.")
 
 		# Stop the focus/capture thread if it is running.
 		if self.thread is not None and self.thread.isRunning():
-			self.thread.stop()
+			self.thread.shutdown()
 
 		# Close the GUI window.
 		self.close()
@@ -1583,14 +1727,22 @@ class Ui(QtWidgets.QMainWindow):
 		else:
 			snr = 0.0
 
+		if self.global_min is None or self.global_max is None:
+			global_range_text = "-- / --"
+		else:
+			global_range_text = (
+				f"{self.global_min:.0f} / {self.global_max:.0f}"
+			)
+
 		self.cursor_stats_label.setText(
 			f"Cursor raw: x={raw_x}, y={raw_y}   "
-			f"Pixel={pixel_value:.1f} ADU   "
-			f"Mean={local_mean:.1f}   "
-			f"Median={local_median:.1f}   "
-			f"Std={local_std:.1f}   "
-			f"Min/Max={local_min:.0f}/{local_max:.0f}   "
-			f"SNR~{snr:.1f}"
+			f"Pixel={pixel_value:.1f} ADU\n"
+			f"Local mean={local_mean:.1f}   "
+			f"median={local_median:.1f}   "
+			f"std={local_std:.1f}   "
+			f"Local Min/Max={local_min:.0f} / {local_max:.0f}   "
+			f"SNR~{snr:.1f}\n"
+			f"Global Min/Max={global_range_text}"
 		)
 	
 	def updateStarOverlay(self, candidate_points, fitted_points):
@@ -1638,6 +1790,16 @@ class Ui(QtWidgets.QMainWindow):
 
 		img = np.asarray(image, dtype=np.float32)
 		self.last_raw_img = img
+
+		# Whole-frame values. These remain fixed until the next image arrives.
+		finite_raw = img[np.isfinite(img)]
+
+		if finite_raw.size > 0:
+			self.global_min = float(np.min(finite_raw))
+			self.global_max = float(np.max(finite_raw))
+		else:
+			self.global_min = None
+			self.global_max = None
 
 		# Make a display-only copy.
 		display_img = img.copy()
