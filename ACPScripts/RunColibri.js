@@ -105,11 +105,26 @@ function andRestart(){
     Console.PrintLine("Shutting down and restarting!");
     ts.WriteLine("Shutting down and restarting!");
     shutDown();
+
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
-        Util.WaitForMilliseconds(5000)
-        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
     }
+
+    finalFields = [];
+    curTarget = null;
+    slewAttempt = 0;
+
+    firstRun = true;
+    isAfterSunset = false;
+    pierside = "E";
+
+    currentDate = getDate();
+
+    // Recalculate night-dependent values here if any code uses them before main()
+    sunset = twilightTimes(Util.SysJulianDate)[1];
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
 
     // if (Util.ScriptActive)
     // {
@@ -380,6 +395,58 @@ function connectScope()
     Console.PrintLine(" ")
 }
 
+///////////////////////////
+// Function to park dome.
+// Prefer ASCOM Park() if supported.
+// If not supported, fall back to homing the dome.
+///////////////////////////
+function domePark()
+{
+    Console.PrintLine("Parking dome...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Parking dome...");
+
+    try
+    {
+        if (Dome.CanPark)
+        {
+            Dome.Park();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtPark)
+            {
+                Console.PrintLine("*** Dome is parking...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parking...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is parked.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parked.");
+        }
+        else
+        {
+            Console.PrintLine("Dome driver does not report CanPark. Homing dome instead.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Dome driver does not report CanPark. Homing dome instead.");
+
+            Dome.FindHome();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtHome)
+            {
+                Console.PrintLine("*** Homing dome...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Homing dome...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is homed.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is homed.");
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Dome park/home failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Dome park/home failed: " + (e.message || e.description || e));
+    }
+}
 
 ///////////////////////////
 // Function to close dome
@@ -1447,19 +1514,48 @@ function adjustPointing(target_ra, target_dec) {
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
+// Updated by CM - June 27, 2026
 ///////////////////////////////////////////////////////////////
 function shutDown()
 {
+    Console.PrintLine("Shutting down observatory...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Shutting down observatory...");
+
     trkOff()
+
     Console.PrintLine("Tracking turned off. Parking telescope now...")
     ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
-    Telescope.Park()
+    try{
+        Telescope.Park();
+        while (!Telescope.AtPark)
+        {
+            Console.PrintLine("Waiting for telescope to park...");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Waiting for telescope to park...");
+            Util.WaitForMilliseconds(2000);
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Telescope park failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Telescope park failed: " + (e.message || e.description || e));
+        
+    }
+
     trkOff();
-    Console.PrintLine("Telescope parked. Closing dome now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
-    domeClose()
-    Console.PrintLine("Dome closed. Good night/morning.")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
+
+    Console.PrintLine("Telescope parked. Closing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+
+    domeClose();
+
+    Console.PrintLine("Dome shutter closed. Parking/homing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dome shutter closed. Parking/homing dome now.");
+
+    domePark();
+
+    Console.PrintLine("Observatory shutdown complete. Good night/morning.")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Observatory shutdown complete. Good night/morning.")
+    
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1918,6 +2014,7 @@ function main()
     // until it becomes safe.
     if (Weather.Available && !Weather.safe)
     {
+        Console.PrintLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
     }
 
@@ -2216,6 +2313,13 @@ function main()
         {
             Console.PrintLine("*** Dome shutter is still opening...");
             Util.WaitForMilliseconds(2000);
+        }
+
+        // Slave the dome to the scope
+        
+        if (Dome.slave == false)
+        {
+            Dome.slave = true;
         }
 
         // Turn on sidereal telescope tracking
