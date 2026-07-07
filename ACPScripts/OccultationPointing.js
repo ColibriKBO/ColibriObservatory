@@ -1325,5 +1325,3 @@ function main()
 
     shutDown();
 }
-
-main();
