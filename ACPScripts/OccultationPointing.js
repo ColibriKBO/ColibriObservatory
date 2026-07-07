@@ -1320,8 +1320,8 @@ function main()
         pierside
     );
 
-    Console.PrintLine("Finished all observations for the night. Turning off equipment.");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Finished all observations for the night. Turning off equipment.");
+    Console.PrintLine("Finished observing all occultations for the night. Shutting down now..");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Finished observing all occultations for the night. Shutting down now.");
 
     shutDown();
 }
