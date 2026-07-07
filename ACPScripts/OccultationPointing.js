@@ -1068,7 +1068,7 @@ function runOccultationDarkCollection(targetName, eventUTC, darkFrames, exposure
     var safeTargetName = targetName.replace(/[^A-Za-z0-9_\\-]/g, "_");
     var safeEventUTC = eventUTC.replace(/[^0-9A-Za-z]/g, "");
 
-    var outDir = "D:\\ColibriData\\" + today.toString() +
+    var outDir = "D:\\ColibriOccultationData\\" + today.toString() +
                  "\\Occultations\\" + safeTargetName + "\\Dark";
 
     wshShell.Run('cmd /c if not exist "' + outDir + '" mkdir "' + outDir + '"', 0, true);
