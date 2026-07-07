@@ -84,9 +84,13 @@ class ASCOMFocuserController:
 		print(f"Focuser position: {self.position}")
 
 class FocusThread(QtCore.QThread):
-	# grabImage = QtCore.pyqtSignal(int,int,int,int,float)
 	updateFocusFrame = QtCore.pyqtSignal(object)
-	updatePlot = QtCore.pyqtSignal(float,float,float)
+	updatePlot = QtCore.pyqtSignal(float, float, float)
+
+	# New: autofocus curve signals
+	updateAutofocusPlot = QtCore.pyqtSignal(int, float)
+	updateBestFocus = QtCore.pyqtSignal(int, float)
+
 	updateStatus = QtCore.pyqtSignal(object)
 	updateStarOverlay = QtCore.pyqtSignal(object, object)
 	sessionFinished = QtCore.pyqtSignal()
@@ -135,6 +139,16 @@ class FocusThread(QtCore.QThread):
 		self.af_frames_per_position = int(settings.get("af_frames_per_position", 3))
 		self.af_settle_time = float(settings.get("af_settle_time", 1.0))
 		self.focuser_driver_id = settings.get("focuser_driver_id", None)
+
+		# Optional persistent focuser connection.
+		# Used for displaying focuser position in Single Image / Stream,
+		# and for moving during Autofocus.
+		self.focuser_controller = None
+		self.focuser_available = False
+
+		self.current_focuser_position = None
+		self.current_testing_position = None
+		self.current_best_position = None
 
 	@QtCore.pyqtSlot()
 	def run(self):
@@ -204,7 +218,46 @@ class FocusThread(QtCore.QThread):
 		self.session_active = False
 		self.shutdown_requested = True
 		self.command_event.set()
+
+		if self.focuser_controller is not None:
+			try:
+				self.focuser_controller.disconnect()
+			except Exception:
+				pass
+
 		self.wait()
+
+	
+	def getFocuserPositionSafe(self):
+		"""
+		Return the current focuser position if available.
+
+		This is safe to call from Single Image, Stream, and Autofocus.
+		If the focuser cannot be connected or read, it returns None instead
+		of crashing the capture loop.
+		"""
+
+		try:
+			if self.focuser_controller is None:
+				self.focuser_controller = ASCOMFocuserController(
+					self.focuser_driver_id
+				)
+
+			if not self.focuser_controller.is_connected():
+				self.focuser_controller.connect()
+
+				# Preserve chosen driver ID after ASCOM chooser is used once.
+				self.focuser_driver_id = self.focuser_controller.driver_id
+
+			self.current_focuser_position = self.focuser_controller.position
+			self.focuser_available = True
+
+		except Exception as e:
+			print(f"Could not read focuser position: {e}")
+			self.current_focuser_position = None
+			self.focuser_available = False
+
+		return self.current_focuser_position
 		
 	def updateCaptureSettings(self, settings):
 		"""
@@ -259,13 +312,20 @@ class FocusThread(QtCore.QThread):
 
 		print("Starting autofocus sweep.")
 
-		focuser = ASCOMFocuserController(self.focuser_driver_id)
+		if self.focuser_controller is None:
+			self.focuser_controller = ASCOMFocuserController(self.focuser_driver_id)
+
+		focuser = self.focuser_controller
 
 		try:
 			focuser.connect()
 
 			start_pos = focuser.position
 			print(f"Starting focuser position: {start_pos}")
+
+			self.current_focuser_position = start_pos
+			self.current_testing_position = None
+			self.current_best_position = None
 
 			offsets = range(-self.af_steps_each_side, self.af_steps_each_side + 1)
 
@@ -281,6 +341,12 @@ class FocusThread(QtCore.QThread):
 					print("Autofocus cancelled.")
 					break
 
+				self.current_testing_position = pos
+				self.current_best_position = None
+				self.current_focuser_position = self.getFocuserPositionSafe()
+				self.current_testing_position = None
+				self.current_best_position = best_pos
+
 				move_status = {
 					"state": f"Autofocus: moving to position {pos}",
 					"mean": 0,
@@ -295,6 +361,9 @@ class FocusThread(QtCore.QThread):
 					"exposure": self.exposure,
 					"binning": f"{self.bin_x}x{self.bin_y}",
 					"capture_mode": self.capture_mode,
+					"focuser_position": self.current_focuser_position,
+					"testing_position": self.current_testing_position,
+					"best_position": self.current_best_position,
 				}
 
 				self.updateStatus.emit(move_status)
@@ -303,6 +372,8 @@ class FocusThread(QtCore.QThread):
 					pos,
 					keep_running_callback=lambda: self.threadactive
 				)
+
+				self.current_focuser_position = self.getFocuserPositionSafe()
 
 				time.sleep(self.af_settle_time)
 
@@ -333,6 +404,8 @@ class FocusThread(QtCore.QThread):
 
 				print(f"Position {pos}: median average sigma = {score:.4f}")
 
+				self.updateAutofocusPlot.emit(int(pos), float(score))
+
 			if len(results) == 0:
 				print("Autofocus failed: no valid focus measurements.")
 
@@ -357,11 +430,15 @@ class FocusThread(QtCore.QThread):
 
 			best_pos, best_score = min(results, key=lambda item: item[1])
 
+			self.current_best_position = best_pos
+			self.current_testing_position = None
+
 			print("Autofocus results:")
 			for pos, score in results:
 				print(f"  Position {pos}: {score:.4f}")
 
 			print(f"Best focus position: {best_pos}, score = {best_score:.4f}")
+			self.updateBestFocus.emit(int(best_pos), float(best_score))
 
 			done_status = {
 				"state": f"Autofocus complete. Moving to best position {best_pos}.",
@@ -377,6 +454,9 @@ class FocusThread(QtCore.QThread):
 				"exposure": self.exposure,
 				"binning": f"{self.bin_x}x{self.bin_y}",
 				"capture_mode": self.capture_mode,
+				"focuser_position": focuser_position,
+				"testing_position": self.current_testing_position,
+				"best_position": self.current_best_position,
 			}
 
 			self.updateStatus.emit(done_status)
@@ -391,12 +471,15 @@ class FocusThread(QtCore.QThread):
 				f"Autofocus finished. Best position: {best_pos}, "
 				f"score: {best_score:.3f}"
 			)
+			final_status["focuser_position"] = focuser.position
+			final_status["testing_position"] = None
+			final_status["best_position"] = best_pos
+
 			self.updateStatus.emit(final_status)
 
 			print("Autofocus sweep finished.")
 
 		finally:
-			focuser.disconnect()
 			self.threadactive = False
 
 	def measureFocusMetric(self):
@@ -457,6 +540,8 @@ class FocusThread(QtCore.QThread):
 		intensity_threshold = max(self.intensity_threshold, sigma_threshold * robust_sigma)
 		peak_floor = median + sigma_threshold * robust_sigma
 
+		focuser_position = self.getFocuserPositionSafe()
+
 		print(
 			f"Background median={median:.1f}, "
 			f"robust sigma={robust_sigma:.1f}, "
@@ -478,6 +563,9 @@ class FocusThread(QtCore.QThread):
 			"gain": self.gain,
 			"binning": f"{self.bin_x}x{self.bin_y}",
 			"capture_mode": self.capture_mode,
+			"focuser_position": focuser_position,
+			"testing_position": self.current_testing_position,
+			"best_position": self.current_best_position,
 		}
 
 		self.updateStatus.emit(basic_status)
@@ -636,6 +724,9 @@ class FocusThread(QtCore.QThread):
 			"gain": self.gain,
 			"binning": f"{self.bin_x}x{self.bin_y}",
 			"capture_mode": self.capture_mode,
+			"focuser_position": focuser_position,
+			"testing_position": self.current_testing_position,
+			"best_position": self.current_best_position,
 		}
 
 		self.updateStatus.emit(status)
@@ -1003,10 +1094,24 @@ class Ui(QtWidgets.QMainWindow):
 		self.Stop_button.setParent(None)
 
 
-		# Make the GUI wider for a two-column layout.
+		# Make the GUI large enough for manual focusing.
 		self.setWindowTitle("PyFocus Automated Focusing")
-		self.resize(1350, 825)
-		self.setMinimumSize(1200, 750)
+
+		screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
+
+		target_width = min(1850, screen.width() - 40)
+		target_height = min(1020, screen.height() - 40)
+
+		self.resize(target_width, target_height)
+		self.setMinimumSize(
+			min(1600, target_width),
+			min(900, target_height)
+		)
+
+		self.move(
+			screen.x() + 20,
+			screen.y() + 20
+		)
 		
 
 		self.setStyleSheet("""
@@ -1184,8 +1289,8 @@ class Ui(QtWidgets.QMainWindow):
 		left_column = QtWidgets.QVBoxLayout()
 		right_column = QtWidgets.QVBoxLayout()
 
-		main_layout.addLayout(left_column, stretch=5)
-		main_layout.addLayout(right_column, stretch=3)
+		main_layout.addLayout(left_column, stretch=4)
+		main_layout.addLayout(right_column, stretch=4)
 
 		# ---------------- Left column: live image ----------------
 		image_group = QtWidgets.QGroupBox("Live FITS View")
@@ -1195,7 +1300,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.focus_imagewidget.ui.histogram.hide()
 		self.focus_imagewidget.ui.roiBtn.hide()
 		self.focus_imagewidget.ui.menuBtn.hide()
-		self.focus_imagewidget.setMinimumSize(650, 650)
+		self.focus_imagewidget.setMinimumSize(480, 480)
 
 		self.last_raw_img = None
 		self.last_display_img = None
@@ -1262,14 +1367,74 @@ class Ui(QtWidgets.QMainWindow):
 		# ---------------- Right column: plot ----------------
 		plot_group = QtWidgets.QGroupBox("Focus Trend")
 		plot_layout = QtWidgets.QVBoxLayout()
-		plot_layout.addWidget(self.Plot)
+		# Plot selector buttons
+		plot_selector_layout = QtWidgets.QHBoxLayout()
+
+		self.LiveTrend_button = QtWidgets.QPushButton("Live Trend")
+		self.AFCurve_button = QtWidgets.QPushButton("Autofocus Curve")
+
+		self.LiveTrend_button.setCheckable(True)
+		self.AFCurve_button.setCheckable(True)
+
+		self.LiveTrend_button.setChecked(True)
+
+		plot_selector_layout.addWidget(self.LiveTrend_button)
+		plot_selector_layout.addWidget(self.AFCurve_button)
+
+		plot_layout.addLayout(plot_selector_layout)
+
+		# Stacked plot area
+		self.PlotStack = QtWidgets.QStackedWidget()
+
+		# Existing plot from .ui: live focus trend
+		self.LiveTrendPage = QtWidgets.QWidget()
+		live_layout = QtWidgets.QVBoxLayout(self.LiveTrendPage)
+		live_layout.setContentsMargins(0, 0, 0, 0)
+		live_layout.addWidget(self.Plot)
+
+		# New autofocus curve plot
+		self.AFPlot = pg.PlotWidget()
+		self.AFPlot.setBackground("k")
+
+		self.AutofocusPage = QtWidgets.QWidget()
+		af_layout = QtWidgets.QVBoxLayout(self.AutofocusPage)
+		af_layout.setContentsMargins(0, 0, 0, 0)
+		af_layout.addWidget(self.AFPlot)
+
+		self.PlotStack.addWidget(self.LiveTrendPage)
+		self.PlotStack.addWidget(self.AutofocusPage)
+
+		plot_layout.addWidget(self.PlotStack)
 		plot_group.setLayout(plot_layout)
 
-		right_column.addWidget(plot_group, stretch=2)
+		# Let Qt size the plot naturally instead of forcing an impossible minimum.
+		plot_group.setMinimumHeight(260)
+		self.Plot.setMinimumHeight(210)
+		self.AFPlot.setMinimumHeight(210)
+
+		plot_group.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Expanding
+		)
+
+		self.Plot.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Expanding
+		)
+
+		self.AFPlot.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Expanding
+		)
+
+		right_column.addWidget(plot_group, stretch=4)
 
 		##### Button triggers
 		self.Start_button.clicked.connect(self.startFocus)
 		self.Stop_button.clicked.connect(self.stopFocus)
+
+		self.LiveTrend_button.clicked.connect(self.showLiveTrendPlot)
+		self.AFCurve_button.clicked.connect(self.showAutofocusPlot)
 
 		# self.JogNorth_button.clicked.connect(self.jogScope)
 		# self.JogSouth_button.clicked.connect(self.jogScope)
@@ -1309,6 +1474,46 @@ class Ui(QtWidgets.QMainWindow):
 			pen=pg.mkPen(color='b'),
 			name='Average'
 		)
+
+		# Autofocus curve data
+		self.AFPositions = []
+		self.AFScores = []
+
+		self.AFPlot.setLabel(
+			"left",
+			"Median PSF width",
+			units="px",
+			color="#FFFFFF"
+		)
+
+		self.AFPlot.setLabel(
+			"bottom",
+			"Focuser position",
+			color="#FFFFFF"
+		)
+
+		self.AFPlot.showGrid(x=True, y=True, alpha=0.3)
+		self.AFPlot.addLegend(offset=(5, 5))
+
+		self.af_curve_line = self.AFPlot.plot(
+			[],
+			[],
+			pen=pg.mkPen(color='c', width=2),
+			symbol='o',
+			symbolSize=7,
+			symbolBrush='c',
+			name='Median average sigma'
+		)
+
+		self.best_focus_line = pg.InfiniteLine(
+			angle=90,
+			movable=False,
+			pen=pg.mkPen(color='m', width=2, style=QtCore.Qt.DashLine)
+		)
+
+		self.AFPlot.addItem(self.best_focus_line)
+		self.best_focus_line.hide()
+
 		# ---------------- Right column: status / metrics ----------------
 		status_group = QtWidgets.QGroupBox("Current Focus Metrics")
 		status_layout = QtWidgets.QVBoxLayout()
@@ -1320,24 +1525,28 @@ class Ui(QtWidgets.QMainWindow):
 				color: white;
 				background-color: #202020;
 				border: 1px solid #555555;
-				padding: 8px;
-				font-size: 9pt;
+				padding: 6px;
+				font-size: 8pt;
 			}
 		""")
 		self.status_label.setText("No Stars detected...Focus metrics will appear here.")
 
 		status_layout.addWidget(self.status_label)
 		status_group.setLayout(status_layout)
-
-		right_column.addWidget(status_group, stretch=1)
+		status_group.setMinimumHeight(155)
+		status_group.setMaximumHeight(220)
+		right_column.addWidget(status_group, stretch=0)
 
 		# ---------------- Right column: capture settings ----------------
 		settings_group = QtWidgets.QGroupBox("Capture Settings")
 		settings_layout = QtWidgets.QFormLayout()
+		settings_layout.setContentsMargins(8, 8, 8, 8)
+		settings_layout.setVerticalSpacing(6)
+		settings_layout.setHorizontalSpacing(10)
 
 		self.CaptureMode_combo = QtWidgets.QComboBox()
 		self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
-		self.CaptureMode_combo.currentTextChanged.connect(self.updateAutofocusControls)
+		self.CaptureMode_combo.currentTextChanged.connect(self.onCaptureModeChanged)
 
 		self.Gain_note_label = QtWidgets.QLabel("Set manually in the ASCOM Gain and Offset window.")
 		self.Gain_note_label.setWordWrap(True)
@@ -1413,7 +1622,9 @@ class Ui(QtWidgets.QMainWindow):
 		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
 		
 		settings_group.setLayout(settings_layout)
-		right_column.addWidget(settings_group)
+		settings_group.setMinimumHeight(170)
+		settings_group.setMaximumHeight(340)
+		right_column.addWidget(settings_group, stretch=0)
 
 		# ---------------- Right column: buttons ----------------
 		button_group = QtWidgets.QGroupBox("Controls")
@@ -1435,7 +1646,7 @@ class Ui(QtWidgets.QMainWindow):
 
 		self.thread = None
 		self.createPersistentWorker()
-		self.show()
+		self.showMaximized()
 
 	def getFocusSettings(self):
 		binning = self.Binning_spinbox.value()
@@ -1472,6 +1683,43 @@ class Ui(QtWidgets.QMainWindow):
 
 		self.thread.updateCaptureSettings(self.getFocusSettings())
 	
+	def clearMeasurementPlotsOnly(self):
+		"""
+		Clear focus measurement plots without wiping the latest image display.
+		Used when switching modes.
+		"""
+
+		self.frame_number = 0
+
+		self.Sx = []
+		self.Sy = []
+		self.Syy = []
+		self.Sav = []
+
+		self.x_line.setData([], [])
+		self.y_line.setData([], [])
+		self.av_line.setData([], [])
+
+		self.AFPositions = []
+		self.AFScores = []
+
+		self.af_curve_line.setData([], [])
+		self.best_focus_line.hide()
+
+	def onCaptureModeChanged(self, mode):
+		"""
+		When changing modes, reset measurement plots so Single Image,
+		Stream, and Autofocus do not mix measurements.
+		"""
+
+		self.updateAutofocusControls(mode)
+		self.clearMeasurementPlotsOnly()
+
+		if mode == "Autofocus":
+			self.showAutofocusPlot()
+		else:
+			self.showLiveTrendPlot()
+	
 	def onFocusSessionFinished(self):
 		"""
 		Reset the Run button after a capture sequence finishes naturally.
@@ -1488,6 +1736,74 @@ class Ui(QtWidgets.QMainWindow):
 		self.Start_button.setText("Start")
 		print("Focus thread finished.")
 
+	def showLiveTrendPlot(self):
+		self.PlotStack.setCurrentWidget(self.LiveTrendPage)
+
+		self.LiveTrend_button.blockSignals(True)
+		self.AFCurve_button.blockSignals(True)
+
+		self.LiveTrend_button.setChecked(True)
+		self.AFCurve_button.setChecked(False)
+
+		self.LiveTrend_button.blockSignals(False)
+		self.AFCurve_button.blockSignals(False)
+
+
+	def showAutofocusPlot(self):
+		self.PlotStack.setCurrentWidget(self.AutofocusPage)
+
+		self.LiveTrend_button.blockSignals(True)
+		self.AFCurve_button.blockSignals(True)
+
+		self.LiveTrend_button.setChecked(False)
+		self.AFCurve_button.setChecked(True)
+
+		self.LiveTrend_button.blockSignals(False)
+		self.AFCurve_button.blockSignals(False)
+
+	def updateAutofocusPlot(self, focuser_position, median_sigma):
+		self.AFPositions.append(int(focuser_position))
+		self.AFScores.append(float(median_sigma))
+
+		# Sort by focuser position so the curve is visually sane.
+		ordered = sorted(zip(self.AFPositions, self.AFScores), key=lambda item: item[0])
+
+		positions = [item[0] for item in ordered]
+		scores = [item[1] for item in ordered]
+
+		self.af_curve_line.setData(positions, scores)
+
+		if len(positions) >= 2:
+			xmin = min(positions)
+			xmax = max(positions)
+			xpad = max(1, 0.05 * (xmax - xmin))
+
+			self.AFPlot.setXRange(
+				xmin - xpad,
+				xmax + xpad,
+				padding=0
+			)
+
+		if len(scores) > 0:
+			ymin = min(scores)
+			ymax = max(scores)
+
+			if ymax > ymin:
+				ypad = 0.1 * (ymax - ymin)
+			else:
+				ypad = max(0.1, abs(ymin) * 0.05)
+
+			self.AFPlot.setYRange(
+				ymin - ypad,
+				ymax + ypad,
+				padding=0
+			)
+
+
+	def updateBestFocusMarker(self, best_position, best_score):
+		self.best_focus_line.setPos(int(best_position))
+		self.best_focus_line.show()
+
 	def createPersistentWorker(self):
 		settings = self.getFocusSettings()
 
@@ -1497,6 +1813,8 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread.updateStatus.connect(self.updateStatus)
 		self.thread.updateStarOverlay.connect(self.updateStarOverlay)
 		self.thread.sessionFinished.connect(self.onFocusSessionFinished)
+		self.thread.updateAutofocusPlot.connect(self.updateAutofocusPlot)
+		self.thread.updateBestFocus.connect(self.updateBestFocusMarker)
 
 		self.thread.start()
 
@@ -1510,16 +1828,8 @@ class Ui(QtWidgets.QMainWindow):
 	def clearDisplay(self):
 		print("Clearing PyFocus display.")
 
-		# Clear plot data
-		self.frame_number = 0
-		self.Sx = []
-		self.Sy = []
-		self.Syy = []
-		self.Sav = []
+		self.clearMeasurementPlotsOnly()
 
-		self.x_line.setData(self.Sx, self.Sy)
-		self.y_line.setData(self.Sx, self.Syy)
-		self.av_line.setData(self.Sx, self.Sav)
 		self.candidate_scatter.setData([])
 		self.fitted_scatter.setData([])
 
@@ -1623,16 +1933,32 @@ class Ui(QtWidgets.QMainWindow):
 				f"Sigma Y: {sigma_y:.3f} px   "
 				f"Average: {sigma_avg:.3f} px"
 			)
+		
+		focuser_position = status.get("focuser_position")
+		testing_position = status.get("testing_position")
+		best_position = status.get("best_position")
+
+		if focuser_position is None:
+			focuser_text = "Focuser position: --"
+		else:
+			focuser_text = f"Focuser position: {focuser_position}"
+
+		if testing_position is not None:
+			focuser_text += f"   Testing: {testing_position}"
+
+		if best_position is not None:
+			focuser_text += f"   Best: {best_position}"
 
 		text = (
-			f"Mode: {status.get('capture_mode', 'Unknown')}\n"
+			f"Mode: {status.get('capture_mode', 'Unknown')} | "
 			f"Status: {status.get('state', 'Running')}\n"
-			f"Exposure: {status['exposure']:.3f} s   "
-			f"Gain: {status.get('gain', 0):.2f}   "
-			f"Binning: {status['binning']}\n"
-			f"Mean: {status['mean']:.1f} ± {status['std']:.1f}   "
+			f"{focuser_text}\n"
+			f"Exp: {status['exposure']:.3f}s | "
+			f"Gain: {status.get('gain', 0):.2f} | "
+			f"Bin: {status['binning']}\n"
+			f"Mean/Std: {status['mean']:.1f} / {status['std']:.1f} | "
 			f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
-			f"Candidate peaks: {status['detected_peaks']}   "
+			f"Peaks: {status['detected_peaks']} | "
 			f"Accepted PSFs: {status['valid_fits']}\n"
 			f"{sigma_text}"
 		)
@@ -1888,7 +2214,7 @@ class Ui(QtWidgets.QMainWindow):
 		squeezed directly into the small GUI window, which can create ugly
 		row/column aliasing artifacts.
 		"""
-
+		
 		img = np.asarray(image, dtype=np.float32)
 		self.last_raw_img = img
 
@@ -1897,9 +2223,22 @@ class Ui(QtWidgets.QMainWindow):
 			img.shape
 		)
 
+		bin_x = max(1, self.Binning_spinbox.value())
+		bin_y = max(1, self.Binning_spinbox.value())
+
+		sensor_x0 = bright_x * bin_x
+		sensor_x1 = sensor_x0 + bin_x - 1
+		sensor_y0 = bright_y * bin_y
+		sensor_y1 = sensor_y0 + bin_y - 1
+
 		print(
 			f"Brightest raw pixel: "
 			f"x={bright_x}, y={bright_y}, value={img[bright_y, bright_x]:.1f}"
+		)
+
+		print(
+			f"Approx unbinned sensor region: "
+			f"x={sensor_x0}-{sensor_x1}, y={sensor_y0}-{sensor_y1}"
 		)
 
 		# Whole-frame values. These remain fixed until the next image arrives.
