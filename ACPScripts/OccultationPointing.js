@@ -19,7 +19,7 @@ var fso, f1, ts;
 //------------------------------------------------------------------------------
 
 // ===== USER INPUT FROM OCCULT WATCHER =====
-// Replace these with the Occult Watcher target star coordinates, NOT asteroid coordinates.
+// Replace these with the Occult Watcher target occulting star coordinates, NOT asteroid coordinates.
 
 var TARGET_NAME = "10055_Silcher_occultation_star";
 
@@ -1277,19 +1277,19 @@ function main()
 
     Console.PrintLine("========================================");
     Console.PrintLine("Pointing phase complete.");
-    Console.PrintLine("Target should now be in the field.");
+    Console.PrintLine("Target should now be centered in the field.");
     Console.PrintLine("DO NOT shut down. DO NOT reslew during event.");
     Console.PrintLine("Starting ColibriGrab automatically for the occultation run.");
     Console.PrintLine("========================================");
 
-    ts.WriteLine(Util.SysUTCDate + " INFO: Pointing phase complete. Telescope left tracking on target.");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Pointing phase complete. Telescope left tracking on target. Starting ColibriGrab for occultation run.");
 
+    // Higher level camera settings are handled in the ColibriGrab configuration file. 
+    // Here you'll only need to set the exposure time time of and duration of the observation.
     var exposureMs = 25;
+    var durationSeconds = 30 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
 
-    // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
-    var durationSeconds = 30 * 60;
-
-    var pierside;
+    var pierside; // Pier side for logging
 
     if (Telescope.SideOfPier == 0)
     {
