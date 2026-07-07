@@ -3,7 +3,7 @@
 // Global variables for script
 //
 //
-
+var ForReading = 1;
 var ForAppending = 8;
 var Mode = 8;
 var USE_TOPOCENTRIC_SLEWS = true;
@@ -36,6 +36,27 @@ var TARGET_DEC_S = 47.7;
 
 // Event timing notes only:
 var EVENT_UTC = "2026-07-07 07:04:00 UTC";
+
+var EVENT_UTC_COMPACT = "20260707T070400UT";
+var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
+
+fso = new ActiveXObject("Scripting.FileSystemObject");
+
+if (!fso.FolderExists("D:\\Logs\\ACP"))
+{
+    fso.CreateFolder("D:\\Logs\\ACP");
+}
+
+if (!fso.FileExists(LogFile))
+{
+    fso.CreateTextFile(LogFile);
+}
+
+f1 = fso.GetFile(LogFile);
+ts = f1.OpenAsTextStream(Mode, true);
+
+Console.PrintLine("Log file ready: " + LogFile);
+ts.WriteLine(Util.SysUTCDate + " INFO: Log file ready.");
 
 
 String.prototype.trim = function()
@@ -103,6 +124,25 @@ function trkOn()
     {
         Console.PrintLine("Failed to enable tracking")
         ts.WriteLine(" WARNING: Failed to enable telescope tracking")
+    }
+}
+
+///////////////////////////////////////////////////////////////
+// Function to turn tracking off. Liberated from BJD scripts.
+// 
+///////////////////////////////////////////////////////////////
+function trkOff()
+{
+    if (Telescope.CanSetTracking)
+    {
+        Telescope.Tracking = false;
+        Console.PrintLine("--> Tracking is turned off.");
+    }
+    else if (Telescope.Tracking && !Telescope.CanSetTracking)
+    {
+        Console.PrintLine("Failed to disable tracking")
+        ts.WriteLine(" WARNING: Failed to disable telescope tracking")
+
     }
 }
 
@@ -184,7 +224,9 @@ function domeOpen()
     //    }
     //    Console.PrintLine("--> Dome is homed... Bigly.");
     //}
-}///////////////////////////
+}
+
+///////////////////////////
 // Function to close dome
 // MJM -
 ///////////////////////////
@@ -300,6 +342,107 @@ function domeHome()
     }
     Dome.UnparkHome()
 }
+
+///////////////////////////
+// Function to park dome.
+// Prefer ASCOM Park() if supported.
+// If not supported, fall back to homing the dome.
+///////////////////////////
+function domePark()
+{
+    Console.PrintLine("Parking dome...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Parking dome...");
+
+    try
+    {
+        if (Dome.CanPark)
+        {
+            Dome.Park();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtPark)
+            {
+                Console.PrintLine("*** Dome is parking...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parking...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is parked.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parked.");
+        }
+        else
+        {
+            Console.PrintLine("Dome driver does not report CanPark. Homing dome instead.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Dome driver does not report CanPark. Homing dome instead.");
+
+            Dome.FindHome();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtHome)
+            {
+                Console.PrintLine("*** Homing dome...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Homing dome...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is homed.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is homed.");
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Dome park/home failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Dome park/home failed: " + (e.message || e.description || e));
+    }
+}
+
+///////////////////////////////////////////////////////////////
+// Function to shut down telescope at end of the night
+// MJM - June 23, 2022
+// Updated by CM - June 27, 2026
+///////////////////////////////////////////////////////////////
+function shutDown()
+{
+    Console.PrintLine("Shutting down observatory...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Shutting down observatory...");
+
+    trkOff()
+
+    Console.PrintLine("Tracking turned off. Parking telescope now...")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
+    try{
+        Telescope.Park();
+        while (!Telescope.AtPark)
+        {
+            Console.PrintLine("Waiting for telescope to park...");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Waiting for telescope to park...");
+            Util.WaitForMilliseconds(2000);
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Telescope park failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Telescope park failed: " + (e.message || e.description || e));
+        
+    }
+
+    trkOff();
+
+    Console.PrintLine("Telescope parked. Closing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+
+    domeClose();
+
+    Console.PrintLine("Dome shutter closed. Parking/homing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dome shutter closed. Parking/homing dome now.");
+
+    domePark();
+
+    Console.PrintLine("Observatory shutdown complete. Good night/morning.")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Observatory shutdown complete. Good night/morning.")
+    
+}
+
 
 ///////////////////////////////////////////
 // Coordinate sanity checks (defense against corrupted scheduler fields)
@@ -852,6 +995,116 @@ function adjustPointing(target_ra, target_dec) {
     }
 }
 
+function getDate()
+{
+    var d = new Date();
+    var s = d.getUTCFullYear();
+    var month = (d.getUTCMonth() + 1).toString();
+    var day = d.getUTCDate().toString();
+
+    if (month.length == 1)
+    {
+        s += "0" + month;
+    }
+    else
+    {
+        s += month;
+    }
+
+    if (day.length == 1)
+    {
+        s += "0" + day;
+    }
+    else
+    {
+        s += day;
+    }
+
+    return s;
+}
+
+function appendAndDeleteColibriGrabLog(colibriLogFile, LogFile)
+{
+    try
+    {
+        if (fso.FileExists(colibriLogFile))
+        {
+            var colibriLog = fso.OpenTextFile(colibriLogFile, ForReading, false);
+
+            while (!colibriLog.AtEndOfStream)
+            {
+                var logLine = colibriLog.ReadLine();
+                ts.WriteLine(Util.SysUTCDate + " " + logLine);
+            }
+
+            colibriLog.Close();
+            fso.DeleteFile(colibriLogFile);
+
+            Console.PrintLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Deleted ColibriGrab log file after appending.");
+        }
+        else
+        {
+            Console.PrintLine(Util.SysUTCDate + " WARNING: ColibriGrab log file does not exist.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: ColibriGrab log file does not exist.");
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine(Util.SysUTCDate + " ERROR appending ColibriGrab log: " + e.message);
+        ts.WriteLine(Util.SysUTCDate + " ERROR appending ColibriGrab log: " + e.message);
+    }
+}
+
+function runOccultationDarkCollection(targetName, eventUTC, darkFrames, exposureMs)
+{
+    var wshShell = new ActiveXObject("WScript.Shell");
+
+    var userProfile = wshShell.ExpandEnvironmentStrings("%USERPROFILE%");
+    var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+    var today = getDate();
+
+    var safeTargetName = targetName.replace(/[^A-Za-z0-9_\\-]/g, "_");
+    var safeEventUTC = eventUTC.replace(/[^0-9A-Za-z]/g, "");
+
+    var outDir = "D:\\ColibriData\\" + today.toString() +
+                 "\\Occultations\\" + safeTargetName + "\\Dark";
+
+    wshShell.Run('cmd /c if not exist "' + outDir + '" mkdir "' + outDir + '"', 0, true);
+
+    var prefix = "Dark_" + safeTargetName + "_" + safeEventUTC +
+             "_" + exposureMs.toString() + "ms";
+
+    // This closely mirrors RunColibri's darkCollection() command:
+    // -n 10 -p Dark_25ms -e 0 -t -10 -f dark -l 1 -w ...
+    var command = "\"" + colibriGrabPath + "\"" +
+                  " -n " + darkFrames.toString() +
+                  " -p " + prefix +
+                  " -e " + exposureMs.toString() +
+                  " -t -10" +
+                  " -f dark" +
+                  " -l 1" +
+                  " -w " + outDir;
+
+    Console.PrintLine(Util.SysUTCDate + " INFO: Starting occultation dark collection.");
+    Console.PrintLine(Util.SysUTCDate + " INFO: Dark frames: " + darkFrames.toString());
+    Console.PrintLine(Util.SysUTCDate + " INFO: Output: " + outDir);
+    Console.PrintLine(Util.SysUTCDate + " INFO: Executing command: " + command);
+
+    ts.WriteLine(Util.SysUTCDate + " INFO: Starting occultation dark collection.");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Executing command: " + command);
+
+    wshShell.Run(command, 1, true);
+
+    Util.WaitForMilliseconds(50);
+
+    appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+
+    Console.PrintLine(Util.SysUTCDate + " INFO: Occultation dark collection finished.");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Occultation dark collection finished.");
+}
+
 function runOccultationColibriGrab(targetName, eventUTC, exposureMs, durationSeconds, pierside)
 {
     var wshShell = new ActiveXObject("WScript.Shell");
@@ -869,7 +1122,7 @@ function runOccultationColibriGrab(targetName, eventUTC, exposureMs, durationSec
     var safeTargetName = targetName.replace(/[^A-Za-z0-9_\\-]/g, "_");
     var safeEventUTC = eventUTC.replace(/[^0-9A-Za-z]/g, "");
 
-    var outDir = "D:\\ColibriData\\" + today.toString() +
+    var outDir = "D:\\ColibriOccultationData\\" + today.toString() +
                  "\\Occultations\\" + safeTargetName;
 
     // Windows mkdir creates intermediate folders automatically.
@@ -928,31 +1181,65 @@ function main()
 
     connectScope();
 
-    Console.PrintLine("Unparking telescope...");
-    Telescope.Unpark();
-
-    trkOn();
-
     Console.PrintLine("Opening dome...");
     domeOpen();
 
+    // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
     while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
     {
         Console.PrintLine("*** Dome shutter is still opening...");
         Util.WaitForMilliseconds(2000);
     }
 
-    Dome.UnparkHome();
-
-    if (Dome.Slaved == false)
+    // Slave the dome to the scope
+        
+    if (Dome.slave == false)
     {
-        Dome.Slaved = true;
+        Dome.slave = true;
     }
+
+    Console.PrintLine("Dome opened and slaved...");
+
+    Console.PrintLine("Unparking telescope...");
+    Telescope.Unpark();
+
+    trkOn();
 
     Console.PrintLine("Initial slew to OW target star coordinates...");
     ts.WriteLine(Util.SysUTCDate + " INFO: Initial slew to occultation target.");
 
-    if (!gotoRADec(targetRAHours, targetDecDeg))
+
+    while (Telescope.Slewing)
+    {
+        Console.PrintLine("Waiting for telescope slew...");
+        Util.WaitForMilliseconds(500);
+    }
+
+    while (Dome.Slewing)
+    {
+        Console.PrintLine("Waiting for dome slew...");
+        Util.WaitForMilliseconds(500);
+    }
+
+    // Create coordinate transform for the occultation target.
+    var targetCt = Util.NewCThereAndNow();
+    targetCt.RightAscension = targetRAHours;  // already decimal hours
+    targetCt.Declination = targetDecDeg;      // decimal degrees
+
+    Console.PrintLine("");
+    Console.PrintLine("Slewing to occultation target...");
+    Console.PrintLine("RA:  " + targetCt.RightAscension.toFixed(8) + " h");
+    Console.PrintLine("Dec: " + targetCt.Declination.toFixed(8) + " deg");
+    Console.PrintLine("Alt: " + targetCt.Elevation.toFixed(4) + " deg");
+    Console.PrintLine("Az:  " + targetCt.Azimuth.toFixed(4) + " deg");
+
+    ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to occultation target...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: RA: " + targetCt.RightAscension.toFixed(8) + " h");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + targetCt.Declination.toFixed(8) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + targetCt.Elevation.toFixed(4) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + targetCt.Azimuth.toFixed(4) + " deg");
+
+    if (!gotoRADec(targetCt.RightAscension, targetCt.Declination))
     {
         Console.PrintLine("ERROR: Initial slew failed/refused.");
         ts.WriteLine(Util.SysUTCDate + " ERROR: Initial slew failed/refused.");
@@ -974,7 +1261,7 @@ function main()
     Console.PrintLine("Initial slew complete. Starting astrometric pointing correction...");
     ts.WriteLine(Util.SysUTCDate + " INFO: Starting adjustPointing().");
 
-    var ok = adjustPointing(targetRAHours, targetDecDeg);
+    var ok = adjustPointing(targetCt.RightAscension, targetCt.Declination);
 
     while (Telescope.Slewing)
     {
@@ -992,15 +1279,15 @@ function main()
     Console.PrintLine("Pointing phase complete.");
     Console.PrintLine("Target should now be in the field.");
     Console.PrintLine("DO NOT shut down. DO NOT reslew during event.");
-    Console.PrintLine("Start ColibriGrab manually for the occultation run.");
+    Console.PrintLine("Starting ColibriGrab automatically for the occultation run.");
     Console.PrintLine("========================================");
 
     ts.WriteLine(Util.SysUTCDate + " INFO: Pointing phase complete. Telescope left tracking on target.");
 
     var exposureMs = 25;
 
-    // 20 minute run: 06:54 UT to 07:14 UT
-    var durationSeconds = 20 * 60;
+    // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
+    var durationSeconds = 30 * 60;
 
     var pierside;
 
@@ -1018,7 +1305,13 @@ function main()
 
     var EVENT_UTC_COMPACT = "20260707T070400UT";
 
-
+    runOccultationDarkCollection(
+        TARGET_NAME,
+        EVENT_UTC_COMPACT,
+        10,
+        exposureMs
+    );
+    
     runOccultationColibriGrab(
         TARGET_NAME,
         EVENT_UTC_COMPACT,
@@ -1026,4 +1319,11 @@ function main()
         durationSeconds,
         pierside
     );
+
+    Console.PrintLine("Finished all observations for the night. Turning off equipment.");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Finished all observations for the night. Turning off equipment.");
+
+    shutDown();
 }
+
+main();
