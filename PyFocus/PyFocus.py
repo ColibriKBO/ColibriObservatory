@@ -85,7 +85,7 @@ class ASCOMFocuserController:
 
 class FocusThread(QtCore.QThread):
 	updateFocusFrame = QtCore.pyqtSignal(object)
-	updatePlot = QtCore.pyqtSignal(float, float, float)
+	updatePlot = QtCore.pyqtSignal(float, float, float, object)
 
 	# New: autofocus curve signals
 	updateAutofocusPlot = QtCore.pyqtSignal(int, float)
@@ -730,7 +730,12 @@ class FocusThread(QtCore.QThread):
 		}
 
 		self.updateStatus.emit(status)
-		self.updatePlot.emit(float(sigmax), float(sigmay), float(sigmaav))
+		self.updatePlot.emit(
+			float(sigmax),
+			float(sigmay),
+			float(sigmaav),
+			focuser_position
+		)
 
 		return status
 	
@@ -1371,7 +1376,7 @@ class Ui(QtWidgets.QMainWindow):
 		plot_selector_layout = QtWidgets.QHBoxLayout()
 
 		self.LiveTrend_button = QtWidgets.QPushButton("Live Trend")
-		self.AFCurve_button = QtWidgets.QPushButton("Autofocus Curve")
+		self.AFCurve_button = QtWidgets.QPushButton("Focus Curve")
 
 		self.LiveTrend_button.setCheckable(True)
 		self.AFCurve_button.setCheckable(True)
@@ -1405,12 +1410,32 @@ class Ui(QtWidgets.QMainWindow):
 		self.PlotStack.addWidget(self.AutofocusPage)
 
 		plot_layout.addWidget(self.PlotStack)
+
+		self.focus_guidance_label = QtWidgets.QLabel(
+			"Focus guidance: waiting for valid focus measurements."
+		)
+		self.focus_guidance_label.setMaximumHeight(60)
+		self.focus_guidance_label.setStyleSheet("""
+			QLabel {
+				color: #f4f7fb;
+				background-color: #182033;
+				border: 1px solid #303b52;
+				border-radius: 6px;
+				padding: 5px;
+				font-family: Consolas, Courier New, monospace;
+				font-size: 9pt;
+				font-weight: bold;
+			}
+		""")
+
+		plot_layout.addWidget(self.focus_guidance_label)
 		plot_group.setLayout(plot_layout)
 
 		# Let Qt size the plot naturally instead of forcing an impossible minimum.
-		plot_group.setMinimumHeight(260)
-		self.Plot.setMinimumHeight(210)
-		self.AFPlot.setMinimumHeight(210)
+		plot_group.setMinimumHeight(360)
+		self.PlotStack.setMinimumHeight(260)
+		self.Plot.setMinimumHeight(245)
+		self.AFPlot.setMinimumHeight(245)
 
 		plot_group.setSizePolicy(
 			QtWidgets.QSizePolicy.Expanding,
@@ -1427,7 +1452,7 @@ class Ui(QtWidgets.QMainWindow):
 			QtWidgets.QSizePolicy.Expanding
 		)
 
-		right_column.addWidget(plot_group, stretch=4)
+		right_column.addWidget(plot_group, stretch=8)
 
 		##### Button triggers
 		self.Start_button.clicked.connect(self.startFocus)
@@ -1448,12 +1473,31 @@ class Ui(QtWidgets.QMainWindow):
 		self.Sy = []
 		self.Syy = []
 		self.Sav = []
+		self.Smed = []
 
 		# Configure the live focus metric plot
 		labelStyle = {'color': '#FFFFFF', 'font-size': '9pt'}
 
 		self.Plot.setLabel('left', 'PSF width', units='px', **labelStyle)
-		self.Plot.setLabel('bottom', 'Focus measurement frame number', **labelStyle)
+		self.Plot.setLabel('bottom', 'Frame number', **labelStyle)
+
+		af_plot_item = self.AFPlot.getPlotItem()
+		af_plot_item.getAxis('bottom').setHeight(48)
+		af_plot_item.getAxis('left').setWidth(70)
+		af_plot_item.layout.setContentsMargins(8, 4, 12, 18)
+
+		live_plot_item = self.Plot.getPlotItem()
+		live_plot_item.getAxis('bottom').setHeight(48)
+		live_plot_item.getAxis('left').setWidth(58)
+		live_plot_item.layout.setContentsMargins(8, 4, 12, 18)
+
+		# Reserve enough space for tick labels + bottom axis label.
+		self.Plot.getAxis('bottom').setHeight(48)
+		self.Plot.getAxis('left').setWidth(55)
+
+		# Add a little padding inside the pyqtgraph layout.
+		self.Plot.getPlotItem().layout.setContentsMargins(8, 8, 12, 18)
+
 		self.Plot.showGrid(x=True, y=True, alpha=0.3)
 		self.Plot.addLegend(offset=(5, 5))
 
@@ -1472,12 +1516,30 @@ class Ui(QtWidgets.QMainWindow):
 		self.av_line = self.Plot.plot(
 			self.Sx, self.Sav,
 			pen=pg.mkPen(color='b'),
-			name='Average'
+			name='Current avg sigma'
 		)
 
+		# Hide the noisy component lines by default.
+		# They are still calculated and shown in the metrics panel.
+		self.x_line.hide()
+		self.y_line.hide()
+
+		# Main line to watch while manually focusing.
+		self.med_line = self.Plot.plot(
+			[],
+			[],
+			pen=pg.mkPen(color='w', width=3),
+			name='7-frame median sigma'
+		)
 		# Autofocus curve data
 		self.AFPositions = []
 		self.AFScores = []
+
+		self.focus_curve_by_position = {}
+
+		self.best_live_score = None
+		self.best_live_position = None
+		self.last_live_score = None
 
 		self.AFPlot.setLabel(
 			"left",
@@ -1491,6 +1553,10 @@ class Ui(QtWidgets.QMainWindow):
 			"Focuser position",
 			color="#FFFFFF"
 		)
+
+		self.AFPlot.getAxis('bottom').setHeight(48)
+		self.AFPlot.getAxis('left').setWidth(70)
+		self.AFPlot.getPlotItem().layout.setContentsMargins(8, 8, 12, 18)
 
 		self.AFPlot.showGrid(x=True, y=True, alpha=0.3)
 		self.AFPlot.addLegend(offset=(5, 5))
@@ -1538,7 +1604,8 @@ class Ui(QtWidgets.QMainWindow):
 		right_column.addWidget(status_group, stretch=0)
 
 		# ---------------- Right column: capture settings ----------------
-		settings_group = QtWidgets.QGroupBox("Capture Settings")
+		self.settings_group = QtWidgets.QGroupBox("Capture Settings")
+		settings_group = self.settings_group
 		settings_layout = QtWidgets.QFormLayout()
 		settings_layout.setContentsMargins(8, 8, 8, 8)
 		settings_layout.setVerticalSpacing(6)
@@ -1622,8 +1689,13 @@ class Ui(QtWidgets.QMainWindow):
 		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
 		
 		settings_group.setLayout(settings_layout)
-		settings_group.setMinimumHeight(170)
-		settings_group.setMaximumHeight(340)
+		settings_group.setMinimumHeight(120)
+		settings_group.setMaximumHeight(230)
+		settings_group.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Maximum
+		)
+
 		right_column.addWidget(settings_group, stretch=0)
 
 		# ---------------- Right column: buttons ----------------
@@ -1695,16 +1767,28 @@ class Ui(QtWidgets.QMainWindow):
 		self.Sy = []
 		self.Syy = []
 		self.Sav = []
+		self.Smed = []
 
 		self.x_line.setData([], [])
 		self.y_line.setData([], [])
 		self.av_line.setData([], [])
+		self.med_line.setData([], [])
 
 		self.AFPositions = []
 		self.AFScores = []
 
 		self.af_curve_line.setData([], [])
 		self.best_focus_line.hide()
+
+		self.focus_curve_by_position = {}
+
+		self.best_live_score = None
+		self.best_live_position = None
+		self.last_live_score = None
+
+		self.focus_guidance_label.setText(
+			"Focus guidance: waiting for valid focus measurements."
+		)
 
 	def onCaptureModeChanged(self, mode):
 		"""
@@ -1866,24 +1950,82 @@ class Ui(QtWidgets.QMainWindow):
 		# self.Plot.setAutoVisible(y=True)
 		self.Plot.autoRange(padding=0)
 
-	def updatePlot(self, sigmax, sigmay, average):
+	def updateFocusCurvePoint(self, focuser_position, focus_score):
+		"""
+		Update the Focus Curve plot using focuser position as x-axis.
+
+		Multiple measurements at the same focuser position are combined using
+		the median so the curve is not dominated by one noisy frame.
+		"""
+
+		if focuser_position not in self.focus_curve_by_position:
+			self.focus_curve_by_position[focuser_position] = []
+
+		self.focus_curve_by_position[focuser_position].append(float(focus_score))
+
+		positions = sorted(self.focus_curve_by_position.keys())
+		scores = [
+			float(np.median(self.focus_curve_by_position[pos]))
+			for pos in positions
+		]
+
+		self.af_curve_line.setData(positions, scores)
+
+		if len(positions) >= 2:
+			xmin = min(positions)
+			xmax = max(positions)
+			xpad = max(1, 0.05 * (xmax - xmin))
+
+			self.AFPlot.setXRange(
+				xmin - xpad,
+				xmax + xpad,
+				padding=0
+			)
+
+		if len(scores) > 0:
+			ymin = min(scores)
+			ymax = max(scores)
+
+			if ymax > ymin:
+				ypad = 0.1 * (ymax - ymin)
+			else:
+				ypad = max(0.1, abs(ymin) * 0.05)
+
+			self.AFPlot.setYRange(
+				ymin - ypad,
+				ymax + ypad,
+				padding=0
+			)
+
+			best_index = int(np.argmin(scores))
+			best_position = positions[best_index]
+
+			self.best_focus_line.setPos(best_position)
+			self.best_focus_line.show()
+
+	def updatePlot(self, sigmax, sigmay, average, focuser_position=None):
 		self.frame_number += 1
 
 		self.Sx.append(self.frame_number)
 		self.Sy.append(sigmax)
 		self.Syy.append(sigmay)
 		self.Sav.append(average)
+		median_window = 7
+		rolling_median = float(np.median(self.Sav[-median_window:]))
+		self.Smed.append(rolling_median)
 
 		if len(self.Sx) > self.max_plot_points:
 			self.Sx = self.Sx[-self.max_plot_points:]
 			self.Sy = self.Sy[-self.max_plot_points:]
 			self.Syy = self.Syy[-self.max_plot_points:]
 			self.Sav = self.Sav[-self.max_plot_points:]
+			self.Smed = self.Smed[-self.max_plot_points:]
 
-		# Update all three plotted curves.
+		# Keep the live trend, but make Average the main thing.
 		self.x_line.setData(self.Sx, self.Sy)
 		self.y_line.setData(self.Sx, self.Syy)
 		self.av_line.setData(self.Sx, self.Sav)
+		self.med_line.setData(self.Sx, self.Smed)
 
 		if len(self.Sx) >= 2:
 			self.Plot.setXRange(
@@ -1892,17 +2034,18 @@ class Ui(QtWidgets.QMainWindow):
 				padding=0.05
 			)
 
-		all_y = self.Sy + self.Syy + self.Sav
+		# Scale the graph mostly around the values we actually care about.
+		# This prevents Sigma X/Y spikes from making the useful trend unreadable.
+		all_y = self.Sav[-30:] + self.Smed[-30:]
 
 		if len(all_y) > 0:
 			ymin = min(all_y)
 			ymax = max(all_y)
 
 			if ymax > ymin:
-				pad = 0.1 * (ymax - ymin)
+				pad = max(0.08, 0.25 * (ymax - ymin))
 			else:
-				# Give a visible range when all values are initially identical.
-				pad = max(0.1, abs(ymin) * 0.05)
+				pad = 0.08
 
 			self.Plot.setYRange(
 				ymin - pad,
@@ -1910,15 +2053,77 @@ class Ui(QtWidgets.QMainWindow):
 				padding=0
 			)
 
+		# Also update the Focus Curve if we know the focuser position.
+		if focuser_position is not None:
+			self.updateFocusCurvePoint(
+				int(focuser_position),
+				float(average)
+			)
+
+		# Guidance text.
+		raw_score = float(average)
+		score = float(np.median(self.Sav[-7:]))
+		position_text = "--" if focuser_position is None else str(int(focuser_position))
+
+		if self.best_live_score is None or score < self.best_live_score:
+			self.best_live_score = score
+			self.best_live_position = focuser_position
+			verdict = "NEW BEST"
+		else:
+			delta_from_best = score - self.best_live_score
+
+			if delta_from_best <= 0.05:
+				verdict = "NEAR BEST"
+			else:
+				verdict = f"WORSE than best by +{delta_from_best:.3f} px"
+
+		if self.last_live_score is None:
+			change_text = "Change from previous: --"
+		else:
+			delta = score - self.last_live_score
+
+			if abs(delta) <= 0.03:
+				change_text = f"Change from previous: stable ({delta:+.3f} px)"
+			elif delta < 0:
+				change_text = f"Change from previous: BETTER ({delta:+.3f} px)"
+			else:
+				change_text = f"Change from previous: WORSE ({delta:+.3f} px)"
+
+		self.last_live_score = score
+
+		if self.best_live_position is None:
+			best_position_text = "--"
+		else:
+			best_position_text = str(int(self.best_live_position))
+
+		
+
+		self.focus_guidance_label.setText(
+			f"Current average sigma: {raw_score:.3f} px   |   "
+			f"7-frame median sigma: {score:.3f} px   |   "
+			f"Best: {self.best_live_score:.3f} px @ {best_position_text}\n"
+			f"{verdict}   |   {change_text}"
+		)
+
 	def updateAutofocusControls(self, mode):
 		"""
-		Enable autofocus-only settings only when Autofocus mode is selected.
+		Show autofocus-only settings only when Autofocus mode is selected.
+
+		In Stream / Single Image mode, hide them entirely so the plot has more
+		vertical room.
 		"""
 
 		autofocus_enabled = (mode == "Autofocus")
 
 		for widget in self.autofocus_controls:
+			widget.setVisible(autofocus_enabled)
 			widget.setEnabled(autofocus_enabled)
+
+		if hasattr(self, "settings_group"):
+			if autofocus_enabled:
+				self.settings_group.setMaximumHeight(340)
+			else:
+				self.settings_group.setMaximumHeight(210)
 	
 	def updateStatus(self, status):
 		sigma_x = status.get("sigma_x")
