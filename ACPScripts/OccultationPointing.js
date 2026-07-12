@@ -21,12 +21,13 @@ var fso, f1, ts;
 // ===== USER INPUT FROM OCCULT WATCHER =====
 // Replace these with the Occult Watcher target occulting star coordinates, NOT asteroid coordinates.
 
-var TARGET_NAME = "10055_Silcher_occultation_star";
+var TARGET_NAME = "2000QW151_occultation_star";
 
 // RA in j2000 hours/min/sec from OW:
 var TARGET_RA_H = 18;
 var TARGET_RA_M = 38;
 var TARGET_RA_S = 36.1;
+
 
 // Dec in j2000 deg/arcmin/arcsec from OW:
 var TARGET_DEC_SIGN = -1;
@@ -37,7 +38,7 @@ var TARGET_DEC_S = 47.7;
 // Event timing notes only:
 var EVENT_UTC = "2026-07-07 07:04:00 UTC";
 
-var EVENT_UTC_COMPACT = "20260707T070400UT";
+var EVENT_UTC = "2026-07-12 02:18:07 UTC";
 var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
 
 fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -1303,7 +1304,7 @@ function main()
     Console.PrintLine("Pier side: " + pierside);
     ts.WriteLine(Util.SysUTCDate + " INFO: Pier side: " + pierside);
 
-    var EVENT_UTC_COMPACT = "20260707T070400UT";
+    var EVENT_UTC_COMPACT = "20260712T021807UT";
 
     runOccultationDarkCollection(
         TARGET_NAME,
