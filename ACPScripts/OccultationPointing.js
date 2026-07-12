@@ -1288,7 +1288,7 @@ function main()
     // Higher level camera settings are handled in the ColibriGrab configuration file. 
     // Here you'll only need to set the exposure time time of and duration of the observation.
     var exposureMs = 25;
-    var durationSeconds = 30 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
+    var durationSeconds = 30 * 15; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
 
     var pierside; // Pier side for logging
 
