@@ -4,6 +4,8 @@ import numpy as np
 import numba as nb
 import pyqtgraph as pg
 import threading
+import queue
+
 pg.setConfigOptions(imageAxisOrder='row-major')
 
 import imageio
@@ -31,6 +33,8 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+DEFAULT_FOCUSER_DRIVER_ID = "SeletekFocuser.Focuser"
+
 class ASCOMFocuserController:
 	def __init__(self, driver_id=None):
 		self.driver_id = driver_id
@@ -45,38 +49,63 @@ class ASCOMFocuserController:
 		if not self.driver_id:
 			raise RuntimeError("No ASCOM focuser driver selected.")
 
+		print(f"Opening focuser driver: {self.driver_id}")
+
 		self.focuser = win32com.client.Dispatch(self.driver_id)
-		self.focuser.Connected = True
 
-		if not self.focuser.Connected:
-			raise RuntimeError("Could not connect to ASCOM focuser.")
+		# Important:
+		# Do NOT set self.focuser.Connected here.
+		# The Seletek focuser driver appears to reject the Connected property.
+		# Instead, confirm the driver is usable by reading Position.
+		pos = self.position
 
-		print(f"Connected to focuser: {self.driver_id}")
-		print(f"Current focuser position: {self.position}")
+		print(f"Focuser driver opened: {self.driver_id}")
+		print(f"Current focuser position: {pos}")
 
 	def disconnect(self):
-		if self.focuser is not None:
-			try:
-				self.focuser.Connected = False
-			except Exception:
-				pass
+		# Do not force Connected=False for Seletek.
+		# Just release our COM object reference.
+		self.focuser = None
 
 	def is_connected(self):
-		return self.focuser is not None and self.focuser.Connected
+		if self.focuser is None:
+			return False
+
+		try:
+			_ = self.position
+			return True
+		except Exception:
+			return False
 
 	@property
 	def position(self):
+		if self.focuser is None:
+			raise RuntimeError("Focuser COM object has not been opened.")
+
 		return int(self.focuser.Position)
 
 	def move_to(self, target_position, keep_running_callback=None):
 		target_position = int(target_position)
 
+		if self.focuser is None:
+			self.connect()
+
 		print(f"Moving focuser to {target_position}")
 		self.focuser.Move(target_position)
 
-		while self.focuser.IsMoving:
+		while True:
 			if keep_running_callback is not None and not keep_running_callback():
-				print("Autofocus cancelled while focuser was moving.")
+				print("Focuser move cancelled.")
+				break
+
+			try:
+				is_moving = bool(self.focuser.IsMoving)
+			except Exception:
+				# Some drivers do not report IsMoving reliably.
+				# If Move() returned without error, assume command was accepted.
+				break
+
+			if not is_moving:
 				break
 
 			time.sleep(0.25)
@@ -93,6 +122,7 @@ class FocusThread(QtCore.QThread):
 
 	updateStatus = QtCore.pyqtSignal(object)
 	updateStarOverlay = QtCore.pyqtSignal(object, object)
+	updateFocuserPosition = QtCore.pyqtSignal(object)
 	sessionFinished = QtCore.pyqtSignal()
 
 	def __init__(self, parent=None, settings=None):
@@ -102,6 +132,7 @@ class FocusThread(QtCore.QThread):
 		self.shutdown_requested = False
 		self.session_active = False
 		self.command_event = threading.Event()
+		self.focus_command_queue = queue.Queue()
 
 		# Protect settings that may be changed by the GUI while this thread runs.
 		self.settings_lock = threading.Lock()
@@ -165,12 +196,22 @@ class FocusThread(QtCore.QThread):
 				if self.shutdown_requested:
 					break
 
+				# Handle manual focuser commands first.
+				self.processFocusCommands()
+
+				# If this wake-up was only for a focuser command, go idle again.
+				if not self.session_active:
+					continue
+
 				if self.capture_mode == "Single Image":
 					self.measureFocusMetric()
+					self.processFocusCommands()
 
 				elif self.capture_mode == "Stream":
 					while self.session_active and not self.shutdown_requested:
+						self.processFocusCommands()
 						self.measureFocusMetric()
+						self.processFocusCommands()
 
 				elif self.capture_mode == "Autofocus":
 					self.runAutofocus()
@@ -230,11 +271,9 @@ class FocusThread(QtCore.QThread):
 	
 	def getFocuserPositionSafe(self):
 		"""
-		Return the current focuser position if available.
+		Return current focuser position if available.
 
-		This is safe to call from Single Image, Stream, and Autofocus.
-		If the focuser cannot be connected or read, it returns None instead
-		of crashing the capture loop.
+		This version avoids the Seletek .Connected property entirely.
 		"""
 
 		try:
@@ -243,21 +282,133 @@ class FocusThread(QtCore.QThread):
 					self.focuser_driver_id
 				)
 
-			if not self.focuser_controller.is_connected():
+			if self.focuser_controller.focuser is None:
 				self.focuser_controller.connect()
 
-				# Preserve chosen driver ID after ASCOM chooser is used once.
+				# Preserve selected driver ID after the chooser is used once.
 				self.focuser_driver_id = self.focuser_controller.driver_id
 
-			self.current_focuser_position = self.focuser_controller.position
+			try:
+				position = self.focuser_controller.position
+
+			except Exception as first_error:
+				print(
+					"Focuser position read failed once; reopening driver. "
+					f"Details: {first_error}"
+				)
+
+				self.focuser_controller.disconnect()
+				self.focuser_controller.connect()
+				self.focuser_driver_id = self.focuser_controller.driver_id
+				position = self.focuser_controller.position
+
+			self.current_focuser_position = int(position)
 			self.focuser_available = True
+			self.updateFocuserPosition.emit(self.current_focuser_position)
 
 		except Exception as e:
 			print(f"Could not read focuser position: {e}")
 			self.current_focuser_position = None
 			self.focuser_available = False
+			self.updateFocuserPosition.emit(None)
 
 		return self.current_focuser_position
+	
+	def requestFocusJog(self, delta):
+		"""
+		Request a relative focuser move.
+
+		Positive delta increases focuser position.
+		Negative delta decreases focuser position.
+		"""
+
+		self.focus_command_queue.put(("relative", int(delta)))
+		self.command_event.set()
+
+
+	def requestFocusMoveTo(self, target_position):
+		"""
+		Request an absolute focuser move.
+		"""
+
+		self.focus_command_queue.put(("absolute", int(target_position)))
+		self.command_event.set()
+
+
+	def requestFocuserRefresh(self):
+		"""
+		Request a focuser position refresh.
+		"""
+
+		self.focus_command_queue.put(("refresh", None))
+		self.command_event.set()
+
+
+	def processFocusCommands(self):
+		"""
+		Process pending manual focuser commands inside FocusThread.
+
+		This keeps all Seletek/ASCOM COM calls in the worker thread.
+		"""
+
+		while True:
+			try:
+				command, value = self.focus_command_queue.get_nowait()
+			except queue.Empty:
+				break
+
+			# Do not allow manual moves during an active autofocus sweep.
+			if self.capture_mode == "Autofocus" and self.session_active:
+				print("Ignoring manual focuser command while Autofocus is active.")
+				continue
+
+			current_position = self.getFocuserPositionSafe()
+
+			if current_position is None:
+				print("Cannot move focuser: current position is unavailable.")
+				self.updateFocuserPosition.emit(None)
+				continue
+
+			if command == "refresh":
+				print(f"Focuser position refreshed: {current_position}")
+				self.updateFocuserPosition.emit(current_position)
+				continue
+
+			if command == "relative":
+				target_position = int(current_position) + int(value)
+
+			elif command == "absolute":
+				target_position = int(value)
+
+			else:
+				print(f"Unknown focuser command: {command}")
+				continue
+
+			print(
+				f"Requesting focuser move: "
+				f"{current_position} -> {target_position}"
+			)
+
+			try:
+				if self.focuser_controller is None:
+					self.focuser_controller = ASCOMFocuserController(
+						self.focuser_driver_id
+					)
+
+				if self.focuser_controller.focuser is None:
+					self.focuser_controller.connect()
+
+				self.focuser_controller.move_to(
+					target_position,
+					keep_running_callback=lambda: not self.shutdown_requested
+				)
+
+				new_position = self.getFocuserPositionSafe()
+				self.updateFocuserPosition.emit(new_position)
+
+			except Exception as e:
+				print(f"Focuser move failed: {e}")
+				self.updateFocuserPosition.emit(None)
 		
 	def updateCaptureSettings(self, settings):
 		"""
@@ -344,8 +495,6 @@ class FocusThread(QtCore.QThread):
 				self.current_testing_position = pos
 				self.current_best_position = None
 				self.current_focuser_position = self.getFocuserPositionSafe()
-				self.current_testing_position = None
-				self.current_best_position = best_pos
 
 				move_status = {
 					"state": f"Autofocus: moving to position {pos}",
@@ -454,7 +603,7 @@ class FocusThread(QtCore.QThread):
 				"exposure": self.exposure,
 				"binning": f"{self.bin_x}x{self.bin_y}",
 				"capture_mode": self.capture_mode,
-				"focuser_position": focuser_position,
+				"focuser_position": self.getFocuserPositionSafe(),
 				"testing_position": self.current_testing_position,
 				"best_position": self.current_best_position,
 			}
@@ -1126,17 +1275,18 @@ class Ui(QtWidgets.QMainWindow):
 
 			QWidget {
 				font-family: Segoe UI, Arial, sans-serif;
-				font-size: 9pt;
+				font-size: 11pt;
 			}
 
 			QGroupBox {
 				font-weight: bold;
 				border: 1px solid #2c3440;
 				border-radius: 10px;
-				margin-top: 12px;
+				margin-top: 14px;
 				padding: 10px;
 				background-color: #171d24;
 				color: #e8edf3;
+				font-size: 11pt;
 			}
 
 			QGroupBox::title {
@@ -1148,14 +1298,16 @@ class Ui(QtWidgets.QMainWindow):
 
 			QLabel {
 				color: #d7dee8;
-				font-size: 9pt;
+				font-size: 11pt;
 			}
 
 			QPushButton {
 				background-color: #243044;
 				border: 1px solid #3b4a63;
 				border-radius: 7px;
-				padding: 7px 11px;
+				padding: 8px 13px;
+				min-height: 24px;
+				font-size: 11pt;
 				font-weight: bold;
 				color: #e8edf3;
 			}
@@ -1243,7 +1395,9 @@ class Ui(QtWidgets.QMainWindow):
 				background-color: #0f141a;
 				border: 1px solid #3b4a63;
 				border-radius: 5px;
-				padding: 4px;
+				padding: 5px;
+				min-height: 24px;
+				font-size: 11pt;
 				color: #e8edf3;
 			}
 
@@ -1287,15 +1441,25 @@ class Ui(QtWidgets.QMainWindow):
 		central = QtWidgets.QWidget(self)
 		self.setCentralWidget(central)
 
-		main_layout = QtWidgets.QHBoxLayout(central)
+		main_layout = QtWidgets.QVBoxLayout(central)
 		main_layout.setContentsMargins(8, 8, 8, 8)
 		main_layout.setSpacing(8)
+
+		top_layout = QtWidgets.QHBoxLayout()
+		top_layout.setSpacing(8)
+
+		bottom_controls_layout = QtWidgets.QHBoxLayout()
+		bottom_controls_layout.setContentsMargins(0, 0, 0, 0)
+		bottom_controls_layout.setSpacing(8)
+
+		main_layout.addLayout(top_layout, stretch=10)
+		main_layout.addLayout(bottom_controls_layout, stretch=0)
 
 		left_column = QtWidgets.QVBoxLayout()
 		right_column = QtWidgets.QVBoxLayout()
 
-		main_layout.addLayout(left_column, stretch=4)
-		main_layout.addLayout(right_column, stretch=4)
+		top_layout.addLayout(left_column, stretch=5)
+		top_layout.addLayout(right_column, stretch=5)
 
 		# ---------------- Left column: live image ----------------
 		image_group = QtWidgets.QGroupBox("Live FITS View")
@@ -1382,6 +1546,8 @@ class Ui(QtWidgets.QMainWindow):
 		self.AFCurve_button.setCheckable(True)
 
 		self.LiveTrend_button.setChecked(True)
+		self.LiveTrend_button.setMaximumHeight(34)
+		self.AFCurve_button.setMaximumHeight(34)
 
 		plot_selector_layout.addWidget(self.LiveTrend_button)
 		plot_selector_layout.addWidget(self.AFCurve_button)
@@ -1414,7 +1580,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.focus_guidance_label = QtWidgets.QLabel(
 			"Focus guidance: waiting for valid focus measurements."
 		)
-		self.focus_guidance_label.setMaximumHeight(60)
+		self.focus_guidance_label.setMaximumHeight(52)
 		self.focus_guidance_label.setStyleSheet("""
 			QLabel {
 				color: #f4f7fb;
@@ -1432,10 +1598,10 @@ class Ui(QtWidgets.QMainWindow):
 		plot_group.setLayout(plot_layout)
 
 		# Let Qt size the plot naturally instead of forcing an impossible minimum.
-		plot_group.setMinimumHeight(360)
-		self.PlotStack.setMinimumHeight(260)
-		self.Plot.setMinimumHeight(245)
-		self.AFPlot.setMinimumHeight(245)
+		plot_group.setMinimumHeight(500)
+		self.PlotStack.setMinimumHeight(390)
+		self.Plot.setMinimumHeight(360)
+		self.AFPlot.setMinimumHeight(360)
 
 		plot_group.setSizePolicy(
 			QtWidgets.QSizePolicy.Expanding,
@@ -1452,7 +1618,7 @@ class Ui(QtWidgets.QMainWindow):
 			QtWidgets.QSizePolicy.Expanding
 		)
 
-		right_column.addWidget(plot_group, stretch=8)
+		right_column.addWidget(plot_group, stretch=10)
 
 		##### Button triggers
 		self.Start_button.clicked.connect(self.startFocus)
@@ -1481,22 +1647,17 @@ class Ui(QtWidgets.QMainWindow):
 		self.Plot.setLabel('left', 'PSF width', units='px', **labelStyle)
 		self.Plot.setLabel('bottom', 'Frame number', **labelStyle)
 
-		af_plot_item = self.AFPlot.getPlotItem()
-		af_plot_item.getAxis('bottom').setHeight(48)
-		af_plot_item.getAxis('left').setWidth(70)
-		af_plot_item.layout.setContentsMargins(8, 4, 12, 18)
-
+		# Give the live plot enough room for x-axis ticks and the x-axis label.
 		live_plot_item = self.Plot.getPlotItem()
-		live_plot_item.getAxis('bottom').setHeight(48)
-		live_plot_item.getAxis('left').setWidth(58)
-		live_plot_item.layout.setContentsMargins(8, 4, 12, 18)
+		live_plot_item.getAxis('bottom').setHeight(72)
+		live_plot_item.getAxis('left').setWidth(64)
+		live_plot_item.layout.setContentsMargins(8, 8, 14, 34)
 
-		# Reserve enough space for tick labels + bottom axis label.
-		self.Plot.getAxis('bottom').setHeight(48)
-		self.Plot.getAxis('left').setWidth(55)
-
-		# Add a little padding inside the pyqtgraph layout.
-		self.Plot.getPlotItem().layout.setContentsMargins(8, 8, 12, 18)
+		# Give the focus-curve plot enough room too.
+		af_plot_item = self.AFPlot.getPlotItem()
+		af_plot_item.getAxis('bottom').setHeight(72)
+		af_plot_item.getAxis('left').setWidth(78)
+		af_plot_item.layout.setContentsMargins(8, 8, 14, 34)
 
 		self.Plot.showGrid(x=True, y=True, alpha=0.3)
 		self.Plot.addLegend(offset=(5, 5))
@@ -1554,10 +1715,6 @@ class Ui(QtWidgets.QMainWindow):
 			color="#FFFFFF"
 		)
 
-		self.AFPlot.getAxis('bottom').setHeight(48)
-		self.AFPlot.getAxis('left').setWidth(70)
-		self.AFPlot.getPlotItem().layout.setContentsMargins(8, 8, 12, 18)
-
 		self.AFPlot.showGrid(x=True, y=True, alpha=0.3)
 		self.AFPlot.addLegend(offset=(5, 5))
 
@@ -1599,30 +1756,54 @@ class Ui(QtWidgets.QMainWindow):
 
 		status_layout.addWidget(self.status_label)
 		status_group.setLayout(status_layout)
-		status_group.setMinimumHeight(155)
-		status_group.setMaximumHeight(220)
-		right_column.addWidget(status_group, stretch=0)
+		status_group.setMinimumHeight(145)
+		status_group.setMaximumHeight(175)
+		status_group.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Fixed
+		)
+
+		bottom_controls_layout.addWidget(status_group, stretch=2)
 
 		# ---------------- Right column: capture settings ----------------
 		self.settings_group = QtWidgets.QGroupBox("Capture Settings")
 		settings_group = self.settings_group
-		settings_layout = QtWidgets.QFormLayout()
-		settings_layout.setContentsMargins(8, 8, 8, 8)
-		settings_layout.setVerticalSpacing(6)
-		settings_layout.setHorizontalSpacing(10)
+		settings_layout = QtWidgets.QGridLayout()
+		settings_layout.setContentsMargins(10, 10, 10, 10)
+		settings_layout.setHorizontalSpacing(14)
+		settings_layout.setVerticalSpacing(10)
+
+		settings_layout.setColumnStretch(0, 0)
+		settings_layout.setColumnStretch(1, 3)
+		settings_layout.setColumnStretch(2, 0)
+		settings_layout.setColumnStretch(3, 2)
+
+		def make_settings_label(text):
+			label = QtWidgets.QLabel(text)
+			label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+			return label
 
 		self.CaptureMode_combo = QtWidgets.QComboBox()
 		self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
 		self.CaptureMode_combo.currentTextChanged.connect(self.onCaptureModeChanged)
 
-		self.Gain_note_label = QtWidgets.QLabel("Set manually in the ASCOM Gain and Offset window.")
+		self.Gain_note_label = QtWidgets.QLabel("Set in MaxIM DL.")
 		self.Gain_note_label.setWordWrap(True)
 
-		settings_layout.addRow("Capture mode:", self.CaptureMode_combo)
-		settings_layout.addRow("Exposure (s):", self.Exposure_spinbox)
-		settings_layout.addRow("Gain:", self.Gain_note_label)
-		settings_layout.addRow("Binning:", self.Binning_spinbox)
-		settings_layout.addRow("Image zoom:", self.Zoom_slider)
+		settings_layout.addWidget(make_settings_label("Capture mode:"), 0, 0)
+		settings_layout.addWidget(self.CaptureMode_combo, 0, 1)
+
+		settings_layout.addWidget(make_settings_label("Exposure (s):"), 0, 2)
+		settings_layout.addWidget(self.Exposure_spinbox, 0, 3)
+
+		settings_layout.addWidget(make_settings_label("Gain:"), 1, 0)
+		settings_layout.addWidget(self.Gain_note_label, 1, 1)
+
+		settings_layout.addWidget(make_settings_label("Binning:"), 1, 2)
+		settings_layout.addWidget(self.Binning_spinbox, 1, 3)
+
+		settings_layout.addWidget(make_settings_label("Image zoom:"), 2, 0)
+		settings_layout.addWidget(self.Zoom_slider, 2, 1, 1, 3)
 		self.AFStep_spin = QtWidgets.QSpinBox()
 		self.AFStep_spin.setRange(1, 10000)
 		self.AFStep_spin.setValue(50)
@@ -1645,10 +1826,17 @@ class Ui(QtWidgets.QMainWindow):
 		self.AFFramesPerPosition_label = QtWidgets.QLabel("AF frames/position:")
 		self.AFSettleTime_label = QtWidgets.QLabel("AF settle time (s):")
 
-		settings_layout.addRow(self.AFStep_label, self.AFStep_spin)
-		settings_layout.addRow(self.AFStepsEachSide_label, self.AFStepsEachSide_spin)
-		settings_layout.addRow(self.AFFramesPerPosition_label, self.AFFramesPerPosition_spin)
-		settings_layout.addRow(self.AFSettleTime_label, self.AFSettleTime_spin)
+		settings_layout.addWidget(self.AFStep_label, 3, 0)
+		settings_layout.addWidget(self.AFStep_spin, 3, 1)
+
+		settings_layout.addWidget(self.AFStepsEachSide_label, 3, 2)
+		settings_layout.addWidget(self.AFStepsEachSide_spin, 3, 3)
+
+		settings_layout.addWidget(self.AFFramesPerPosition_label, 4, 0)
+		settings_layout.addWidget(self.AFFramesPerPosition_spin, 4, 1)
+
+		settings_layout.addWidget(self.AFSettleTime_label, 4, 2)
+		settings_layout.addWidget(self.AFSettleTime_spin, 4, 3)
 
 		self.autofocus_controls = [
 			self.AFStep_label,
@@ -1689,18 +1877,93 @@ class Ui(QtWidgets.QMainWindow):
 		self.updateAutofocusControls(self.CaptureMode_combo.currentText())
 		
 		settings_group.setLayout(settings_layout)
-		settings_group.setMinimumHeight(120)
-		settings_group.setMaximumHeight(230)
+		settings_group.setMinimumHeight(150)
+		settings_group.setMaximumHeight(185)
 		settings_group.setSizePolicy(
 			QtWidgets.QSizePolicy.Expanding,
-			QtWidgets.QSizePolicy.Maximum
+			QtWidgets.QSizePolicy.Fixed
 		)
 
-		right_column.addWidget(settings_group, stretch=0)
+		bottom_controls_layout.addWidget(settings_group, stretch=3)
+		
+		# ---------------- Right column: focuser controls ----------------
+		focuser_group = QtWidgets.QGroupBox("Focuser Control")
+		focuser_layout = QtWidgets.QGridLayout()
+		focuser_layout.setContentsMargins(8, 8, 8, 8)
+		focuser_layout.setHorizontalSpacing(8)
+		focuser_layout.setVerticalSpacing(6)
+
+		focuser_layout.setColumnStretch(0, 0)
+		focuser_layout.setColumnStretch(1, 2)
+		focuser_layout.setColumnStretch(2, 1)
+		focuser_layout.setColumnStretch(3, 1)
+
+		self.FocuserPosition_label = QtWidgets.QLabel("Position: --")
+		self.FocuserPosition_label.setStyleSheet("""
+			QLabel {
+				color: #f4f7fb;
+				background-color: #182033;
+				border: 1px solid #303b52;
+				border-radius: 5px;
+				padding: 5px;
+				font-family: Consolas, Courier New, monospace;
+				font-size: 10pt;
+				font-weight: bold;
+			}
+		""")
+
+		self.FocusStep_spin = QtWidgets.QSpinBox()
+		self.FocusStep_spin.setRange(1, 10000)
+		self.FocusStep_spin.setValue(50)
+		self.FocusStep_spin.setSingleStep(10)
+
+		self.FocusMinus_button = QtWidgets.QPushButton("Move -")
+		self.FocusPlus_button = QtWidgets.QPushButton("Move +")
+		self.FocusRefresh_button = QtWidgets.QPushButton("Refresh")
+
+		self.FocusTarget_spin = QtWidgets.QSpinBox()
+		self.FocusTarget_spin.setRange(0, 1000000)
+		self.FocusTarget_spin.setValue(50500)
+		self.FocusTarget_spin.setSingleStep(50)
+
+		self.FocusGo_button = QtWidgets.QPushButton("Go To")
+
+		self.FocusMinus_button.clicked.connect(
+			lambda: self.requestFocusJog(-self.FocusStep_spin.value())
+		)
+		self.FocusPlus_button.clicked.connect(
+			lambda: self.requestFocusJog(self.FocusStep_spin.value())
+		)
+		self.FocusGo_button.clicked.connect(self.requestFocusMoveTo)
+		self.FocusRefresh_button.clicked.connect(self.requestFocuserRefresh)
+
+		focuser_layout.addWidget(self.FocuserPosition_label, 0, 0, 1, 4)
+
+		focuser_layout.addWidget(QtWidgets.QLabel("Step:"), 1, 0)
+		focuser_layout.addWidget(self.FocusStep_spin, 1, 1)
+		focuser_layout.addWidget(self.FocusMinus_button, 1, 2)
+		focuser_layout.addWidget(self.FocusPlus_button, 1, 3)
+
+		focuser_layout.addWidget(QtWidgets.QLabel("Target:"), 2, 0)
+		focuser_layout.addWidget(self.FocusTarget_spin, 2, 1)
+		focuser_layout.addWidget(self.FocusGo_button, 2, 2)
+		focuser_layout.addWidget(self.FocusRefresh_button, 2, 3)
+
+		focuser_group.setLayout(focuser_layout)
+		focuser_group.setMinimumHeight(145)
+		focuser_group.setMaximumHeight(175)
+		focuser_group.setSizePolicy(
+			QtWidgets.QSizePolicy.Expanding,
+			QtWidgets.QSizePolicy.Fixed
+		)
+
+		bottom_controls_layout.addWidget(focuser_group, stretch=2)
 
 		# ---------------- Right column: buttons ----------------
 		button_group = QtWidgets.QGroupBox("Controls")
-		button_layout = QtWidgets.QHBoxLayout()
+		button_layout = QtWidgets.QVBoxLayout()
+		button_layout.setContentsMargins(8, 8, 8, 8)
+		button_layout.setSpacing(6)
 
 		self.Clear_button = QtWidgets.QPushButton("Clear Display")
 		self.Clear_button.clicked.connect(self.clearDisplay)
@@ -1714,7 +1977,15 @@ class Ui(QtWidgets.QMainWindow):
 		self.Stop_button.setObjectName("exitButton")
 
 		button_group.setLayout(button_layout)
-		right_column.addWidget(button_group)
+		button_group.setMinimumHeight(145)
+		button_group.setMaximumHeight(175)
+		button_group.setMaximumWidth(230)
+		button_group.setSizePolicy(
+			QtWidgets.QSizePolicy.Maximum,
+			QtWidgets.QSizePolicy.Fixed
+		)
+
+		bottom_controls_layout.addWidget(button_group, stretch=0)
 
 		self.thread = None
 		self.createPersistentWorker()
@@ -1739,7 +2010,7 @@ class Ui(QtWidgets.QMainWindow):
 			"af_steps_each_side": self.AFStepsEachSide_spin.value(),
 			"af_frames_per_position": self.AFFramesPerPosition_spin.value(),
 			"af_settle_time": self.AFSettleTime_spin.value(),
-			"focuser_driver_id": None,
+			"focuser_driver_id": DEFAULT_FOCUSER_DRIVER_ID,
 		}
 	
 	def updateWorkerSettings(self):
@@ -1899,6 +2170,7 @@ class Ui(QtWidgets.QMainWindow):
 		self.thread.sessionFinished.connect(self.onFocusSessionFinished)
 		self.thread.updateAutofocusPlot.connect(self.updateAutofocusPlot)
 		self.thread.updateBestFocus.connect(self.updateBestFocusMarker)
+		self.thread.updateFocuserPosition.connect(self.updateFocuserPositionLabel)
 
 		self.thread.start()
 
@@ -2121,9 +2393,11 @@ class Ui(QtWidgets.QMainWindow):
 
 		if hasattr(self, "settings_group"):
 			if autofocus_enabled:
-				self.settings_group.setMaximumHeight(340)
+				self.settings_group.setMinimumHeight(190)
+				self.settings_group.setMaximumHeight(230)
 			else:
-				self.settings_group.setMaximumHeight(210)
+				self.settings_group.setMinimumHeight(150)
+				self.settings_group.setMaximumHeight(185)
 	
 	def updateStatus(self, status):
 		sigma_x = status.get("sigma_x")
@@ -2187,6 +2461,45 @@ class Ui(QtWidgets.QMainWindow):
 
 	def slewToAltAz(alt,az):
 		T.SlewToAltAz()
+
+	def requestFocusJog(self, delta):
+		if self.thread is None:
+			return
+
+		print(f"GUI requested focuser jog: {delta:+d}")
+		self.thread.requestFocusJog(int(delta))
+
+
+	def requestFocusMoveTo(self):
+		if self.thread is None:
+			return
+
+		target_position = int(self.FocusTarget_spin.value())
+		print(f"GUI requested focuser move to: {target_position}")
+		self.thread.requestFocusMoveTo(target_position)
+
+
+	def requestFocuserRefresh(self):
+		if self.thread is None:
+			return
+
+		print("GUI requested focuser position refresh.")
+		self.thread.requestFocuserRefresh()
+
+
+	def updateFocuserPositionLabel(self, position):
+		if position is None:
+			self.FocuserPosition_label.setText("Position: unavailable")
+			return
+
+		position = int(position)
+
+		self.FocuserPosition_label.setText(f"Position: {position}")
+
+		# Keep the target box synced to the real position.
+		self.FocusTarget_spin.blockSignals(True)
+		self.FocusTarget_spin.setValue(position)
+		self.FocusTarget_spin.blockSignals(False)
 
 	def startFocus(self):
 		if self.thread is None:
