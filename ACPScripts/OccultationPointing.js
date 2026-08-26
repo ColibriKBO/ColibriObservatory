@@ -1,6 +1,18 @@
+////////////////////////////////////////////////////////////////////////////////|
+//==============================================================================|
+//------------------------------------------------------------------------------|
+// OccultationPointing.js                                                       |
+// Manual closed-loop pointing script for occultation target star.              |
+// Run from ACP console.                                                        |
+//------------------------------------------------------------------------------|
+//==============================================================================|
+////////////////////////////////////////////////////////////////////////////////|
+
+////////////////
+/////
 //------------------------------------------------------
 //
-// Global variables for script
+// Global Variables
 //
 //
 var ForReading = 1;
@@ -12,34 +24,42 @@ var slewAttempt = 0;
 var fso, f1, ts;
 //------------------------------------------------------
 
-//------------------------------------------------------------------------------
-// OccultationPointing.js
-// Manual closed-loop pointing script for occultation target star.
-// Run from ACP console.
-//------------------------------------------------------------------------------
-
 // ===== USER INPUT FROM OCCULT WATCHER =====
-// Replace these with the Occult Watcher target occulting star coordinates, NOT asteroid coordinates.
+//  ** Replace these with the Occult Watcher (OW) target occulting star coordinates, NOT the asteroid/occulter's coordinates. **
 
-var TARGET_NAME = "2000QW151_occultation_star";
+var TARGET_NAME = "2000QW151_occultation_star"; // Conventionally named after the occulted star.
 
-// RA in j2000 hours/min/sec from OW:
+// Event timing notes only:
+var EVENT_UTC = "2026-07-07 07:04:00 UTC";
+var EVENT_UTC_COMPACT = "20260712T021807UT";
+
+var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
+
+// ** RA in j2000 hours/min/sec from OW: **
 var TARGET_RA_H = 18;
 var TARGET_RA_M = 38;
 var TARGET_RA_S = 36.1;
 
-
-// Dec in j2000 deg/arcmin/arcsec from OW:
+// ** Dec in j2000 deg/arcmin/arcsec from OW: **
 var TARGET_DEC_SIGN = -1;
 var TARGET_DEC_D = 22;
 var TARGET_DEC_M = 50;
 var TARGET_DEC_S = 47.7;
 
-// Event timing notes only:
-var EVENT_UTC = "2026-07-07 07:04:00 UTC";
+// Higher level camera settings are handled in the ColibriGrab or in via the command func that calls it below. 
+var exposureMs = 25;
+var durationSeconds = 30 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
 
-var EVENT_UTC = "2026-07-12 02:18:07 UTC";
-var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
+// Number of dark frames to collect
+var N_DarkFrames = 200;
+
+//
+//
+//
+//
+//------------------------------------------------------
+///////
+////////////////
 
 fso = new ActiveXObject("Scripting.FileSystemObject");
 
@@ -1285,11 +1305,6 @@ function main()
 
     ts.WriteLine(Util.SysUTCDate + " INFO: Pointing phase complete. Telescope left tracking on target. Starting ColibriGrab for occultation run.");
 
-    // Higher level camera settings are handled in the ColibriGrab configuration file. 
-    // Here you'll only need to set the exposure time time of and duration of the observation.
-    var exposureMs = 25;
-    var durationSeconds = 15 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
-
     var pierside; // Pier side for logging
 
     if (Telescope.SideOfPier == 0)
@@ -1304,12 +1319,11 @@ function main()
     Console.PrintLine("Pier side: " + pierside);
     ts.WriteLine(Util.SysUTCDate + " INFO: Pier side: " + pierside);
 
-    var EVENT_UTC_COMPACT = "20260712T021807UT";
-
+    
     runOccultationDarkCollection(
         TARGET_NAME,
         EVENT_UTC_COMPACT,
-        10,
+        N_DarkFrames,
         exposureMs
     );
     
