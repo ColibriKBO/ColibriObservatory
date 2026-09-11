@@ -37,6 +37,13 @@ var SUP;
 var ForReading = 1;
 var ForAppending = 8;
 var finalFields = [];
+
+// false = existing behaviour: send J2000 numbers directly to the mount
+// true  = convert J2000 to current topocentric before mount commands
+var USE_TOPOCENTRIC_SLEWS = true;
+
+var USE_GAIA_TO_J2000 = false;
+
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -98,11 +105,26 @@ function andRestart(){
     Console.PrintLine("Shutting down and restarting!");
     ts.WriteLine("Shutting down and restarting!");
     shutDown();
+
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
-        Util.WaitForMilliseconds(5000)
-        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
     }
+
+    finalFields = [];
+    curTarget = null;
+    slewAttempt = 0;
+
+    firstRun = true;
+    isAfterSunset = false;
+    pierside = "E";
+
+    currentDate = getDate();
+
+    // Recalculate night-dependent values here if any code uses them before main()
+    sunset = twilightTimes(Util.SysJulianDate)[1];
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
 
     // if (Util.ScriptActive)
     // {
@@ -373,6 +395,58 @@ function connectScope()
     Console.PrintLine(" ")
 }
 
+///////////////////////////
+// Function to park dome.
+// Prefer ASCOM Park() if supported.
+// If not supported, fall back to homing the dome.
+///////////////////////////
+function domePark()
+{
+    Console.PrintLine("Parking dome...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Parking dome...");
+
+    try
+    {
+        if (Dome.CanPark)
+        {
+            Dome.Park();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtPark)
+            {
+                Console.PrintLine("*** Dome is parking...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parking...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is parked.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parked.");
+        }
+        else
+        {
+            Console.PrintLine("Dome driver does not report CanPark. Homing dome instead.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Dome driver does not report CanPark. Homing dome instead.");
+
+            Dome.FindHome();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtHome)
+            {
+                Console.PrintLine("*** Homing dome...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Homing dome...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is homed.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is homed.");
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Dome park/home failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Dome park/home failed: " + (e.message || e.description || e));
+    }
+}
 
 ///////////////////////////
 // Function to close dome
@@ -692,7 +766,7 @@ function getRADEC()
     var ras, des;
     if(Prefs.DoLocalTopo)                               // Get scope J2000 RA/Dec
     {
-        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declnation);
+        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declination);
         ras = SUP.J2000RA;
         des = SUP.J2000Dec;
     }
@@ -808,19 +882,62 @@ function gotoRADec(ra, dec)
     }
 
     if (Telescope.tracking)
-    {   
-        Console.PrintLine("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-
-        // Need to put a check in for 'incomplete' coordinates. Not sure what this means as it doesn't
-        // seem to be a problem with ACP, but a problem with the AP driver. Let's try either restarting
-        // script after error or just repeating this function on error return, if possible. Try/catch/finally
-        // statement.
+    {
+        var mountCoords;
 
         try
         {
-            Telescope.SlewToCoordinates(ra.toFixed(4), dec.toFixed(4));
+            mountCoords = getMountCoordinates(ra, dec);
         }
+        catch (conversionError)
+        {
+            Console.PrintLine(
+                "ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            return false;
+        }
+
+        Console.PrintLine("Slew coordinate mode: " + mountCoords.mode);
+        Console.PrintLine(
+            "J2000 request: RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        Console.PrintLine(
+            "Mount command: RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Slew coordinate mode: " + mountCoords.mode
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: J2000 request RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Mount command RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        try
+        {
+            Telescope.SlewToCoordinates(
+                mountCoords.ra,
+                mountCoords.dec
+            );
+        }
+        
         catch(e)
         {
             if (slewAttempt < 10)
@@ -845,6 +962,97 @@ function gotoRADec(ra, dec)
     }
 
     return false;
+}
+
+function convertJ2000ToTopocentric(raJ2000, decJ2000)
+{
+    var transform = null;
+
+    try
+    {
+        transform = new ActiveXObject(
+            "ASCOM.Astrometry.Transform.Transform"
+        );
+
+        transform.SiteLatitude  = Telescope.SiteLatitude;
+        transform.SiteLongitude = Telescope.SiteLongitude;
+
+        try
+        {
+            transform.SiteElevation = Telescope.SiteElevation;
+        }
+        catch (e)
+        {
+            // Elevation is a minor contribution for distant stellar fields.
+            transform.SiteElevation = 0;
+        }
+
+        // Use the current UTC time.
+        transform.JulianDateUTC = Util.SysJulianDate;
+
+        // ASCOM topocentric coordinates normally exclude refraction.
+        transform.Refraction = false;
+
+        // Input RA is hours; Dec is degrees.
+        transform.SetJ2000(raJ2000, decJ2000);
+
+        var result = {
+            ra:  Number(transform.RATopocentric),
+            dec: Number(transform.DECTopocentric)
+        };
+
+        if (!isValidRaHoursDecDeg(result.ra, result.dec))
+        {
+            throw new Error(
+                "Invalid transformed coordinates: RA=" +
+                result.ra + " Dec=" + result.dec
+            );
+        }
+
+        return result;
+    }
+    finally
+    {
+        if (transform != null)
+        {
+            try
+            {
+                transform.Dispose();
+            }
+            catch (e) {}
+        }
+    }
+}
+
+function getMountCoordinates(raJ2000, decJ2000)
+{
+    // Preserve the current behaviour for the baseline test.
+    if (!USE_TOPOCENTRIC_SLEWS)
+    {
+        return {
+            ra: raJ2000,
+            dec: decJ2000,
+            mode: "DIRECT J2000"
+        };
+    }
+
+    // The conversion test is only appropriate when the driver reports
+    // that it expects topocentric coordinates.
+    if (Number(Telescope.EquatorialSystem) != 1)
+    {
+        throw new Error(
+            "Topocentric slew requested, but EquatorialSystem=" +
+            Telescope.EquatorialSystem
+        );
+    }
+
+    var topo = convertJ2000ToTopocentric(raJ2000, decJ2000);
+
+    return {
+        ra: topo.ra,
+        dec: topo.dec,
+        mode: "TOPOCENTRIC"
+    };
 }
 
 function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
@@ -876,16 +1084,32 @@ function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
 }
 
 function parseOffsets(text) {
-    // Find the last line that contains at least two floats
+    // Find the last line that contains at least two floats also added functionality in case scientific notation is detected it can now handle this
     var lines = text.replace(/\r/g, "").split("\n");
+    var numberPattern =
+        "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
+
+    var offsetPattern = new RegExp(
+        "^\\s*(" + numberPattern + ")\\s+(" + numberPattern + ")\\s*$"
+    );
+
     for (var i = lines.length - 1; i >= 0; i--) {
-        var nums = lines[i].match(/-?\d+(?:\.\d+)?/g);
-        if (nums && nums.length >= 2) {
-            var raOff = parseFloat(nums[0]);
-            var decOff = parseFloat(nums[1]);
-            if (!isNaN(raOff) && !isNaN(decOff)) return { ra: raOff, dec: decOff };
+        var match = lines[i].match(offsetPattern);
+        if (match)
+        {
+            var raOff  = parseFloat(match[1]);
+            var decOff = parseFloat(match[2]);
+
+            if (isFinite(raOff) && isFinite(decOff))
+            {
+                return {
+                    ra: raOff,
+                    dec: decOff
+                };
+            }
         }
     }
+
     return null;
 }
 
@@ -906,8 +1130,12 @@ function parseOffsets(text) {
 function getScheduleFromPython(sunsetJD, sunriseJD) {
     var sh = new ActiveXObject("WScript.Shell");
     var userProfile = sh.ExpandEnvironmentStrings("%USERPROFILE%");
-    var scriptPath = userProfile +
-        "\\Documents\\GitHub\\ColibriObservatory\\scheduler\\run_scheduler.py";
+    var repoBase    = userProfile + "\\Documents\\GitHub\\ColibriObservatory";
+    var scriptPath  = repoBase + "\\scheduler\\run_scheduler.py";
+
+    // Converts Gaia J2016.0 field centroids to J2000.0 (required by ACP mount).
+    // Lives alongside RunColibri.js in the ACPScripts folder.
+    var convertPath = repoBase + "\\ACPScripts\\gaia_to_j2000.py";
 
     var timeoutMs = 120000; // 2 minutes
 
@@ -933,7 +1161,32 @@ function getScheduleFromPython(sunsetJD, sunriseJD) {
 
     while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
 
-    return out;
+    // Test mode: use the raw coordinates supplied by the scheduler. 
+    if (!USE_GAIA_TO_J2000) { 
+        Console.PrintLine( "Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        return out; 
+    }
+
+    // Existing behaviour: pass the scheduler output through 
+    // gaia_to_j2000.py before parsing the schedule.
+    Console.PrintLine( "Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
+    ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
+
+    // Precess all field coordinates from Gaia J2016.0 to J2000.0 via AstroPy.
+    // The converter reads the raw schedule block from stdin and writes the
+    // identical block with ra_deg/dec_deg replaced by J2000.0 values.
+    var conv = sh.Exec('cmd /c python -u "' + convertPath + '"');
+    conv.StdIn.Write(out);
+    conv.StdIn.Close();
+    var converted = "";
+    while (conv.Status === 0) {
+        while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+        Util.WaitForMilliseconds(50);
+    }
+    while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+
+    return converted;
 }
 
 //////////////////////////////////////////////////////////////
@@ -1010,7 +1263,7 @@ function adjustPointing(target_ra, target_dec) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
     var MAX_ITERATIONS = 10;
-    var LAMBDA = 0.9;               // uniform damping, applied every iteration
+    var LAMBDA = 1.0;               // uniform damping, applied every iteration
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -1261,19 +1514,48 @@ function adjustPointing(target_ra, target_dec) {
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
+// Updated by CM - June 27, 2026
 ///////////////////////////////////////////////////////////////
 function shutDown()
 {
+    Console.PrintLine("Shutting down observatory...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Shutting down observatory...");
+
     trkOff()
+
     Console.PrintLine("Tracking turned off. Parking telescope now...")
     ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
-    Telescope.Park()
+    try{
+        Telescope.Park();
+        while (!Telescope.AtPark)
+        {
+            Console.PrintLine("Waiting for telescope to park...");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Waiting for telescope to park...");
+            Util.WaitForMilliseconds(2000);
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Telescope park failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Telescope park failed: " + (e.message || e.description || e));
+        
+    }
+
     trkOff();
-    Console.PrintLine("Telescope parked. Closing dome now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
-    domeClose()
-    Console.PrintLine("Dome closed. Good night/morning.")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
+
+    Console.PrintLine("Telescope parked. Closing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+
+    domeClose();
+
+    Console.PrintLine("Dome shutter closed. Parking/homing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dome shutter closed. Parking/homing dome now.");
+
+    domePark();
+
+    Console.PrintLine("Observatory shutdown complete. Good night/morning.")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Observatory shutdown complete. Good night/morning.")
+    
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1732,6 +2014,7 @@ function main()
     // until it becomes safe.
     if (Weather.Available && !Weather.safe)
     {
+        Console.PrintLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
     }
 
@@ -2002,6 +2285,15 @@ function main()
             Telescope.Unpark()
             Console.PrintLine("Telescope Unparked.");
 
+            Console.PrintLine("EquatorialSystem = " + Telescope.EquatorialSystem);
+            Console.PrintLine("DoLocalTopo = " + Prefs.DoLocalTopo);
+            Console.PrintLine("Site latitude = " + Telescope.SiteLatitude);
+            Console.PrintLine("Site longitude = " + Telescope.SiteLongitude);
+            Console.PrintLine("Mount UTC = " + Telescope.UTCDate);
+            Console.PrintLine("Mount RA = " + Telescope.RightAscension);
+            Console.PrintLine("Mount Dec = " + Telescope.Declination);
+            Console.PrintLine("Pier side = " + Telescope.SideOfPier);
+
             // Camera reset and start-up before imaging at start-up may ultimately unnecessary commenting this out to test.
             //setOutletState(1,false); // Turn off the camera
             //Util.WaitForMilliseconds(5000); // wait for 5 seconds
@@ -2014,6 +2306,20 @@ function main()
 
             // Append the camera start up log file.
             //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+        }
+
+        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
+        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
+        {
+            Console.PrintLine("*** Dome shutter is still opening...");
+            Util.WaitForMilliseconds(2000);
+        }
+
+        // Slave the dome to the scope
+        
+        if (Dome.slave == false)
+        {
+            Dome.slave = true;
         }
 
         // Turn on sidereal telescope tracking
@@ -2034,6 +2340,40 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination);
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
+
+        var topoTest = convertJ2000ToTopocentric(
+            currentFieldCt.RightAscension,
+            currentFieldCt.Declination
+        );
+
+        Console.PrintLine(
+            "J2000 target: RA=" +
+            currentFieldCt.RightAscension.toFixed(8) +
+            "h Dec=" +
+            currentFieldCt.Declination.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Topocentric equivalent: RA=" +
+            topoTest.ra.toFixed(8) +
+            "h Dec=" +
+            topoTest.dec.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Coordinate difference: RA=" +
+            (
+                (topoTest.ra - currentFieldCt.RightAscension) *
+                15 * 3600 *
+                Math.cos(currentFieldCt.Declination * Math.PI / 180)
+            ).toFixed(1) +
+            " arcsec sky, Dec=" +
+            (
+                (topoTest.dec - currentFieldCt.Declination) *
+                3600
+            ).toFixed(1) +
+            " arcsec"
+        );
 
         // Slew to the current field
         if (!gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination))
@@ -2065,13 +2405,6 @@ function main()
         {
             Console.PrintLine("Dome is still slewing. Give me a minute...");
             Util.WaitForMilliseconds(500);
-        }
-
-        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
-        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
-        {
-            Console.PrintLine("*** Dome shutter is still opening...");
-            Util.WaitForMilliseconds(2000);
         }
 
         Console.PrintLine("At target.");
@@ -2140,9 +2473,32 @@ function main()
 
         while (Util.SysJulianDate < endJD)
         {
+            var destinationCoords;
+            try
+            {
+                destinationCoords = getMountCoordinates(
+                    currentFieldCt.RightAscension,
+                    currentFieldCt.Declination
+                );
+            }
+            catch (destinationError)
+            {
+                Console.PrintLine(
+                    "ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                ts.WriteLine(
+                    Util.SysUTCDate +
+                    " ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                break;
+            }
 
             // Check pier side
-            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
+            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(destinationCoords.ra, destinationCoords.dec))
             {
                 Console.PrintLine("Flipping sides of pier...");
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
