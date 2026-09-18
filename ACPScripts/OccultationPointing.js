@@ -27,31 +27,31 @@ var fso, f1, ts;
 // ===== USER INPUT FROM OCCULT WATCHER =====
 //  ** Replace these with the Occult Watcher (OW) target occulting star coordinates, NOT the asteroid/occulter's coordinates. **
 
-var TARGET_NAME = "2000QW151_occultation_star"; // Conventionally named after the occulted star.
+var TARGET_NAME = "Isolda"; // Conventionally named after the occulting body
 
 // Event timing notes only:
-var EVENT_UTC = "2026-07-07 07:04:00 UTC";
-var EVENT_UTC_COMPACT = "20260712T021807UT";
+var EVENT_UTC = "2026-09-18 01:30:41 UTC";
+var EVENT_UTC_COMPACT = "20260918T013041UT";
 
 var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
 
 // ** RA in j2000 hours/min/sec from OW: **
 var TARGET_RA_H = 18;
-var TARGET_RA_M = 38;
-var TARGET_RA_S = 36.1;
+var TARGET_RA_M = 22;
+var TARGET_RA_S = 59.8;
 
 // ** Dec in j2000 deg/arcmin/arcsec from OW: **
 var TARGET_DEC_SIGN = -1;
-var TARGET_DEC_D = 22;
-var TARGET_DEC_M = 50;
-var TARGET_DEC_S = 47.7;
+var TARGET_DEC_D = 21;
+var TARGET_DEC_M = 14;
+var TARGET_DEC_S = 44.9;
 
 // Higher level camera settings are handled in the ColibriGrab or in via the command func that calls it below. 
 var exposureMs = 25;
-var durationSeconds = 30 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
+var durationSeconds = 60 * 60; // 30 minute run: Start at 06:49 UT if you want +/- 15 min from the event time of 07:04 UT.
 
 // Number of dark frames to collect
-var N_DarkFrames = 200;
+var N_DarkFrames = 10;
 
 //
 //
