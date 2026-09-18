@@ -1259,7 +1259,7 @@ function parseSchedule(text) {
 // astrometry_correction.py subprocess to plate-solve and correct.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(target_ra, target_dec) {
+function adjustPointing(target_ra, target_dec, useCurrentPosition) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
     var MAX_ITERATIONS = 10;
@@ -1267,24 +1267,62 @@ function adjustPointing(target_ra, target_dec) {
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
 
+    // Existing calls do not provide this argument, so they retain the
+    // existing behaviour of starting from the nominal target coordinates.
+    if (typeof useCurrentPosition === "undefined") {
+        useCurrentPosition = false;
+    }
+
     // target_ra arrives in hours (ACP convention); convert to degrees for Python
     var target_ra_deg = target_ra * 15;
 
-    // Track best achieved position for fallback if we never converge
-    var closest_ra_deg = target_ra_deg;
-    var closest_dec    = target_dec;
-    var min_sep_deg    = Infinity;  // sky-plane separation, degrees
+    // Normally the correction sequence begins from the nominal target.
+    var cmd_ra_deg = target_ra_deg;
+    var cmd_dec    = target_dec;
+
+    // For periodic reacquisition, the telescope has already been corrected
+    // onto this field. Start from its CURRENT position instead of pretending
+    // that it is still commanded exactly to the nominal field coordinates.
+    if (useCurrentPosition) {
+        var currentCoords = getRADEC();
+        var currentRa  = Number(currentCoords.ra);
+        var currentDec = Number(currentCoords.dec);
+
+        if (!isValidRaHoursDecDeg(currentRa, currentDec)) {
+            Console.PrintLine("WARNING: Cannot perform periodic reacquisition: invalid current telescope coordinates.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Periodic reacquisition aborted: invalid current telescope coordinates.");
+            return false;
+        }
+
+        cmd_ra_deg = currentRa * 15;
+        cmd_dec    = currentDec;
+
+        Console.PrintLine("Periodic reacquisition: starting from current telescope position.");
+        Console.PrintLine("Current position: RA " + currentRa.toFixed(6) +
+                          " h  Dec " + currentDec.toFixed(6) + " deg");
+
+        ts.WriteLine(Util.SysUTCDate +
+                     " INFO: Periodic reacquisition starting from current telescope position: RA=" +
+                     currentRa.toFixed(6) + "h Dec=" +
+                     currentDec.toFixed(6) + "deg");
+    }
+
+    // Track best achieved position for fallback if we never converge.
+    // This must begin at the actual starting command position.
+    var closest_ra_deg = cmd_ra_deg;
+    var closest_dec    = cmd_dec;
+    var min_sep_deg    = Infinity;
 
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
-    Console.PrintLine("Target: RA " + target_ra.toFixed(4) + " h  Dec " + target_dec.toFixed(4) + " deg");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" + target_ra.toFixed(4) + "h Dec=" + target_dec.toFixed(4) + "deg");
+    Console.PrintLine("Target: RA " + target_ra.toFixed(4) +
+                      " h  Dec " + target_dec.toFixed(4) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" +
+                 target_ra.toFixed(4) + "h Dec=" +
+                 target_dec.toFixed(4) + "deg");
 
     var iterations  = 0;
-    var current_sep = Infinity;     // sky-plane separation after each solve, degrees
-
-    var cmd_ra_deg = target_ra_deg;    // initialize before the loop
-    var cmd_dec = target_dec;
+    var current_sep = Infinity;
 
     while (current_sep > TOLERANCE_DEG && iterations < MAX_ITERATIONS) {
         iterations++;
@@ -1845,7 +1883,7 @@ var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
 var darkInterval = 15; // Number of minutes between dark series collection
-
+var reacquireInterval = 30;  // Number of science runs between field reacquisitions
 
 // Iterables
 var slewAttempt = 0;
@@ -2469,6 +2507,7 @@ function main()
 
         // Iterables
         var darkCounter = darkInterval; // Set equal to interval so that dark set is collected on first run
+        var reacquireCounter = 0;       // Initial field acquisition was just completed
         var runCounter = 1;
 
         while (Util.SysJulianDate < endJD)
@@ -2525,6 +2564,12 @@ function main()
                     Util.WaitForMilliseconds(500);
                 }
 
+                // Pier-flip reacquisition already put us back on target,
+                // so restart the 30-minute reacquisition counter.
+                reacquireCounter = 0;
+                Console.PrintLine("Reacquisition counter reset after pier flip.");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Reacquisition counter reset after pier flip.");
+
                 // Check pier side
                 if (Telescope.SideOfPier == 0)
                 {
@@ -2540,6 +2585,55 @@ function main()
             else 
             { 
                 Console.PrintLine("Already on the right side of the pier"); 
+            }
+
+            // Periodically reacquire the current field to remove accumulated drift.
+            // This does not perform an initial slew prior to this instead it
+            // plate-solves the current position and corrects from where the telescope
+            // is already pointing.
+            if (reacquireCounter >= reacquireInterval)
+            {
+                Console.PrintLine("");
+                Console.PrintLine("=== Periodic Field Reacquisition ===");
+                Console.PrintLine("Reacquiring current field after " +
+                                reacquireCounter.toString() + " science runs.");
+
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: === Periodic Field Reacquisition ===");
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: Reacquiring current field after " +
+                            reacquireCounter.toString() + " science runs.");
+
+                // TRUE means:
+                // do not assume we are starting from the nominal target coordinates;
+                // begin corrections from the telescope's current position.
+                adjustPointing(
+                    currentFieldCt.RightAscension,
+                    currentFieldCt.Declination,
+                    true
+                );
+
+                // adjustPointing normally waits for its own telescope slews,
+                // but make sure everything has stopped before continuing.
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Telescope is still slewing after reacquisition...");
+                    Util.WaitForMilliseconds(500);
+                }
+
+                // The dome is already slaved, but wait if the corrective movement
+                // caused it to move.
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing after reacquisition...");
+                    Util.WaitForMilliseconds(500);
+                }
+
+                reacquireCounter = 0;
+
+                Console.PrintLine("Periodic field reacquisition complete.");
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: Periodic field reacquisition complete.");
             }
 
             // Collect darkes when darkInterval is reached
@@ -2576,6 +2670,12 @@ function main()
             appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
             Console.PrintLine("Done exposing run # " + runCounter.toString());
             ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
+            // Count only completed science runs toward periodic reacquisition.
+            reacquireCounter++;
+            Console.PrintLine("Reacquisition counter = " +
+                            reacquireCounter.toString() + "/" +
+                            reacquireInterval.toString());
 
             runCounter++;
         }
