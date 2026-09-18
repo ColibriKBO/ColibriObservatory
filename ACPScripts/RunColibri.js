@@ -763,21 +763,90 @@ function getMoon()
 
 function getRADEC()
 {
-    var ras, des;
-    if(Prefs.DoLocalTopo)                               // Get scope J2000 RA/Dec
+    var mountRa  = Number(Telescope.RightAscension);
+    var mountDec = Number(Telescope.Declination);
+    var equSystem = Number(Telescope.EquatorialSystem);
+
+    if (!isValidRaHoursDecDeg(mountRa, mountDec))
     {
-        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declination);
-        ras = SUP.J2000RA;
-        des = SUP.J2000Dec;
+        throw new Error(
+            "Invalid current telescope coordinates: RA=" +
+            mountRa + " Dec=" + mountDec
+        );
     }
 
-    else
+    // ASCOM equJ2000 = 2.
+    // If the mount already reports J2000, no conversion is required.
+    if (equSystem == 2)
     {
-        ras = Telescope.RightAscension;
-        des = Telescope.Declination;
+        return {
+            ra: mountRa,
+            dec: mountDec
+        };
     }
 
-    return { ra: ras, dec: des };
+    // ASCOM equTopocentric = 1.
+    // This is the coordinate system used by our AP mounts.
+    if (equSystem != 1)
+    {
+        throw new Error(
+            "Unsupported telescope EquatorialSystem=" + equSystem
+        );
+    }
+
+    var transform = null;
+
+    try
+    {
+        transform = new ActiveXObject(
+            "ASCOM.Astrometry.Transform.Transform"
+        );
+
+        transform.SiteLatitude  = Telescope.SiteLatitude;
+        transform.SiteLongitude = Telescope.SiteLongitude;
+
+        try
+        {
+            transform.SiteElevation = Telescope.SiteElevation;
+        }
+        catch (e)
+        {
+            transform.SiteElevation = 0;
+        }
+
+        transform.JulianDateUTC = Util.SysJulianDate;
+        transform.Refraction = false;
+
+        // Telescope.RightAscension / Declination are topocentric
+        // because EquatorialSystem == 1.
+        transform.SetTopocentric(mountRa, mountDec);
+
+        var result = {
+            ra:  Number(transform.RAJ2000),
+            dec: Number(transform.DecJ2000)
+        };
+
+        if (!isValidRaHoursDecDeg(result.ra, result.dec))
+        {
+            throw new Error(
+                "Invalid J2000 conversion result: RA=" +
+                result.ra + " Dec=" + result.dec
+            );
+        }
+
+        return result;
+    }
+    finally
+    {
+        if (transform != null)
+        {
+            try
+            {
+                transform.Dispose();
+            }
+            catch (e) {}
+        }
+    }
 }
 
 ///////////////////////////////////////////
@@ -1284,7 +1353,33 @@ function adjustPointing(target_ra, target_dec, useCurrentPosition) {
     // onto this field. Start from its CURRENT position instead of pretending
     // that it is still commanded exactly to the nominal field coordinates.
     if (useCurrentPosition) {
-        var currentCoords = getRADEC();
+
+        Console.PrintLine("Periodic reacquisition: reading current telescope position...");
+        ts.WriteLine(Util.SysUTCDate +
+                    " INFO: Periodic reacquisition: reading current telescope position.");
+
+        var currentCoords;
+
+        try
+        {
+            currentCoords = getRADEC();
+        }
+        catch (e)
+        {
+            Console.PrintLine(
+                "ERROR: Could not get current J2000 telescope position: " +
+                (e.message || e.description || e)
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " ERROR: Could not get current J2000 telescope position: " +
+                (e.message || e.description || e)
+            );
+
+            return false;
+        }
+
         var currentRa  = Number(currentCoords.ra);
         var currentDec = Number(currentCoords.dec);
 
