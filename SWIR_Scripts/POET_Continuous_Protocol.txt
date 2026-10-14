@@ -1,0 +1,81 @@
+RunPOET continuous-capture protocol
+===================================
+
+ACP / REDBIRD side
+------------------
+RunPOET.js performs iterative SWIR centering first. Only after a SWIR solve is
+inside SUCCESS_TOLERANCE_ARCSEC does it write:
+
+  D:\SWIR_Pointing\requests\<session>.continuous_start
+
+The file contains JSON with:
+  type = continuous_start
+  id / run_id / target_name / name
+  exposure_ms
+  gain
+  tec_c
+  max_frames
+
+The non-.json extension is intentional so the current single-capture watcher
+cannot accidentally process it as a pointing exposure request before the
+watcher is upgraded.
+
+Expected POET watcher behavior
+------------------------------
+1. Detect <session>.continuous_start.
+2. Create/use a LOCAL POET capture directory for that science session.
+3. Launch the student's new executable asynchronously with subprocess.Popen:
+
+   command_line_camera_control.exe --continuous_capture \
+       --tec <tec_c> \
+       --exposure <exposure_ms> \
+       --gain <gain> \
+       --name <name> \
+       --directory <local_session_directory> \
+       --max_frames <max_frames>
+
+4. After confirming the process actually launched, write:
+
+   D:\SWIR_Pointing\results\<session>.continuous_started
+
+   (via the POET Z: mapping as appropriate.)
+
+5. While the process runs, transfer each completed numbered FITS to REDBIRD
+   using the existing safe pattern: wait for stable/nonzero local file,
+   copy as .part, then atomic rename to .fits.
+
+6. When the continuous process exits normally after the frame limit, write:
+
+   D:\SWIR_Pointing\results\<session>.continuous_complete
+
+7. If launch/acquisition/transfer fails, write:
+
+   D:\SWIR_Pointing\results\<session>.continuous_failed
+
+   containing a human-readable reason.
+
+8. Optional future/manual graceful stop status supported by RunPOET:
+
+   D:\SWIR_Pointing\results\<session>.continuous_stopped
+
+Student camera stop behavior
+----------------------------
+A separate instance may be run with:
+
+   command_line_camera_control.exe --stop --directory <same_directory>
+
+The camera program creates stop_capture.flag. The running continuous process
+checks it between completed exposures, removes it when detected, and exits
+before starting the next exposure. A new continuous run clears stale stop
+flags automatically.
+
+Pointing camera executable
+--------------------------
+The student's renamed executable is now command_line_camera_control.exe.
+Single pointing captures use --capture. When updating the POET watcher, also
+update its executable path/name if it still points at
+extensive_camera_control_pointing.exe.
+
+PHD2
+----
+RunPOET.js contains NO PHD2 automation by design.
