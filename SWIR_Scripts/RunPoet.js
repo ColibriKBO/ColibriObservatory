@@ -23,6 +23,8 @@
 //      frame-limited science block finishes.
 //
 // PHD2 is intentionally NOT controlled by this script.
+// Pier flips ARE handled explicitly by RunPOET using SideOfPier /
+// DestinationSideOfPier checks at science/background transitions.
 //
 // Safety behavior:
 //   - At most MAX_CORRECTIVE_SLEWS corrective slews are allowed.
@@ -116,6 +118,10 @@ var SETTLE_AFTER_SLEW_MS = 5000;
 var USE_TOPOCENTRIC_SLEWS = true;
 var ELEVATION_LIMIT_DEG = 10.0;
 var MAX_SLEW_ATTEMPTS = 10;
+
+// Explicit pier-flip handling. RunPOET checks the AP driver before any
+// science/background transition that could otherwise cause a surprise flip.
+var HANDLE_PIER_FLIPS = true;
 
 
 // =====================================================================
@@ -1080,10 +1086,11 @@ function runBackgroundSequence(
     if (!TAKE_BACKGROUND_FRAMES)
     {
         log("Background sequence disabled.");
-        return;
+        return false;
     }
 
-    
+    // Remember if ANY background dither caused a pier flip.
+    var backgroundPierFlipOccurred = false;
 
     var count =
         Number(BACKGROUND_FRAME_COUNT);
@@ -1225,19 +1232,50 @@ function runBackgroundSequence(
             formatDec(coords.dec)
         );
 
-        if (
-            !gotoRADec(
-                coords.ra,
-                coords.dec
-            )
-        )
+        // Check whether this particular background dither
+        // requires a pier flip.
+        var pierSideBeforeDither = null;
+
+        if (HANDLE_PIER_FLIPS)
+            pierSideBeforeDither = getCurrentPierSide();
+
+        var ditherFlipped = performPierFlipIfRequired(
+            coords.ra,
+            coords.dec,
+            "background visit " + visitNumber +
+            ", dither " + i + "/" + count
+        );
+
+        if (ditherFlipped)
         {
-            throw new Error(
-                "Background dither gotoRADec() " +
-                "failed for frame " +
-                i +
-                "."
-            );
+            backgroundPierFlipOccurred = true;
+
+            log("Background dither " + i +
+                " deliberately flipped the telescope.");
+
+            // The flip routine already slewed to this position
+            // and verified the new pier side.
+        }
+        else
+        {
+            // No flip required. Perform the ordinary dither slew.
+            if (!gotoRADec(coords.ra, coords.dec))
+            {
+                throw new Error(
+                    "Background dither gotoRADec() failed for frame " +
+                    i + "."
+                );
+            }
+
+            // Check for an unexpected pier-side change.
+            if (HANDLE_PIER_FLIPS &&
+                getCurrentPierSide() != pierSideBeforeDither)
+            {
+                throw new Error(
+                    "Unexpected pier flip during background visit " +
+                    visitNumber + ", dither " + i + "."
+                );
+            }
         }
 
         Util.WaitForMilliseconds(
@@ -1280,8 +1318,13 @@ function runBackgroundSequence(
         backgroundDirectory
     );
     log(
-        "============================================================"
+    "============================================================"
     );
+
+    log("Pier flip(s) during this background visit: " +
+        (backgroundPierFlipOccurred ? "YES" : "NO"));
+
+    return backgroundPierFlipOccurred;
 }
 
 
@@ -1588,147 +1631,36 @@ function printResult(label, result)
 
 
 // =====================================================================
-// ITERATIVE CENTERING SEQUENCE
+// REUSABLE SWIR CENTERING SEQUENCE
 // =====================================================================
 
-function runPOET()
+function centerSWIRTarget(
+    runId,
+    requestTag,
+    targetRaHours,
+    targetDecDeg,
+    startingCommandRaHours,
+    startingCommandDecDeg)
 {
-    ensureFolder(SHARED_ROOT);
-    ensureFolder(REQUEST_DIR);
-    ensureFolder(RESULT_DIR);
-
-    var targetRaHours = parseRAHMS(TARGET_RA_HMS);
-    var targetDecDeg = parseDecDMS(TARGET_DEC_DMS);
-
-    if (!isValidRaHoursDecDeg(targetRaHours, targetDecDeg))
-        throw new Error("Target coordinates are invalid.");
-
-    if (!isFinite(Number(POINTING_EXPOSURE_MS)) ||
-        Number(POINTING_EXPOSURE_MS) <= 0)
-    {
-        throw new Error("POINTING_EXPOSURE_MS must be positive.");
-    }
-
-    if (!isFinite(Number(POINTING_GAIN)))
-    {
-        throw new Error("POINTING_GAIN must be finite.");
-    }
-
-    if (!isFinite(Number(POINTING_TEC_C)))
-    {
-        throw new Error("POINTING_TEC_C must be finite.");
-    }
-
-    if (!isFinite(Number(SCIENCE_EXPOSURE_MS)) ||
-        Number(SCIENCE_EXPOSURE_MS) <= 0)
-    {
-        throw new Error("SCIENCE_EXPOSURE_MS must be positive.");
-    }
-
-    if (!isFinite(Number(SCIENCE_GAIN)))
-    {
-        throw new Error("SCIENCE_GAIN must be finite.");
-    }
-
-    if (!isFinite(Number(SCIENCE_TEC_C)))
-    {
-        throw new Error("SCIENCE_TEC_C must be finite.");
-    }
-
-    if (!isFinite(Number(TOTAL_SCIENCE_MINUTES)) ||
-        Number(TOTAL_SCIENCE_MINUTES) <= 0)
-    {
-        throw new Error(
-            "TOTAL_SCIENCE_MINUTES must be positive."
-        );
-    }
-
-    if (!isFinite(Number(BACKGROUND_INTERVAL_MINUTES)) ||
-        Number(BACKGROUND_INTERVAL_MINUTES) <= 0)
-    {
-        throw new Error(
-            "BACKGROUND_INTERVAL_MINUTES must be positive."
-        );
-    }
-
-    if (!isFinite(Number(MAX_CORRECTIVE_SLEWS)) ||
-        Number(MAX_CORRECTIVE_SLEWS) < 0 ||
-        Math.floor(Number(MAX_CORRECTIVE_SLEWS)) != Number(MAX_CORRECTIVE_SLEWS))
-    {
-        throw new Error("MAX_CORRECTIVE_SLEWS must be a non-negative integer.");
-    }
-
-    if (!isFinite(Number(DIVERGENCE_FACTOR)) ||
-        Number(DIVERGENCE_FACTOR) <= 1.0)
-    {
-        throw new Error("DIVERGENCE_FACTOR must be greater than 1.0.");
-    }
-
-    if (!isFinite(Number(DIVERGENCE_MIN_INCREASE_ARCSEC)) ||
-        Number(DIVERGENCE_MIN_INCREASE_ARCSEC) < 0.0)
-    {
-        throw new Error(
-            "DIVERGENCE_MIN_INCREASE_ARCSEC must be non-negative."
-        );
-    }
-
-    var runId = makeRunId();
-
-    var currentCommandRaHours = targetRaHours;
-    var currentCommandDecDeg = targetDecDeg;
+    var currentCommandRaHours = startingCommandRaHours;
+    var currentCommandDecDeg = startingCommandDecDeg;
 
     var previousError = null;
     var correctiveSlewsMade = 0;
     var maxSolves = Number(MAX_CORRECTIVE_SLEWS) + 1;
 
-    log("============================================================");
-    log("RUNPOET: CENTER + FRAME-LIMITED CAPTURE TEST");
-    log("============================================================");
-    log("Run ID      : " + runId);
-    log("Target      : " + TARGET_NAME);
-    log("Target RA   : " + TARGET_RA_HMS + " J2000");
-    log("Target Dec  : " + TARGET_DEC_DMS + " J2000");
-    log("Exposure    : " + POINTING_EXPOSURE_MS + " ms");
-    log("Gain        : " + POINTING_GAIN);
-    log("TEC         : " + POINTING_TEC_C + " C");
-    log("Tolerance   : " + SUCCESS_TOLERANCE_ARCSEC + " arcsec");
-    log("Max correction per iteration: " + MAX_CORRECTION_ARCSEC + " arcsec");
-    log("Max corrective slews: " + MAX_CORRECTIVE_SLEWS);
-    log("Science exposure: " + SCIENCE_EXPOSURE_MS + " ms");
-    log("Science gain    : " + SCIENCE_GAIN);
-    log("Science TEC     : " + SCIENCE_TEC_C + " C");
-    log("Total science   : " + TOTAL_SCIENCE_MINUTES + " min");
-    log("Background every: " + BACKGROUND_INTERVAL_MINUTES + " min science");
-    log("Frames/block    : " + getScienceFramesPerBlock());
-    log("Total frames    : " + getTotalScienceFrames() );
-    log("");
-
-    // --------------------------------------------------------------
-    // 1) Initial nominal slew
-    // --------------------------------------------------------------
-
-    log("STEP 1: Initial slew to nominal target.");
-
-    if (!gotoRADec(currentCommandRaHours, currentCommandDecDeg))
-        throw new Error("Initial gotoRADec() failed.");
-
-    Util.WaitForMilliseconds(SETTLE_AFTER_SLEW_MS);
-
-    // --------------------------------------------------------------
-    // 2) Repeated capture/solve/correct cycle.
-    //    There can be at most MAX_CORRECTIVE_SLEWS + 1 solves:
-    //    one initial solve plus one verification solve after each
-    //    allowed corrective slew.
-    // --------------------------------------------------------------
+    var safeTag = sanitizeName(requestTag);
 
     for (var solveNumber = 1; solveNumber <= maxSolves; solveNumber++)
     {
-        var requestId = runId + "_" + pad2(solveNumber);
+        var requestId =
+            runId + "_" + safeTag + "_" + pad2(solveNumber);
 
         log("");
         log("------------------------------------------------------------");
         log(
-            "SWIR SOLVE " + solveNumber + "/" + maxSolves +
+            "SWIR CENTER " + requestTag +
+            " - solve " + solveNumber + "/" + maxSolves +
             "  (corrective slews made: " + correctiveSlewsMade +
             "/" + MAX_CORRECTIVE_SLEWS + ")"
         );
@@ -1745,21 +1677,20 @@ function runPOET()
             currentCommandDecDeg
         );
 
-        printResult("SWIR SOLVE " + solveNumber + " RESULT", result);
+        printResult(
+            "SWIR CENTER " + requestTag +
+            " - SOLVE " + solveNumber + " RESULT",
+            result
+        );
 
         var error = Number(result.total_error_arcsec);
-
-        // ----------------------------------------------------------
-        // Success: the current SWIR solve is already good enough.
-        // No extra verification frame is manufactured.
-        // ----------------------------------------------------------
 
         if (error <= SUCCESS_TOLERANCE_ARCSEC)
         {
             log("");
             log("============================================================");
             log(
-                "SUCCESS: residual " +
+                "CENTERING SUCCESS: residual " +
                 error.toFixed(2) +
                 " arcsec is within " +
                 SUCCESS_TOLERANCE_ARCSEC.toFixed(2) +
@@ -1769,138 +1700,19 @@ function runPOET()
             log("Total SWIR solves used: " + solveNumber);
             log("============================================================");
 
-            var totalScienceFrames =
-                getTotalScienceFrames();
-
-            var framesPerBlock =
-                getScienceFramesPerBlock();
-
-            var framesRemaining =
-                totalScienceFrames;
-
-            var blockNumber = 1;
-            var backgroundVisit = 1;
-
-
-            while (framesRemaining > 0)
-            {
-                var framesThisBlock =
-                    Math.min(
-                        framesPerBlock,
-                        framesRemaining
-                    );
-
-                log("");
-                log("============================================================");
-                log(
-                    "SCIENCE BLOCK " +
-                    blockNumber
-                );
-                log(
-                    "Frames this block : " +
-                    framesThisBlock
-                );
-                log(
-                    "Frames remaining before block: " +
-                    framesRemaining
-                );
-                log("============================================================");
-
-                // ----------------------------------------------------------
-                // SCIENCE
-                // ----------------------------------------------------------
-
-                runScienceBlock(
-                    runId,
-                    blockNumber,
-                    framesThisBlock
-                );
-
-                framesRemaining -=
-                    framesThisBlock;
-
-
-                // ----------------------------------------------------------
-                // BACKGROUND VISIT
-                // ----------------------------------------------------------
-
-                runBackgroundSequence(
-                    runId,
-                    backgroundVisit,
-                    currentCommandRaHours,
-                    currentCommandDecDeg
-                );
-
-
-                // ----------------------------------------------------------
-                // If more science remains, return to the final corrected
-                // science coordinates before starting the next block.
-                // ----------------------------------------------------------
-
-                if (framesRemaining > 0)
-                {
-                    log("");
-                    log(
-                        "Returning to centered science position..."
-                    );
-
-                    if (
-                        !gotoRADec(
-                            currentCommandRaHours,
-                            currentCommandDecDeg
-                        )
-                    )
-                    {
-                        throw new Error(
-                            "Failed to return to science target " +
-                            "after background visit."
-                        );
-                    }
-
-                    Util.WaitForMilliseconds(
-                        SETTLE_AFTER_SLEW_MS
-                    );
-
-                    log(
-                        "Returned to science position."
-                    );
-                }
-
-                blockNumber++;
-                backgroundVisit++;
-            }
-
-
-            // All requested on-target science has been collected,
-            // and the final background visit has completed.
-
-            parkTelescope();
-
-            log("");
-            log("============================================================");
-            log("RUNPOET COMPLETE");
-            log(
-                "Pointing + science + background sequence completed."
-            );
-            log("Telescope parked.");
-            log("============================================================");
-
-            return;
+            return {
+                ra: currentCommandRaHours,
+                dec: currentCommandDecDeg
+            };
         }
-
-        // ----------------------------------------------------------
-        // Divergence safety: do not keep chasing a solution that has
-        // become dramatically worse after the previous correction.
-        // Both thresholds must be exceeded so small fluctuations do
-        // not trigger an unnecessary abort.
-        // ----------------------------------------------------------
 
         if (previousError != null &&
             error > previousError * DIVERGENCE_FACTOR &&
             (error - previousError) > DIVERGENCE_MIN_INCREASE_ARCSEC)
         {
             throw new Error(
-                "Pointing appears to be diverging. Previous error=" +
+                "Pointing appears to be diverging during " + requestTag +
+                ". Previous error=" +
                 previousError.toFixed(2) +
                 " arcsec, current error=" +
                 error.toFixed(2) +
@@ -1908,15 +1720,11 @@ function runPOET()
             );
         }
 
-        // ----------------------------------------------------------
-        // If this was the final allowed verification solve and we are
-        // still outside tolerance, stop rather than making another move.
-        // ----------------------------------------------------------
-
         if (correctiveSlewsMade >= MAX_CORRECTIVE_SLEWS)
         {
             throw new Error(
-                "Pointing did not converge within " +
+                "Pointing did not converge during " + requestTag +
+                " within " +
                 SUCCESS_TOLERANCE_ARCSEC.toFixed(2) +
                 " arcsec after " +
                 correctiveSlewsMade +
@@ -1928,14 +1736,11 @@ function runPOET()
             );
         }
 
-        // ----------------------------------------------------------
-        // Per-iteration correction safety limit.
-        // ----------------------------------------------------------
-
         if (error > MAX_CORRECTION_ARCSEC)
         {
             throw new Error(
-                "Correction rejected: error " +
+                "Correction rejected during " + requestTag +
+                ": error " +
                 error.toFixed(2) +
                 " arcsec exceeds " +
                 MAX_CORRECTION_ARCSEC.toFixed(2) +
@@ -1943,12 +1748,7 @@ function runPOET()
             );
         }
 
-        // ----------------------------------------------------------
-        // Calculate the next J2000 command from the LAST COMMAND,
-        // not from the solved image center. This preserves the exact
-        // correction convention already proven in the live tests.
-        // ----------------------------------------------------------
-
+        // Apply the correction to the LAST COMMAND, not the solved image center.
         var correctedRaDeg =
             currentCommandRaHours * 15.0 +
             Number(result.dra_coord_deg);
@@ -1964,7 +1764,8 @@ function runPOET()
         if (!isValidRaHoursDecDeg(correctedRaHours, correctedDecDeg))
         {
             throw new Error(
-                "Calculated corrected coordinates are invalid."
+                "Calculated corrected coordinates are invalid during " +
+                requestTag + "."
             );
         }
 
@@ -1995,7 +1796,7 @@ function runPOET()
         );
 
         if (!gotoRADec(correctedRaHours, correctedDecDeg))
-            throw new Error("Corrective gotoRADec() failed.");
+            throw new Error("Corrective gotoRADec() failed during " + requestTag + ".");
 
         previousError = error;
         correctiveSlewsMade++;
@@ -2006,8 +1807,518 @@ function runPOET()
         Util.WaitForMilliseconds(SETTLE_AFTER_SLEW_MS);
     }
 
-    // Defensive fallback. The bounded loop should always return or throw.
-    throw new Error("Unexpected exit from iterative centering loop.");
+    throw new Error(
+        "Unexpected exit from iterative centering loop during " +
+        requestTag + "."
+    );
+}
+
+
+// =====================================================================
+// EXPLICIT PIER-FLIP CONTROL
+// =====================================================================
+
+function pierSideName(side)
+{
+    side = Number(side);
+
+    if (side == 0) return "pierEast / Normal";
+    if (side == 1) return "pierWest / Through-the-pole";
+    if (side == -1) return "pierUnknown";
+
+    return "Unknown(" + side + ")";
+}
+
+
+function getCurrentPierSide()
+{
+    if (!Telescope.Connected)
+        throw new Error("Cannot read SideOfPier: telescope is not connected.");
+
+    var side;
+
+    try
+    {
+        side = Number(Telescope.SideOfPier);
+    }
+    catch (e)
+    {
+        throw new Error(
+            "Could not read Telescope.SideOfPier: " + errText(e)
+        );
+    }
+
+    if (side != 0 && side != 1)
+    {
+        throw new Error(
+            "Telescope.SideOfPier returned an unknown value: " + side
+        );
+    }
+
+    return side;
+}
+
+
+function getDestinationPierSide(raJ2000, decJ2000)
+{
+    var mountCoords = getMountCoordinates(raJ2000, decJ2000);
+    var side;
+
+    try
+    {
+        side = Number(
+            Telescope.DestinationSideOfPier(
+                mountCoords.ra,
+                mountCoords.dec
+            )
+        );
+    }
+    catch (e)
+    {
+        throw new Error(
+            "DestinationSideOfPier() failed. " +
+            "RunPOET will not risk an uncontrolled pier flip. " +
+            errText(e)
+        );
+    }
+
+    if (side != 0 && side != 1)
+    {
+        throw new Error(
+            "DestinationSideOfPier() returned an unknown value: " + side
+        );
+    }
+
+    return side;
+}
+
+
+function performPierFlipIfRequired(
+    scienceRaHours,
+    scienceDecDeg,
+    context)
+{
+    if (!HANDLE_PIER_FLIPS)
+        return false;
+
+    var currentSide = getCurrentPierSide();
+    var destinationSide =
+        getDestinationPierSide(scienceRaHours, scienceDecDeg);
+
+    log("");
+    log("PIER-SIDE CHECK: " + context);
+    log("  Current side     : " + pierSideName(currentSide));
+    log("  Destination side : " + pierSideName(destinationSide));
+
+    if (destinationSide == currentSide)
+    {
+        log("  No pier flip required.");
+        return false;
+    }
+
+    log("");
+    log("============================================================");
+    log("PIER FLIP REQUIRED");
+    log("============================================================");
+    log("Context            : " + context);
+    log("Current side       : " + pierSideName(currentSide));
+    log("Expected new side  : " + pierSideName(destinationSide));
+    log("Triggering deliberate same-target slew now.");
+
+    // The AP driver decides the mechanical path. Because
+    // DestinationSideOfPier() predicts the opposite pointing state,
+    // this same-target GoTo is intentionally the command that performs
+    // the flip rather than allowing a later background/return slew to
+    // trigger it unexpectedly.
+    if (!gotoRADec(scienceRaHours, scienceDecDeg))
+    {
+        throw new Error(
+            "Deliberate pier-flip gotoRADec() failed during " + context + "."
+        );
+    }
+
+    Util.WaitForMilliseconds(SETTLE_AFTER_SLEW_MS);
+
+    var newSide = getCurrentPierSide();
+
+    log("  Side after slew   : " + pierSideName(newSide));
+
+    if (newSide == currentSide)
+    {
+        throw new Error(
+            "Pier flip was expected during " + context +
+            " but Telescope.SideOfPier did not change."
+        );
+    }
+
+    if (newSide != destinationSide)
+    {
+        throw new Error(
+            "Pier flip verification mismatch during " + context +
+            ". Expected " + pierSideName(destinationSide) +
+            ", got " + pierSideName(newSide) + "."
+        );
+    }
+
+    log("PIER FLIP VERIFIED.");
+    log("============================================================");
+
+    return true;
+}
+
+
+function handlePierFlipAndRecenterIfNeeded(
+    runId,
+    flipNumber,
+    targetRaHours,
+    targetDecDeg,
+    currentCommandRaHours,
+    currentCommandDecDeg,
+    context)
+{
+    var flipped = performPierFlipIfRequired(
+        currentCommandRaHours,
+        currentCommandDecDeg,
+        context
+    );
+
+    if (!flipped)
+    {
+        return {
+            flipped: false,
+            nextFlipNumber: flipNumber,
+            ra: currentCommandRaHours,
+            dec: currentCommandDecDeg
+        };
+    }
+
+    log("");
+    log("Pier flip complete. Re-centering with SWIR before continuing.");
+
+    var centered = centerSWIRTarget(
+        runId,
+        "flip" + pad2(flipNumber),
+        targetRaHours,
+        targetDecDeg,
+        currentCommandRaHours,
+        currentCommandDecDeg
+    );
+
+    return {
+        flipped: true,
+        nextFlipNumber: flipNumber + 1,
+        ra: centered.ra,
+        dec: centered.dec
+    };
+}
+
+
+// =====================================================================
+// MAIN POET OBSERVING SEQUENCE
+// =====================================================================
+
+function runPOET()
+{
+    ensureFolder(SHARED_ROOT);
+    ensureFolder(REQUEST_DIR);
+    ensureFolder(RESULT_DIR);
+
+    var targetRaHours = parseRAHMS(TARGET_RA_HMS);
+    var targetDecDeg = parseDecDMS(TARGET_DEC_DMS);
+
+    if (!isValidRaHoursDecDeg(targetRaHours, targetDecDeg))
+        throw new Error("Target coordinates are invalid.");
+
+    if (!isFinite(Number(POINTING_EXPOSURE_MS)) ||
+        Number(POINTING_EXPOSURE_MS) <= 0)
+    {
+        throw new Error("POINTING_EXPOSURE_MS must be positive.");
+    }
+
+    if (!isFinite(Number(POINTING_GAIN)))
+        throw new Error("POINTING_GAIN must be finite.");
+
+    if (!isFinite(Number(POINTING_TEC_C)))
+        throw new Error("POINTING_TEC_C must be finite.");
+
+    if (!isFinite(Number(SCIENCE_EXPOSURE_MS)) ||
+        Number(SCIENCE_EXPOSURE_MS) <= 0)
+    {
+        throw new Error("SCIENCE_EXPOSURE_MS must be positive.");
+    }
+
+    if (!isFinite(Number(SCIENCE_GAIN)))
+        throw new Error("SCIENCE_GAIN must be finite.");
+
+    if (!isFinite(Number(SCIENCE_TEC_C)))
+        throw new Error("SCIENCE_TEC_C must be finite.");
+
+    if (!isFinite(Number(TOTAL_SCIENCE_MINUTES)) ||
+        Number(TOTAL_SCIENCE_MINUTES) <= 0)
+    {
+        throw new Error("TOTAL_SCIENCE_MINUTES must be positive.");
+    }
+
+    if (!isFinite(Number(BACKGROUND_INTERVAL_MINUTES)) ||
+        Number(BACKGROUND_INTERVAL_MINUTES) <= 0)
+    {
+        throw new Error("BACKGROUND_INTERVAL_MINUTES must be positive.");
+    }
+
+    if (!isFinite(Number(MAX_CORRECTIVE_SLEWS)) ||
+        Number(MAX_CORRECTIVE_SLEWS) < 0 ||
+        Math.floor(Number(MAX_CORRECTIVE_SLEWS)) != Number(MAX_CORRECTIVE_SLEWS))
+    {
+        throw new Error("MAX_CORRECTIVE_SLEWS must be a non-negative integer.");
+    }
+
+    if (!isFinite(Number(DIVERGENCE_FACTOR)) ||
+        Number(DIVERGENCE_FACTOR) <= 1.0)
+    {
+        throw new Error("DIVERGENCE_FACTOR must be greater than 1.0.");
+    }
+
+    if (!isFinite(Number(DIVERGENCE_MIN_INCREASE_ARCSEC)) ||
+        Number(DIVERGENCE_MIN_INCREASE_ARCSEC) < 0.0)
+    {
+        throw new Error(
+            "DIVERGENCE_MIN_INCREASE_ARCSEC must be non-negative."
+        );
+    }
+
+    var runId = makeRunId();
+
+    var currentCommandRaHours = targetRaHours;
+    var currentCommandDecDeg = targetDecDeg;
+
+    log("============================================================");
+    log("RUNPOET: CENTER + SCIENCE + BACKGROUND + PIER-FLIP CONTROL");
+    log("============================================================");
+    log("Run ID      : " + runId);
+    log("Target      : " + TARGET_NAME);
+    log("Target RA   : " + TARGET_RA_HMS + " J2000");
+    log("Target Dec  : " + TARGET_DEC_DMS + " J2000");
+    log("Exposure    : " + POINTING_EXPOSURE_MS + " ms");
+    log("Gain        : " + POINTING_GAIN);
+    log("TEC         : " + POINTING_TEC_C + " C");
+    log("Tolerance   : " + SUCCESS_TOLERANCE_ARCSEC + " arcsec");
+    log("Max correction per iteration: " + MAX_CORRECTION_ARCSEC + " arcsec");
+    log("Max corrective slews: " + MAX_CORRECTIVE_SLEWS);
+    log("Science exposure: " + SCIENCE_EXPOSURE_MS + " ms");
+    log("Science gain    : " + SCIENCE_GAIN);
+    log("Science TEC     : " + SCIENCE_TEC_C + " C");
+    log("Total science   : " + TOTAL_SCIENCE_MINUTES + " min");
+    log("Background every: " + BACKGROUND_INTERVAL_MINUTES + " min science");
+    log("Frames/block    : " + getScienceFramesPerBlock());
+    log("Total frames    : " + getTotalScienceFrames());
+    log("Pier flips      : " + (HANDLE_PIER_FLIPS ? "EXPLICIT" : "DISABLED"));
+    log("");
+
+    // --------------------------------------------------------------
+    // 1) Initial nominal slew and SWIR centering.
+    // --------------------------------------------------------------
+
+    log("STEP 1: Initial slew to nominal target.");
+
+    if (!gotoRADec(currentCommandRaHours, currentCommandDecDeg))
+        throw new Error("Initial gotoRADec() failed.");
+
+    Util.WaitForMilliseconds(SETTLE_AFTER_SLEW_MS);
+
+    var centered = centerSWIRTarget(
+        runId,
+        "initial",
+        targetRaHours,
+        targetDecDeg,
+        currentCommandRaHours,
+        currentCommandDecDeg
+    );
+
+    currentCommandRaHours = centered.ra;
+    currentCommandDecDeg = centered.dec;
+
+    // --------------------------------------------------------------
+    // 2) Repeated finite science blocks with background visits.
+    //    Pier flips are checked explicitly at all transitions where
+    //    a later GoTo could otherwise cause a surprise flip.
+    // --------------------------------------------------------------
+
+    var totalScienceFrames = getTotalScienceFrames();
+    var framesPerBlock = getScienceFramesPerBlock();
+    var framesRemaining = totalScienceFrames;
+
+    var blockNumber = 1;
+    var backgroundVisit = 1;
+    var flipNumber = 1;
+
+    while (framesRemaining > 0)
+    {
+        // ----------------------------------------------------------
+        // Before science: if a same-target GoTo would now change
+        // pointing state, perform that flip deliberately and recenter.
+        // ----------------------------------------------------------
+
+        var flipState = handlePierFlipAndRecenterIfNeeded(
+            runId,
+            flipNumber,
+            targetRaHours,
+            targetDecDeg,
+            currentCommandRaHours,
+            currentCommandDecDeg,
+            "before science block " + blockNumber
+        );
+
+        currentCommandRaHours = flipState.ra;
+        currentCommandDecDeg = flipState.dec;
+        flipNumber = flipState.nextFlipNumber;
+
+        var framesThisBlock =
+            Math.min(framesPerBlock, framesRemaining);
+
+        log("");
+        log("============================================================");
+        log("SCIENCE BLOCK " + blockNumber);
+        log("Frames this block : " + framesThisBlock);
+        log("Frames remaining before block: " + framesRemaining);
+        log("============================================================");
+
+        runScienceBlock(
+            runId,
+            blockNumber,
+            framesThisBlock
+        );
+
+        framesRemaining -= framesThisBlock;
+
+        // ----------------------------------------------------------
+        // Science may have tracked through the AP driver's flip
+        // threshold. Check BEFORE the first background slew so the
+        // background motion cannot accidentally be the flip trigger.
+        // ----------------------------------------------------------
+
+        flipState = handlePierFlipAndRecenterIfNeeded(
+            runId,
+            flipNumber,
+            targetRaHours,
+            targetDecDeg,
+            currentCommandRaHours,
+            currentCommandDecDeg,
+            "after science block " + blockNumber +
+            ", before background visit " + backgroundVisit
+        );
+
+        currentCommandRaHours = flipState.ra;
+        currentCommandDecDeg = flipState.dec;
+        flipNumber = flipState.nextFlipNumber;
+
+        // ----------------------------------------------------------
+        // Background visit.
+        // ----------------------------------------------------------
+
+        var backgroundPierFlipOccurred = runBackgroundSequence(
+            runId,
+            backgroundVisit,
+            currentCommandRaHours,
+            currentCommandDecDeg
+        );
+
+        // ----------------------------------------------------------
+        // If more science remains, return to the final corrected
+        // science coordinates. Check the intended return first; if
+        // a flip would trigger during the background visit, the explicit
+        // flip routine itself performs the return slew and then recenters.
+        // ----------------------------------------------------------
+
+        if (framesRemaining > 0)
+        {
+            flipState = handlePierFlipAndRecenterIfNeeded(
+                runId,
+                flipNumber,
+                targetRaHours,
+                targetDecDeg,
+                currentCommandRaHours,
+                currentCommandDecDeg,
+                "return to science after background visit " + backgroundVisit
+            );
+
+            currentCommandRaHours = flipState.ra;
+            currentCommandDecDeg = flipState.dec;
+            flipNumber = flipState.nextFlipNumber;
+
+            if (!flipState.flipped)
+            {
+                log("");
+                log("Returning to centered science position...");
+
+                var pierSideBeforeReturn = null;
+
+                if (HANDLE_PIER_FLIPS)
+                    pierSideBeforeReturn = getCurrentPierSide();
+
+                if (!gotoRADec(
+                    currentCommandRaHours,
+                    currentCommandDecDeg))
+                {
+                    throw new Error(
+                        "Failed to return to science target after background visit."
+                    );
+                }
+
+                if (HANDLE_PIER_FLIPS &&
+                    getCurrentPierSide() != pierSideBeforeReturn)
+                {
+                    throw new Error(
+                        "Unexpected pier flip while returning from background visit " +
+                        backgroundVisit + "."
+                    );
+                }
+
+                Util.WaitForMilliseconds(SETTLE_AFTER_SLEW_MS);
+                log("Returned to science position.");
+
+                // If any background dither caused a flip,
+                // recenter SWIR before beginning more science.
+                if (backgroundPierFlipOccurred)
+                {
+                    log("Background visit included a pier flip.");
+                    log("Re-centering SWIR before next science block.");
+
+                    centered = centerSWIRTarget(
+                        runId,
+                        "background_return" + pad2(backgroundVisit),
+                        targetRaHours,
+                        targetDecDeg,
+                        currentCommandRaHours,
+                        currentCommandDecDeg
+                    );
+
+                    currentCommandRaHours = centered.ra;
+                    currentCommandDecDeg = centered.dec;
+                }
+            }
+            else
+            {
+                log(
+                    "Pier flip + SWIR recenter already returned the telescope " +
+                    "to the science field."
+                );
+            }
+        }
+
+        blockNumber++;
+        backgroundVisit++;
+    }
+
+    // All requested on-target science and the final background visit
+    // have completed successfully.
+    parkTelescope();
+
+    log("");
+    log("============================================================");
+    log("RUNPOET COMPLETE");
+    log("Pointing + science + background sequence completed.");
+    log("Telescope parked.");
+    log("============================================================");
 }
 
 
