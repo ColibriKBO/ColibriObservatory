@@ -35,12 +35,22 @@ from PyQt5.QtGui import *
 
 DEFAULT_FOCUSER_DRIVER_ID = "SeletekFocuser.Focuser"
 
+class AutofocusCancelled(Exception):
+    """Raised when an autofocus run was cancelled before completion."""
+
+class AutofocusNotConverged(Exception):
+    """Recoverable focus-measurement failure; restore the starting position."""
+
+
 class ASCOMFocuserController:
 	def __init__(self, driver_id=None):
 		self.driver_id = driver_id
 		self.focuser = None
 
 	def connect(self):
+		if self.focuser is not None:
+			return
+
 		if not self.driver_id:
 			chooser = win32com.client.Dispatch("ASCOM.Utilities.Chooser")
 			chooser.DeviceType = "Focuser"
@@ -50,17 +60,26 @@ class ASCOMFocuserController:
 			raise RuntimeError("No ASCOM focuser driver selected.")
 
 		print(f"Opening focuser driver: {self.driver_id}")
-
 		self.focuser = win32com.client.Dispatch(self.driver_id)
+		try:
+			# This Seletek driver has previously rejected setting Connected.
+			# Do not change Connected here. Check actual functionality instead.
+			pos = self.position
+			if not bool(self.focuser.Absolute):
+				raise RuntimeError(
+					"The ASCOM focuser reports relative movement. "
+					"PyFocus currently requires an absolute-position focuser."
+				)
+			max_step = int(self.focuser.MaxStep)
+			if not (0 <= pos <= max_step):
+				raise RuntimeError(f"Invalid focuser position: {pos} (MaxStep={max_step})")
+			# Require reliable IsMoving feedback before commanding motion.
+			_ = bool(self.focuser.IsMoving)
+		except Exception:
+			self.focuser = None
+			raise
 
-		# Important:
-		# Do NOT set self.focuser.Connected here.
-		# The Seletek focuser driver appears to reject the Connected property.
-		# Instead, confirm the driver is usable by reading Position.
-		pos = self.position
-
-		print(f"Focuser driver opened: {self.driver_id}")
-		print(f"Current focuser position: {pos}")
+		print(f"Focuser opened: {self.driver_id}; pos={pos}; MaxStep={max_step}")
 
 	def disconnect(self):
 		# Do not force Connected=False for Seletek.
@@ -84,33 +103,49 @@ class ASCOMFocuserController:
 
 		return int(self.focuser.Position)
 
-	def move_to(self, target_position, keep_running_callback=None):
-		target_position = int(target_position)
-
+	def move_to(self, target_position, keep_running_callback=None, timeout_s=120, tolerance=2):
+		"""Command and verify an ABSOLUTE move; never assume success on bad feedback."""
 		if self.focuser is None:
 			self.connect()
 
+		target_position = int(target_position)
+		max_step = int(self.focuser.MaxStep)
+		if not 0 <= target_position <= max_step:
+			raise ValueError(f"Target {target_position} outside focuser limits 0..{max_step}")
+
+		if keep_running_callback is not None and not keep_running_callback():
+			raise AutofocusCancelled("Cancelled before focuser move")
+
+		if bool(self.focuser.IsMoving):
+			raise RuntimeError("Focuser is already moving; refusing another move")
+
 		print(f"Moving focuser to {target_position}")
 		self.focuser.Move(target_position)
-
-		while True:
-			if keep_running_callback is not None and not keep_running_callback():
-				print("Focuser move cancelled.")
-				break
-
+		deadline = time.monotonic() + float(timeout_s)
+		try:
+			while True:
+				if keep_running_callback is not None and not keep_running_callback():
+					raise AutofocusCancelled("Cancelled during focuser move")
+				if not bool(self.focuser.IsMoving):
+					break
+				if time.monotonic() >= deadline:
+					raise TimeoutError(f"Focuser failed to stop within {timeout_s}s")
+				time.sleep(0.25)
+		except (AutofocusCancelled, TimeoutError):
 			try:
-				is_moving = bool(self.focuser.IsMoving)
-			except Exception:
-				# Some drivers do not report IsMoving reliably.
-				# If Move() returned without error, assume command was accepted.
-				break
+				self.focuser.Halt()
+			except Exception as halt_error:
+				print(f"WARNING: focuser Halt was unavailable: {halt_error}")
+			raise
 
-			if not is_moving:
-				break
-
-			time.sleep(0.25)
-
-		print(f"Focuser position: {self.position}")
+		actual = self.position
+		if abs(actual - target_position) > tolerance:
+			raise RuntimeError(
+				f"Focuser stopped at {actual}; target was {target_position} "
+					f"(tolerance {tolerance} steps)"
+			)
+		print(f"Verified focuser position: {actual}")
+		return actual
 
 class FocusThread(QtCore.QThread):
 	updateFocusFrame = QtCore.pyqtSignal(object)
@@ -124,6 +159,7 @@ class FocusThread(QtCore.QThread):
 	updateStarOverlay = QtCore.pyqtSignal(object, object)
 	updateFocuserPosition = QtCore.pyqtSignal(object)
 	sessionFinished = QtCore.pyqtSignal()
+	autofocusResult = QtCore.pyqtSignal(object)
 
 	def __init__(self, parent=None, settings=None):
 		super(FocusThread,self).__init__(parent)
@@ -169,6 +205,8 @@ class FocusThread(QtCore.QThread):
 		self.af_steps_each_side = int(settings.get("af_steps_each_side", 3))
 		self.af_frames_per_position = int(settings.get("af_frames_per_position", 3))
 		self.af_settle_time = float(settings.get("af_settle_time", 1.0))
+		# Set only after a real backlash measurement; 0 means no compensation.
+		self.af_backlash_steps = int(settings.get("af_backlash_steps", 0))
 		self.focuser_driver_id = settings.get("focuser_driver_id", None)
 
 		# Optional persistent focuser connection.
@@ -184,50 +222,56 @@ class FocusThread(QtCore.QThread):
 	@QtCore.pyqtSlot()
 	def run(self):
 		pythoncom.CoInitialize()
-
 		try:
-			self.maxim_camera = win32com.client.Dispatch("MaxIm.CCDCamera")
-			self.maxim_camera.LinkEnabled = True
-
+			# Camera connection is lazy so manual focuser jogs work even
+			# without MaxIm; only one thread ever owns the camera COM object.
 			while not self.shutdown_requested:
 				self.command_event.wait()
 				self.command_event.clear()
-
 				if self.shutdown_requested:
 					break
-
-				# Handle manual focuser commands first.
 				self.processFocusCommands()
-
-				# If this wake-up was only for a focuser command, go idle again.
 				if not self.session_active:
 					continue
-
-				if self.capture_mode == "Single Image":
-					self.measureFocusMetric()
-					self.processFocusCommands()
-
-				elif self.capture_mode == "Stream":
-					while self.session_active and not self.shutdown_requested:
-						self.processFocusCommands()
+				try:
+					if self.capture_mode == "Single Image":
 						self.measureFocusMetric()
 						self.processFocusCommands()
-
-				elif self.capture_mode == "Autofocus":
-					self.runAutofocus()
-
-				self.session_active = False
-				self.sessionFinished.emit()
-
+					elif self.capture_mode == "Stream":
+						while self.session_active and not self.shutdown_requested:
+							self.processFocusCommands()
+							self.measureFocusMetric()
+							self.processFocusCommands()
+					elif self.capture_mode == "Autofocus":
+						self.runAutofocus()
+				except Exception as error:
+					print(f"ERROR in focus worker session: {error}")
+					self.updateStatus.emit(self.makeAFStatus(f"Focus session failed: {error}"))
+					if self.capture_mode == "Autofocus":
+						self.autofocusResult.emit({"success": False, "error": str(error)})
+				finally:
+					# Release MaxIm's camera client before informing ACP/GUI
+					# that the session is over; ColibriGrab must not overlap it.
+					self.releaseMaximCamera()
+					self.session_active = False
+					self.sessionFinished.emit()
 		finally:
-			if self.maxim_camera is not None:
-				try:
-					self.maxim_camera.LinkEnabled = False
-				except Exception:
-					pass
-
-			self.maxim_camera = None
+			self.releaseMaximCamera()
+			# Release the focuser COM reference on the same worker thread
+			# where it was created.
+			if self.focuser_controller is not None:
+				self.focuser_controller.disconnect()
+				self.focuser_controller = None
 			pythoncom.CoUninitialize()
+
+	def releaseMaximCamera(self):
+		"""Release the MaxIm client on its owning COM worker thread."""
+		if self.maxim_camera is not None:
+			try:
+				self.maxim_camera.LinkEnabled = False
+			except Exception as error:
+				print(f"WARNING: MaxIm camera disconnect failed: {error}")
+			self.maxim_camera = None
 
 	def startSession(self, settings):
 		"""
@@ -260,12 +304,8 @@ class FocusThread(QtCore.QThread):
 		self.shutdown_requested = True
 		self.command_event.set()
 
-		if self.focuser_controller is not None:
-			try:
-				self.focuser_controller.disconnect()
-			except Exception:
-				pass
-
+		# Do not access/release a worker-owned COM interface from the GUI thread.
+		# The worker releases it in run() finally after it has stopped.
 		self.wait()
 
 	
@@ -322,6 +362,9 @@ class FocusThread(QtCore.QThread):
 		Negative delta decreases focuser position.
 		"""
 
+		if self.capture_mode == "Autofocus" and self.session_active:
+			print("Manual focuser jog rejected during active autofocus.")
+			return
 		self.focus_command_queue.put(("relative", int(delta)))
 		self.command_event.set()
 
@@ -331,6 +374,9 @@ class FocusThread(QtCore.QThread):
 		Request an absolute focuser move.
 		"""
 
+		if self.capture_mode == "Autofocus" and self.session_active:
+			print("Manual focuser move rejected during active autofocus.")
+			return
 		self.focus_command_queue.put(("absolute", int(target_position)))
 		self.command_event.set()
 
@@ -340,6 +386,9 @@ class FocusThread(QtCore.QThread):
 		Request a focuser position refresh.
 		"""
 
+		if self.capture_mode == "Autofocus" and self.session_active:
+			print("Manual focuser refresh rejected during active autofocus.")
+			return
 		self.focus_command_queue.put(("refresh", None))
 		self.command_event.set()
 
@@ -447,189 +496,170 @@ class FocusThread(QtCore.QThread):
 			self.af_settle_time = float(
 				settings.get("af_settle_time", self.af_settle_time)
 			)
+			self.af_backlash_steps = int(
+				settings.get("af_backlash_steps", self.af_backlash_steps)
+			)
+
+	def makeAFStatus(self, state, **changes):
+		status = {
+			"state": str(state), "mean": 0., "std": 0., "min": 0., "max": 0.,
+			"detected_peaks": 0, "valid_fits": 0,
+			"sigma_x": None, "sigma_y": None, "sigma_avg": None,
+			"exposure": self.exposure,
+			"binning": f"{self.bin_x}x{self.bin_y}",
+			"capture_mode": self.capture_mode,
+			"focuser_position": self.current_focuser_position,
+			"testing_position": self.current_testing_position,
+			"best_position": self.current_best_position,
+		}
+		status.update(changes)
+		return status
+
+	def _checkAutofocusActive(self):
+		if not self.threadactive or self.shutdown_requested or not self.session_active:
+			raise AutofocusCancelled("Autofocus session cancelled")
+
+	def _autofocusSettle(self):
+		deadline = time.monotonic() + self.af_settle_time
+		while time.monotonic() < deadline:
+			self._checkAutofocusActive()
+			time.sleep(min(0.1, max(0., deadline - time.monotonic())))
 
 	def runAutofocus(self):
-		"""
-		Run a simple autofocus sweep.
+		"""Measured-position sweep with explicit failure/cancel outcomes.
 
-		The routine:
-		1. Connects to the ASCOM/Seletek focuser.
-		2. Reads the current focuser position.
-		3. Tests positions around the current position.
-		4. Takes several focus measurements at each position.
-		5. Uses the median Average sigma as the score for each position.
-		6. Moves the focuser to the position with the lowest score.
+		ACP remains responsible for telescope pointing, dome and pier safety.
+		This routine moves ONLY the ASCOM focuser and acquires MaxIm images.
 		"""
-
 		print("Starting autofocus sweep.")
-
-		if self.focuser_controller is None:
-			self.focuser_controller = ASCOMFocuserController(self.focuser_driver_id)
-
-		focuser = self.focuser_controller
-
+		self.current_testing_position = None
+		self.current_best_position = None
+		start_pos = None
+		results = []
 		try:
+			self._checkAutofocusActive()
+			if self.focuser_controller is None:
+				self.focuser_controller = ASCOMFocuserController(self.focuser_driver_id)
+			focuser = self.focuser_controller
 			focuser.connect()
-
 			start_pos = focuser.position
-			print(f"Starting focuser position: {start_pos}")
-
 			self.current_focuser_position = start_pos
-			self.current_testing_position = None
-			self.current_best_position = None
+			print(f"Starting focuser position: {start_pos}")
+			step = int(self.af_step_size)
+			side = int(self.af_steps_each_side)
+			frames = int(self.af_frames_per_position)
+			backlash = int(self.af_backlash_steps)
+			if step <= 0 or side < 1 or frames <= 0 or backlash < 0:
+				raise ValueError("Invalid autofocus sweep configuration")
+			positions = [start_pos + i*step for i in range(-side, side+1)]
+			max_step = int(focuser.focuser.MaxStep)
+			if min(positions) < 0 or max(positions) > max_step:
+				raise ValueError(f"Autofocus sweep exceeds 0..{max_step} focuser limit")
+			min_valid_frames = min(2, frames)
 
-			offsets = range(-self.af_steps_each_side, self.af_steps_each_side + 1)
-
-			test_positions = [
-				start_pos + offset * self.af_step_size
-				for offset in offsets
-			]
-
-			results = []
-
-			for pos in test_positions:
-				if not self.threadactive:
-					print("Autofocus cancelled.")
-					break
-
-				self.current_testing_position = pos
-				self.current_best_position = None
-				self.current_focuser_position = self.getFocuserPositionSafe()
-
-				move_status = {
-					"state": f"Autofocus: moving to position {pos}",
-					"mean": 0,
-					"std": 0,
-					"min": 0,
-					"max": 0,
-					"detected_peaks": 0,
-					"valid_fits": 0,
-					"sigma_x": None,
-					"sigma_y": None,
-					"sigma_avg": None,
-					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}",
-					"capture_mode": self.capture_mode,
-					"focuser_position": self.current_focuser_position,
-					"testing_position": self.current_testing_position,
-					"best_position": self.current_best_position,
-				}
-
-				self.updateStatus.emit(move_status)
-
-				focuser.move_to(
-					pos,
-					keep_running_callback=lambda: self.threadactive
-				)
-
-				self.current_focuser_position = self.getFocuserPositionSafe()
-
-				time.sleep(self.af_settle_time)
-
-				position_metrics = []
-
-				for frame_index in range(self.af_frames_per_position):
-					if not self.threadactive:
-						break
-
-					measure_status = move_status.copy()
-					measure_status["state"] = (
-						f"Autofocus: measuring position {pos} "
-						f"({frame_index + 1}/{self.af_frames_per_position})"
-					)
-					self.updateStatus.emit(measure_status)
-
+			for position in positions:
+				self._checkAutofocusActive()
+				self.current_testing_position = position
+				self.updateStatus.emit(self.makeAFStatus(f"Autofocus: moving to {position}"))
+				focuser.move_to(position, keep_running_callback=lambda: self.threadactive and not self.shutdown_requested)
+				self.current_focuser_position = focuser.position
+				self._autofocusSettle()
+				measurements = []
+				for index in range(frames):
+					self._checkAutofocusActive()
+					self.updateStatus.emit(self.makeAFStatus(
+						f"Autofocus: {position}, frame {index+1}/{frames}"
+					))
 					metric = self.measureFocusMetric()
-
+					self._checkAutofocusActive()
 					if metric is not None:
-						position_metrics.append(metric["sigma_avg"])
-
-				if len(position_metrics) == 0:
-					print(f"Position {pos}: no valid focus measurements.")
+						value = float(metric["sigma_avg"])
+						if np.isfinite(value) and value > 0:
+							measurements.append(value)
+				if len(measurements) < min_valid_frames:
+					print(f"Skipping position {position}: only {len(measurements)}/{frames} valid frames")
 					continue
+				score = float(np.median(measurements))
+				results.append((position, score))
+				self.updateAutofocusPlot.emit(position, score)
+				print(f"Position {position}: median sigma={score:.4f} ({len(measurements)}/{frames} frames)")
 
-				score = float(np.median(position_metrics))
-				results.append((pos, score))
-
-				print(f"Position {pos}: median average sigma = {score:.4f}")
-
-				self.updateAutofocusPlot.emit(int(pos), float(score))
-
-			if len(results) == 0:
-				print("Autofocus failed: no valid focus measurements.")
-
-				fail_status = {
-					"state": "Autofocus failed: no valid focus measurements.",
-					"mean": 0,
-					"std": 0,
-					"min": 0,
-					"max": 0,
-					"detected_peaks": 0,
-					"valid_fits": 0,
-					"sigma_x": None,
-					"sigma_y": None,
-					"sigma_avg": None,
-					"exposure": self.exposure,
-					"binning": f"{self.bin_x}x{self.bin_y}",
-					"capture_mode": self.capture_mode,
-				}
-
-				self.updateStatus.emit(fail_status)
-				return
-
+			self._checkAutofocusActive()
+			if len(results) < 5:
+				raise AutofocusNotConverged(f"Only {len(results)} focus positions had reliable PSF measurements")
 			best_pos, best_score = min(results, key=lambda item: item[1])
-
+			# A minimum on the measured boundary is not a bracketed optimum.
+			if best_pos in (results[0][0], results[-1][0]):
+				raise AutofocusNotConverged(
+					f"Best measured position {best_pos} is at a scan boundary; "
+					"widen/recenter the autofocus range"
+				)
 			self.current_best_position = best_pos
 			self.current_testing_position = None
-
-			print("Autofocus results:")
-			for pos, score in results:
-				print(f"  Position {pos}: {score:.4f}")
-
-			print(f"Best focus position: {best_pos}, score = {best_score:.4f}")
+			self.updateStatus.emit(self.makeAFStatus(
+				f"Returning to measured best focus {best_pos}",
+				sigma_avg=best_score
+			))
+			# Sweep runs low to high. If backlash is calibrated, approach the
+			# final position from BELOW, same as scan measurement positions.
+			if backlash > 0:
+				preload = best_pos - backlash
+				if preload < 0:
+					raise RuntimeError("Insufficient travel for backlash approach")
+				focuser.move_to(preload, keep_running_callback=lambda: self.threadactive)
+			self._checkAutofocusActive()
+			focuser.move_to(best_pos, keep_running_callback=lambda: self.threadactive)
+			self.current_focuser_position = focuser.position
+			self._checkAutofocusActive()
 			self.updateBestFocus.emit(int(best_pos), float(best_score))
-
-			done_status = {
-				"state": f"Autofocus complete. Moving to best position {best_pos}.",
-				"mean": 0,
-				"std": 0,
-				"min": 0,
-				"max": 0,
-				"detected_peaks": 0,
-				"valid_fits": 0,
-				"sigma_x": None,
-				"sigma_y": None,
-				"sigma_avg": best_score,
-				"exposure": self.exposure,
-				"binning": f"{self.bin_x}x{self.bin_y}",
-				"capture_mode": self.capture_mode,
-				"focuser_position": self.getFocuserPositionSafe(),
-				"testing_position": self.current_testing_position,
-				"best_position": self.current_best_position,
+			self.updateStatus.emit(self.makeAFStatus(
+				f"Autofocus finished. Best position: {best_pos}, score: {best_score:.3f}",
+				sigma_avg=best_score
+			))
+			result = {
+				"success": True, "best_position": int(best_pos),
+				"best_sigma_px": float(best_score), "start_position": int(start_pos),
+				"positions": [{"position":int(p), "sigma_px":float(s)} for p,s in results],
+				"backlash_steps":backlash,
 			}
-
-			self.updateStatus.emit(done_status)
-
-			focuser.move_to(
-				best_pos,
-				keep_running_callback=lambda: self.threadactive
-			)
-
-			final_status = done_status.copy()
-			final_status["state"] = (
-				f"Autofocus finished. Best position: {best_pos}, "
-				f"score: {best_score:.3f}"
-			)
-			final_status["focuser_position"] = focuser.position
-			final_status["testing_position"] = None
-			final_status["best_position"] = best_pos
-
-			self.updateStatus.emit(final_status)
-
-			print("Autofocus sweep finished.")
-
+			self.autofocusResult.emit(result)
+			return result
+		except Exception as error:
+			cancelled = isinstance(error, AutofocusCancelled)
+			# Never issue new moves on cancellation or hardware-control errors.
+			# Only on an unconverged measurement, restore the start position.
+			restoration = "not attempted"
+			if isinstance(error, AutofocusNotConverged) and start_pos is not None and self.threadactive:
+				try:
+					if self.af_backlash_steps > 0 and start_pos >= self.af_backlash_steps:
+						self.focuser_controller.move_to(start_pos - self.af_backlash_steps, keep_running_callback=lambda: self.threadactive)
+					self.focuser_controller.move_to(start_pos, keep_running_callback=lambda: self.threadactive)
+					self.current_focuser_position = self.focuser_controller.position
+					restoration = "returned to starting position"
+				except Exception as recovery_error:
+					restoration = f"restore failed: {recovery_error}"
+			message = f"Autofocus {'cancelled' if cancelled else 'failed'}: {error} ({restoration})"
+			print(message)
+			self.updateStatus.emit(self.makeAFStatus(message))
+			result = {
+				"success": False, "cancelled": cancelled, "error":str(error),
+				"start_position": start_pos,
+				"last_position": self.current_focuser_position,
+				"restoration": restoration,
+				"positions": [{"position":int(p), "sigma_px":float(s)} for p,s in results],
+			}
+			self.autofocusResult.emit(result)
+			return result
 		finally:
+			# Discard any manual requests submitted during the sweep rather than
+			# executing them unexpectedly when the worker goes idle.
+			while True:
+				try:
+					self.focus_command_queue.get_nowait()
+				except queue.Empty:
+					break
 			self.threadactive = False
+			self.current_testing_position = None
 
 	def measureFocusMetric(self):
 		"""
@@ -930,9 +960,19 @@ class FocusThread(QtCore.QThread):
 		except TypeError:
 			cam.Expose(exposure, light_frame)
 
+		# Software timeout for delayed image readout. Caller reports a failed
+		# measurement if MaxIm does not finish; this does not interrupt a COM
+		# method call itself if that method becomes blocked inside the driver.
+		deadline = time.monotonic() + max(30.0, exposure * 5.0 + 10.0)
 		while not cam.ImageReady:
-			if not self.threadactive:
-				return None
+			if not self.threadactive or time.monotonic() >= deadline:
+				try:
+					cam.AbortExposure()
+				except Exception as error:
+					print(f"WARNING: could not abort MaxIm exposure: {error}")
+				if not self.threadactive:
+					return None
+				raise TimeoutError("MaxIm exposure/readout did not complete before timeout")
 			time.sleep(0.1)
 
 		image = np.array(cam.ImageArray, dtype=np.float32)
@@ -1235,7 +1275,11 @@ class Ui(QtWidgets.QMainWindow):
 		super(Ui, self).__init__(*args, **kwargs)    
 		
 		# Load the .ui file
-		uic.loadUi('PyFocus.ui', self)                
+		ui_path = Path(__file__).resolve().with_name("PyFocus.ui")
+		if not ui_path.exists():
+			raise FileNotFoundError(f"PyFocus.ui is required for interactive mode: {ui_path}")
+		uic.loadUi(str(ui_path), self)
+                
 		self.title = "PyFocus Automated Focusing"
 
 		# Detach widgets loaded from PyFocus.ui before replacing the central widget.
@@ -1621,6 +1665,7 @@ class Ui(QtWidgets.QMainWindow):
 		right_column.addWidget(plot_group, stretch=10)
 
 		##### Button triggers
+		self.Start_button.setCheckable(True)
 		self.Start_button.clicked.connect(self.startFocus)
 		self.Stop_button.clicked.connect(self.stopFocus)
 
@@ -2089,6 +2134,8 @@ class Ui(QtWidgets.QMainWindow):
 		self.Start_button.blockSignals(False)
 
 		self.Start_button.setText("Start")
+		self.CaptureMode_combo.setEnabled(True)
+		self.setManualFocusControlsEnabled(True)
 		print("Focus thread finished.")
 
 	def showLiveTrendPlot(self):
@@ -2326,7 +2373,7 @@ class Ui(QtWidgets.QMainWindow):
 			)
 
 		# Also update the Focus Curve if we know the focuser position.
-		if focuser_position is not None:
+		if focuser_position is not None and self.CaptureMode_combo.currentText() != "Autofocus":
 			self.updateFocusCurvePoint(
 				int(focuser_position),
 				float(average)
@@ -2404,15 +2451,14 @@ class Ui(QtWidgets.QMainWindow):
 		sigma_y = status.get("sigma_y")
 		sigma_avg = status.get("sigma_avg")
 
-		if sigma_avg is None:
-			sigma_text = "Sigma X: -- px   Sigma Y: -- px   Average: -- px"
-		else:
-			sigma_text = (
-				f"Sigma X: {sigma_x:.3f} px   "
-				f"Sigma Y: {sigma_y:.3f} px   "
-				f"Average: {sigma_avg:.3f} px"
-			)
-		
+		def fmt_sigma(value):
+			return "--" if value is None else f"{float(value):.3f}"
+		sigma_text = (
+			f"Sigma X: {fmt_sigma(sigma_x)} px   "
+			f"Sigma Y: {fmt_sigma(sigma_y)} px   "
+			f"Average: {fmt_sigma(sigma_avg)} px"
+		)
+
 		focuser_position = status.get("focuser_position")
 		testing_position = status.get("testing_position")
 		best_position = status.get("best_position")
@@ -2451,16 +2497,8 @@ class Ui(QtWidgets.QMainWindow):
 		except Exception as e:
 			print(f'ERROR:  {str(e)}')
 
-	def changeFocus(step,dir):
-		# Adjust focus
-		currPos = F.Position
-		if dir == 'in':
-			F.Position = currPos + step
-		elif dir == 'out':
-			F.Position = currPos - step
-
-	def slewToAltAz(alt,az):
-		T.SlewToAltAz()
+	# Mount slews intentionally belong to the existing ACP/RunColibri
+	# orchestrator, not this autofocus process.
 
 	def requestFocusJog(self, delta):
 		if self.thread is None:
@@ -2501,20 +2539,32 @@ class Ui(QtWidgets.QMainWindow):
 		self.FocusTarget_spin.setValue(position)
 		self.FocusTarget_spin.blockSignals(False)
 
+	def setManualFocusControlsEnabled(self, enabled):
+		for name in ("FocusMinus_button", "FocusPlus_button", "FocusGo_button",
+				"FocusRefresh_button", "FocusStep_spin", "FocusTarget_spin"):
+			getattr(self, name).setEnabled(enabled)
+
 	def startFocus(self):
 		if self.thread is None:
 			return
 
 		if self.Start_button.isChecked():
+			self.CaptureMode_combo.setEnabled(False)
 			self.Start_button.setText("Running...")
 			self.connectDevices()
 
 			settings = self.getFocusSettings()
+			self.setManualFocusControlsEnabled(settings["capture_mode"] != "Autofocus")
 			self.thread.startSession(settings)
 
 		else:
-			self.Start_button.setText("Start")
+			self.Start_button.setText("Stopping...")
 			self.thread.stopSession()
+
+	def closeEvent(self, event):
+		if self.thread is not None and self.thread.isRunning():
+			self.thread.shutdown()
+		super().closeEvent(event)
 
 	def stopFocus(self):
 		print("Exit button pressed.")
@@ -2865,26 +2915,76 @@ class Ui(QtWidgets.QMainWindow):
 
 def main():
 	print("Starting PyFocus GUI...")
-	app = QtWidgets.QApplication(sys.argv) # create instance of QtWidgets.QApplication
-	print("Finished initializing PyFocus GUI...")
-	window = Ui()                          # create instance of class
-	app.exec_()                            # start the application
+	app = QtWidgets.QApplication(sys.argv)
+	window = Ui()
+	sys.exit(app.exec_())
 
-#T = Telescope('localhost:11111', 0) # Local Omni Simulator
-#C = Camera('localhost:11111', 0)
-#F = Focuser('localhost:11111', 0)
+
+def headless_autofocus(args):
+	"""Run without QWidget or PyFocus.ui; suitable for an ACP subprocess."""
+	import json
+	app = QtCore.QCoreApplication([sys.argv[0]])
+	if args.output_json:
+		# Never leave a previous successful result when a new run crashes.
+		Path(args.output_json).resolve().unlink(missing_ok=True)
+	settings = {
+		"capture_mode": "Autofocus",
+		"focuser_driver_id": args.focuser_driver,
+		"exposure": args.exposure,
+		"bin_x": args.binning, "bin_y": args.binning,
+		"af_step_size": args.step_size,
+		"af_steps_each_side": args.steps_each_side,
+		"af_frames_per_position": args.frames_per_position,
+		"af_settle_time": args.settle_time,
+		"af_backlash_steps": args.backlash_steps,
+	}
+	worker = FocusThread(settings=settings)
+	result = {"success":False, "error":"No autofocus completion result"}
+
+	def on_status(state):
+		print(state.get("state", "Autofocus running"), flush=True)
+
+	def on_result(data):
+		result.clear()
+		result.update(data)
+
+	worker.updateStatus.connect(on_status)
+	worker.autofocusResult.connect(on_result)
+	worker.sessionFinished.connect(app.quit)
+	worker.start()
+	worker.startSession(settings)
+	try:
+		app.exec_()
+	finally:
+		worker.shutdown()
+	if args.output_json:
+		p = Path(args.output_json).resolve()
+		p.parent.mkdir(parents=True,exist_ok=True)
+		tmp = p.with_suffix(p.suffix + ".tmp")
+		tmp.write_text(json.dumps(result,indent=2),encoding="utf-8")
+		tmp.replace(p)
+	print("AUTOFOCUS_RESULT",json.dumps(result),flush=True)
+	return 0 if result.get("success",False) else 1
 
 if __name__ == '__main__':
-	arg_parser = argparse.ArgumentParser(description="""
-
-		""",
-		formatter_class=argparse.RawTextHelpFormatter)
-
-	arg_parser.add_argument('-i', '--interactive', help='Interactive mode', action='store_true')
-
-	cml_args = arg_parser.parse_args()
-
-	if cml_args.interactive is True:
+	arg_parser = argparse.ArgumentParser(description="PyFocus GUI and autonomous focuser sweep")
+	group = arg_parser.add_mutually_exclusive_group()
+	group.add_argument('-i', '--interactive', action='store_true', help='Launch PyFocus GUI')
+	group.add_argument('--autofocus', action='store_true', help='Run autofocus headlessly')
+	arg_parser.add_argument('--exposure', type=float, default=0.1)
+	arg_parser.add_argument('--binning', type=int, default=2)
+	arg_parser.add_argument('--step-size', type=int, default=50)
+	arg_parser.add_argument('--steps-each-side', type=int, default=3)
+	arg_parser.add_argument('--frames-per-position', type=int, default=3)
+	arg_parser.add_argument('--settle-time', type=float, default=1.0)
+	arg_parser.add_argument('--backlash-steps', type=int, default=0,
+		help='Measured backlash correction; 0 disables final-approach compensation')
+	arg_parser.add_argument('--focuser-driver',default=DEFAULT_FOCUSER_DRIVER_ID)
+	arg_parser.add_argument('--output-json',help='Write atomic JSON result for RunColibri')
+	args = arg_parser.parse_args()
+	if args.autofocus:
+		sys.exit(headless_autofocus(args))
+	elif args.interactive:
 		main()
 	else:
-		print('non-interactive mode')
+		arg_parser.print_help()
