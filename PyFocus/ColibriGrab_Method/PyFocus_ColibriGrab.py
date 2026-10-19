@@ -669,6 +669,96 @@ class FocusThread(QtCore.QThread):
             "median_valid_stars": float(np.median(star_counts)),
         }
 
+    def _validateFocusResponse(self, positions, results, best_pos, best_score):
+        """Conservative multi-position check that PSF width responds to focus.
+
+        Reject flat/jagged minima potentially produced by detector features or
+        unstable seeing. This DOES NOT identify individual hot pixels, and is
+        not a replacement for good stars or a future bad-pixel calibration.
+        Thresholds are provisional until calibrated against real focus curves.
+        """
+        by_position = {int(r["position"]): r for r in results}
+        best_index = positions.index(best_pos)
+        # Need the two immediately adjacent positions on BOTH sides to establish
+        # a trend; a single-point dip is insufficient evidence for focus.
+        if best_index < 2 or best_index > len(positions) - 3:
+            raise AutofocusNotConverged(
+                f"Focus response inconclusive: apparent minimum {best_pos} is "
+                "fewer than two scan steps from an edge"
+            )
+
+        best_result = by_position[best_pos]
+        best_mad = max(0.0, float(best_result.get("sigma_mad_px", 0.0)))
+        diagnostics = {"best_position": best_pos, "sides": {}}
+        # Require a clear rise in stellar width two steps away from the minimum,
+        # and do not accept a major downward reversal as we move farther out.
+        # A noise-dependent floor guards against flat curves with jitter.
+        for label, sign in (("lower_focus", -1), ("higher_focus", +1)):
+            near_pos = positions[best_index + sign]
+            far_pos = positions[best_index + 2 * sign]
+            if near_pos not in by_position or far_pos not in by_position:
+                raise AutofocusNotConverged(
+                    f"Focus response inconclusive: missing valid {label} "
+                    f"samples at {near_pos} or {far_pos}"
+                )
+            near = by_position[near_pos]
+            far = by_position[far_pos]
+            near_sigma = float(near["sigma_px"])
+            far_sigma = float(far["sigma_px"])
+            near_mad = max(0.0, float(near.get("sigma_mad_px", 0.0)))
+            far_mad = max(0.0, float(far.get("sigma_mad_px", 0.0)))
+
+            # With 3-5 frames MAD is only a rough noise estimate, so use both
+            # a relative minimum (3%) and a scatter-dependent minimum.
+            required_far_rise = max(
+                0.03 * best_score,
+                2.0 * (best_mad + far_mad),
+            )
+            if far_sigma - best_score < required_far_rise:
+                raise AutofocusNotConverged(
+                    f"Focus response inconclusive on {label}: sigma at "
+                    f"{far_pos}={far_sigma:.4f} is not sufficiently broader "
+                    f"than best {best_score:.4f} "
+                    f"(required rise {required_far_rise:.4f} px)"
+                )
+
+            # If the farther sample becomes markedly SHARPER than the nearer
+            # sample, the curve is jagged rather than a convincing bowl.
+            allowed_reversal = 0.015 * best_score
+            if far_sigma + allowed_reversal < near_sigma:
+                raise AutofocusNotConverged(
+                    f"Focus response inconsistent on {label}: sigma "
+                    f"{near_pos}={near_sigma:.4f} falls to "
+                    f"{far_pos}={far_sigma:.4f} farther from the minimum"
+                )
+            # Also require near-neighbor improvement to exceed sample scatter,
+            # not merely the pre-existing 1% relative contrast threshold.
+            required_near_rise = max(
+                self.af_min_contrast * best_score,
+                best_mad + near_mad,
+            )
+            if near_sigma - best_score < required_near_rise:
+                raise AutofocusNotConverged(
+                    f"Focus response indistinguishable from noise on {label}: "
+                    f"neighbor rise {near_sigma - best_score:.4f} px; "
+                    f"required {required_near_rise:.4f} px"
+                )
+            diagnostics["sides"][label] = {
+                "near_position": int(near_pos),
+                "far_position": int(far_pos),
+                "near_sigma_px": near_sigma,
+                "far_sigma_px": far_sigma,
+                "far_rise_px": far_sigma - best_score,
+                "required_far_rise_px": required_far_rise,
+                "near_rise_px": near_sigma - best_score,
+                "required_near_rise_px": required_near_rise,
+            }
+        print(
+            "Focus response validated: PSF width increases on both sides "
+            "of the measured minimum"
+        )
+        return diagnostics
+
     def runAutofocus(self):
         """Measured-position focus scan with a mandatory final verification.
 
@@ -683,6 +773,7 @@ class FocusThread(QtCore.QThread):
         best_score = None
         verification = None
         results = []
+        response_diagnostics = None
         approach_steps = None
         try:
             self._checkAutofocusActive()
@@ -785,6 +876,13 @@ class FocusThread(QtCore.QThread):
                     f"versus best {best_score:.4f}; required contrast {contrast:.1%}"
                 )
 
+            # Validate a physically plausible PSF-width response across two
+            # measured positions on EACH side, rather than trusting a single
+            # low point that could have come from detector artifacts or seeing.
+            response_diagnostics = self._validateFocusResponse(
+                positions, results, best_pos, best_score
+            )
+
             self.current_best_position = best_pos
             self.current_testing_position = None
             self.updateStatus.emit(self.makeAFStatus(
@@ -821,6 +919,7 @@ class FocusThread(QtCore.QThread):
                 "success": True, "best_position": int(best_pos),
                 "best_sigma_px": float(best_score), "start_position": int(start_pos),
                 "verification": verification,
+                "focus_response": response_diagnostics,
                 "positions": results,
                 "approach_direction": "increasing_position",
                 "approach_steps": int(approach_steps),
@@ -835,12 +934,12 @@ class FocusThread(QtCore.QThread):
         except Exception as error:
             cancelled = isinstance(error, (AutofocusCancelled, GrabCancelled))
             restoration = "not attempted"
-            # A complete scan that fails its final verification has already
-            # selected an apparent minimum; leave the focuser there for an
-            # operator to inspect, rather than introducing an unvalidated move.
-            if isinstance(error, AutofocusVerificationFailed):
-                restoration = "left at chosen focus for inspection; NOT verified"
-            elif isinstance(error, AutofocusNotConverged) and start_pos is not None and self._isAutofocusActive():
+            # Ordinary inconclusive scans AND failed final verification should
+            # return to the pre-sweep focus whenever the session remains active.
+            # Never command recovery motion on cancellation, unsafe shutdown,
+            # or unexpected hardware/COM errors. Those require operator review.
+            if (isinstance(error, (AutofocusNotConverged, AutofocusVerificationFailed))
+                    and start_pos is not None and self._isAutofocusActive()):
                 try:
                     if approach_steps is not None and start_pos >= approach_steps:
                         self._approachFocusFromBelow(start_pos, approach_steps,
@@ -853,6 +952,8 @@ class FocusThread(QtCore.QThread):
                     restoration = "returned to starting position"
                 except Exception as recovery_error:
                     restoration = f"restore failed: {recovery_error}"
+            elif isinstance(error, (AutofocusNotConverged, AutofocusVerificationFailed)):
+                restoration = "not attempted (session stopped or unsafe; operator check required)"
             message = f"Autofocus {'cancelled' if cancelled else 'failed'}: {error} ({restoration})"
             print(message)
             self.updateStatus.emit(self.makeAFStatus(message))
@@ -863,6 +964,7 @@ class FocusThread(QtCore.QThread):
                 "last_position": self.current_focuser_position,
                 "chosen_position": best_pos,
                 "verification": verification,
+                "focus_response": response_diagnostics,
                 "restoration": restoration,
                 "positions": results,
                 "approach_direction": "increasing_position",
@@ -2208,7 +2310,7 @@ class Ui(QtWidgets.QMainWindow):
             "max_display_size": max_display_size,
             "intensity_threshold": 30,
             "colibrigrab_exe": str(Path.home() / "Documents" / "GitHub" / "ColibriGrab" / "ColibriGrab" / "ColibriGrab.exe"),
-            "grab_output_root": r"D:\ColibriData\PyFocus",
+            "grab_output_root": r"D:\PyFocus",
             "grab_temperature": -10,
             "grab_timeout": 120.0,
             "kill_flipilot": True,

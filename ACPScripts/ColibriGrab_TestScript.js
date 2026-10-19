@@ -45,7 +45,7 @@ function main() {
         var colibriGrabPath = userProfile + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
         
         // Dynamically start ColibriGrab
-        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 25 -t 0 -f " + frameType + " -l " + filterWheelPosition +" -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
+        var command = "\"" + colibriGrabPath + "\" -n " + framesPerIteration + " -p colibrigrab_test_" + (i + 1) + " -e 125 -t -10 -f " + frameType + " -l " + filterWheelPosition +" -w " + iterationDir + "\\ > " + colibriGrabLogPath + " 2>&1";
         wshShell.Run(command, 1, true); // 1: normal window, true: wait for completion
 
         Util.WaitForMilliseconds(50); // Wait for .050 seconds before next iteration
