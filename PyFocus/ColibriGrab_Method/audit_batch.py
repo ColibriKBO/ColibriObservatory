@@ -53,7 +53,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('batch_dir', type=Path)
     args = p.parse_args()
-    files = sorted(args.batch_dir.glob('*.rcd'), key=lambda p: p.name)
+    files = sorted(args.batch_dir.rglob('*.rcd'), key=lambda p: p.name)
     if not files:
         raise SystemExit(f"No RCD files found under {args.batch_dir}")
     for path in files:
