@@ -200,6 +200,7 @@ class FocusThread(QtCore.QThread):
     updateAutofocusPlot = QtCore.pyqtSignal(int, float)
     updateBestFocus = QtCore.pyqtSignal(int, float)
     updateAutofocusStage = QtCore.pyqtSignal(str)
+    updateAutofocusStart = QtCore.pyqtSignal(int)
 
     updateStatus = QtCore.pyqtSignal(object)
     updateStarOverlay = QtCore.pyqtSignal(object, object)
@@ -643,7 +644,8 @@ class FocusThread(QtCore.QThread):
         focuser.move_to(preload, keep_running_callback=self._isAutofocusActive)
         self._checkAutofocusActive()
         focuser.move_to(target, keep_running_callback=self._isAutofocusActive)
-        self.current_focuser_position = focuser.position
+        self.current_focuser_position = int(focuser.position)
+        self.updateFocuserPosition.emit(self.current_focuser_position)
 
     def _measureFocusBatch(self, position, frames, min_valid_frames):
         """One ColibriGrab batch, measuring only locked star IDs when available."""
@@ -699,7 +701,8 @@ class FocusThread(QtCore.QThread):
             self._approachFocusFromBelow(target, approach_steps, max_step, focuser)
         else:
             focuser.move_to(int(target), keep_running_callback=self._isAutofocusActive)
-        self.current_focuser_position = focuser.position
+        self.current_focuser_position = int(focuser.position)
+        self.updateFocuserPosition.emit(self.current_focuser_position)
         self.current_testing_position = int(target)
         self._autofocusSettle()
         self._checkAutofocusActive()
@@ -821,6 +824,8 @@ class FocusThread(QtCore.QThread):
             focuser.connect()
             start_pos = int(focuser.position)
             self.current_focuser_position = start_pos
+            self.updateAutofocusStart.emit(start_pos)
+            self.updateFocuserPosition.emit(start_pos)
             fine_step = int(self.af_step_size)
             side = int(self.af_steps_each_side)
             frames = int(self.af_frames_per_position)
@@ -963,6 +968,7 @@ class FocusThread(QtCore.QThread):
                     f"best sampled sigma {best_score:.4f} beyond tolerance")
             self._checkAutofocusActive()
             self.current_focuser_position = int(focuser.position)
+            self.updateFocuserPosition.emit(self.current_focuser_position)
             self.updateBestFocus.emit(best_pos, best_score)
             result = {
                 "success": True, "best_position": best_pos,
@@ -995,11 +1001,16 @@ class FocusThread(QtCore.QThread):
                                                  int(self.focuser_controller.focuser.MaxStep),
                                                  self.focuser_controller)
                     self.current_focuser_position = int(self.focuser_controller.position)
+                    self.updateFocuserPosition.emit(self.current_focuser_position)
                     restoration = "returned to starting position"
                 except Exception as recovery_error:
                     restoration = f"restore failed: {recovery_error}"
             elif isinstance(error,(AutofocusNotConverged, AutofocusVerificationFailed)):
                 restoration = "not attempted (stopped or unsafe)"
+            # Final status must not advertise the last scanned point as the
+            # current target after a confirmed restoration to the start.
+            self.current_testing_position = None
+            self.current_best_position = None
             message = f"Autofocus {'cancelled' if cancelled else 'failed'}: {error} ({restoration})"
             print(message)
             self.updateStatus.emit(self.makeAFStatus(message))
@@ -1942,6 +1953,30 @@ class Ui(QtWidgets.QMainWindow):
 
         plot_layout.addWidget(self.PlotStack)
 
+        # Autofocus state is kept separate from the live rolling PSF chart.
+        # 'Best sampled' is NOT a validated focus and must be labelled as such.
+        self._af_focuser_now = None
+        self._af_start_position = None
+        self._af_best_sampled = None
+        self._af_result_state = "Not verified"
+        self._active_af_stage = "Waiting"
+        self.af_position_summary_label = QtWidgets.QLabel()
+        self.af_position_summary_label.setWordWrap(True)
+        self.af_position_summary_label.setStyleSheet("""
+            QLabel {
+                color: #f0f4fa;
+                background-color: #202b3d;
+                border: 1px solid #36475d;
+                border-radius: 5px;
+                padding: 6px;
+                font-family: Consolas, Courier New, monospace;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+        """)
+        plot_layout.addWidget(self.af_position_summary_label)
+        self.refreshAutofocusSummary()
+
         self.focus_guidance_label = QtWidgets.QLabel(
             "Focus guidance: waiting for valid focus measurements."
         )
@@ -1964,9 +1999,9 @@ class Ui(QtWidgets.QMainWindow):
 
         # Let Qt size the plot naturally instead of forcing an impossible minimum.
         plot_group.setMinimumHeight(500)
-        self.PlotStack.setMinimumHeight(390)
-        self.Plot.setMinimumHeight(360)
-        self.AFPlot.setMinimumHeight(360)
+        self.PlotStack.setMinimumHeight(350)
+        self.Plot.setMinimumHeight(320)
+        self.AFPlot.setMinimumHeight(320)
 
         plot_group.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
@@ -2468,6 +2503,11 @@ class Ui(QtWidgets.QMainWindow):
 
         self.updateAutofocusControls(mode)
         self.clearMeasurementPlotsOnly()
+        self._af_start_position = None
+        self._af_best_sampled = None
+        self._af_result_state = "Not verified"
+        self._active_af_stage = "Waiting"
+        self.refreshAutofocusSummary()
 
         if mode == "Autofocus":
             self.showAutofocusPlot()
@@ -2517,22 +2557,75 @@ class Ui(QtWidgets.QMainWindow):
         self.LiveTrend_button.blockSignals(False)
         self.AFCurve_button.blockSignals(False)
 
+    def refreshAutofocusSummary(self):
+        """Always separate motor position, tentative sample and verified focus."""
+        def fmt(value):
+            return "--" if value is None else str(int(value))
+
+        stage = getattr(self, "_active_af_stage", "Waiting")
+        state = getattr(self, "_af_result_state", "Not verified")
+        sampled = getattr(self, "_af_best_sampled", None)
+        if sampled is None:
+            best_text = "--"
+        else:
+            best_text = f"{fmt(sampled[0])} ({sampled[1]:.3f})"
+        self.af_position_summary_label.setText(
+            f"FOCUSER NOW: {fmt(self._af_focuser_now)}   |   "
+            f"START: {fmt(self._af_start_position)}   |   "
+            f"BEST SAMPLED (unverified): {best_text}\n"
+            f"STAGE: {stage}   |   RESULT: {state}"
+        )
+
+    def updateAutofocusStart(self, position):
+        self._af_start_position = int(position)
+        self._af_focuser_now = int(position)
+        self._af_result_state = "Searching (no verified focus)"
+        self.refreshAutofocusSummary()
+
+    def onAutofocusResult(self, result):
+        """Keep a final, explicit result visible after worker stops."""
+        if bool(result.get("success")):
+            position = result.get("best_position")
+            self._af_result_state = f"VERIFIED FOCUS @ {position}"
+            if position is not None:
+                self.updateFocuserPositionLabel(position)
+        else:
+            reason = str(result.get("restoration", "not confirmed"))
+            if reason == "returned to starting position":
+                self._af_result_state = "FAILED; restored to start"
+                # Move verified by worker; refresh GUI after return.
+                position = result.get("last_position")
+                if position is not None:
+                    self.updateFocuserPositionLabel(position)
+            else:
+                self._af_result_state = f"FAILED; {reason}"
+            # The smallest sample is not a verified best focus after failure.
+        self.refreshAutofocusSummary()
+
     def updateAutofocusStage(self, stage):
         """Display one focus-search phase at a time; preserve data in JSON."""
+        previous_stage = getattr(self, "_active_af_stage", "Waiting")
         self._active_af_stage = str(stage)
+        self._af_best_sampled = None  # new phase, do not mix coarse and fine minima
+        self.refreshAutofocusSummary()
         self.AFPositions = []
         self.AFScores = []
         self.af_curve_line.setData([], [])
         self.best_focus_line.hide()
         self.AFPlot.getPlotItem().setTitle(str(stage))
-        self.focus_guidance_label.setText(
-            str(stage) + ": acquiring fixed-star normalized PSF measurements"
-        )
+        if previous_stage == "Coarse search" and str(stage) == "Fine refinement":
+            guidance = ("Coarse scan complete; now showing FINE positions only. "
+                        "Coarse data retained in run results.")
+        else:
+            guidance = str(stage) + ": acquiring fixed-star normalized PSF measurements"
+        self.focus_guidance_label.setText(guidance)
 
     def updateAutofocusPlot(self, focuser_position, median_sigma):
         self.AFPositions.append(int(focuser_position))
         self.AFScores.append(float(median_sigma))
         best_index = int(np.argmin(self.AFScores))
+        self._af_best_sampled = (self.AFPositions[best_index], self.AFScores[best_index])
+        self.refreshAutofocusSummary()
         self.focus_guidance_label.setText(
             f"{getattr(self, '_active_af_stage', 'Autofocus')}: "
             f"latest {float(median_sigma):.3f} px @ {int(focuser_position)} | "
@@ -2590,6 +2683,8 @@ class Ui(QtWidgets.QMainWindow):
         self.thread.sessionFinished.connect(self.onFocusSessionFinished)
         self.thread.updateAutofocusPlot.connect(self.updateAutofocusPlot)
         self.thread.updateAutofocusStage.connect(self.updateAutofocusStage)
+        self.thread.updateAutofocusStart.connect(self.updateAutofocusStart)
+        self.thread.autofocusResult.connect(self.onAutofocusResult)
         self.thread.updateBestFocus.connect(self.updateBestFocusMarker)
         self.thread.updateFocuserPosition.connect(self.updateFocuserPositionLabel)
 
@@ -2812,6 +2907,8 @@ class Ui(QtWidgets.QMainWindow):
         """
 
         autofocus_enabled = (mode == "Autofocus")
+        if hasattr(self, "af_position_summary_label"):
+            self.af_position_summary_label.setVisible(autofocus_enabled)
 
         for widget in self.autofocus_controls:
             widget.setVisible(autofocus_enabled)
@@ -2907,10 +3004,13 @@ class Ui(QtWidgets.QMainWindow):
     def updateFocuserPositionLabel(self, position):
         if position is None:
             self.FocuserPosition_label.setText("Position: unavailable")
+            self._af_focuser_now = None
+            self.refreshAutofocusSummary()
             return
 
         position = int(position)
-
+        self._af_focuser_now = position
+        self.refreshAutofocusSummary()
         self.FocuserPosition_label.setText(f"Position: {position}")
 
         # Keep the target box synced to the real position.
@@ -2928,6 +3028,13 @@ class Ui(QtWidgets.QMainWindow):
             return
 
         if self.Start_button.isChecked():
+            if self.CaptureMode_combo.currentText() == "Autofocus":
+                self.clearMeasurementPlotsOnly()
+                self._af_start_position = None
+                self._af_best_sampled = None
+                self._af_result_state = "Starting (not verified)"
+                self._active_af_stage = "Preparing"
+                self.refreshAutofocusSummary()
             self.CaptureMode_combo.setEnabled(False)
             self.Start_button.setText("Running...")
             self.connectDevices()
