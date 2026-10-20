@@ -20,6 +20,7 @@ import win32com.client
 import pythoncom
 from ColibriGrabCapture import (ColibriGrabCapture, read_rcd_high_gain,
                                 RCD_SATURATION, GrabCancelled)
+from PyFocusLogic import StarCatalog, choose_bracketed_best, fitted_focus_vertex
 
 #from alpaca.telescope import *
 #from alpaca.camera import *
@@ -198,6 +199,7 @@ class FocusThread(QtCore.QThread):
     # New: autofocus curve signals
     updateAutofocusPlot = QtCore.pyqtSignal(int, float)
     updateBestFocus = QtCore.pyqtSignal(int, float)
+    updateAutofocusStage = QtCore.pyqtSignal(str)
 
     updateStatus = QtCore.pyqtSignal(object)
     updateStarOverlay = QtCore.pyqtSignal(object, object)
@@ -263,6 +265,10 @@ class FocusThread(QtCore.QThread):
         self.af_min_contrast = float(settings.get("af_min_contrast", 0.01))
         self.af_verify_tolerance = float(settings.get("af_verify_tolerance", 0.25))
         self.focuser_driver_id = settings.get("focuser_driver_id", None)
+        self.af_coarse_multiplier = int(settings.get("af_coarse_multiplier", 3))
+        self.af_max_excursion = int(settings.get("af_max_excursion", 900))
+        self.af_catalog = None
+        self.af_tracking_active = False
 
         # Optional persistent focuser connection.
         # Used for displaying focuser position in Single Image / Stream,
@@ -577,6 +583,8 @@ class FocusThread(QtCore.QThread):
             )
             self.af_min_contrast = float(settings.get("af_min_contrast", self.af_min_contrast))
             self.af_verify_tolerance = float(settings.get("af_verify_tolerance", self.af_verify_tolerance))
+            self.af_coarse_multiplier = int(settings.get("af_coarse_multiplier", self.af_coarse_multiplier))
+            self.af_max_excursion = int(settings.get("af_max_excursion", self.af_max_excursion))
             new_exe = settings.get("colibrigrab_exe", self.colibrigrab_exe)
             new_root = settings.get("grab_output_root", self.grab_output_root)
             new_temp = int(settings.get("grab_temperature", self.grab_temperature))
@@ -638,25 +646,29 @@ class FocusThread(QtCore.QThread):
         self.current_focuser_position = focuser.position
 
     def _measureFocusBatch(self, position, frames, min_valid_frames):
-        """Collect a complete RCD batch, then score valid frames robustly."""
-        paths = self._captureBatch(frames)
-        measurements = []
-        star_counts = []
+        """One ColibriGrab batch, measuring only locked star IDs when available."""
+        paths = self._captureBatch(frames)    # unchanged working acquisition path
+        measurements, star_counts, common_counts = [], [], []
+        per_star_widths = {}
         for index, image_path in enumerate(paths):
             self._checkAutofocusActive()
             self.updateStatus.emit(self.makeAFStatus(
-                f"Autofocus: {position}, frame {index+1}/{frames}"
-            ))
+                f"Autofocus: {position}, frame {index+1}/{frames}"))
             metric = self.measureFocusMetric(image_path=image_path)
             self._checkAutofocusActive()
-            if metric is not None:
-                value = float(metric["sigma_avg"])
-                if np.isfinite(value) and value > 0:
-                    measurements.append(value)
-                    star_counts.append(int(metric.get("valid_fits", 0)))
+            if metric is None or self.af_catalog is None:
+                continue
+            locked = metric.get("locked_star_sigmas", {})
+            score = self.af_catalog.normalized_score(locked)
+            if score is not None and np.isfinite(score):
+                measurements.append(float(score))
+                star_counts.append(int(metric.get("valid_fits", 0)))
+                common_counts.append(len(locked))
+                for star_id, width in locked.items():
+                    per_star_widths.setdefault(int(star_id), []).append(float(width))
         if len(measurements) < min_valid_frames:
-            print(f"Position {position}: only {len(measurements)}/{frames} "
-                  "valid frames; rejecting position")
+            print(f"Position {position}: only {len(measurements)}/{frames} valid locked-star "
+                  "frames; rejecting position")
             return None
         median_score = float(np.median(measurements))
         median_abs_deviation = float(np.median(np.abs(np.asarray(measurements) - median_score)))
@@ -667,7 +679,31 @@ class FocusThread(QtCore.QThread):
             "valid_frames": len(measurements),
             "requested_frames": int(frames),
             "median_valid_stars": float(np.median(star_counts)),
+            "median_matched_stars": float(np.median(common_counts)),
+            "measurement": "median per-star width ratio, scaled to reference sigma",
+            "matched_star_ids": sorted(per_star_widths),
+            "per_star_median_sigma_px": {str(k):float(np.median(v))
+                                         for k,v in per_star_widths.items()},
         }
+
+    def _moveFocusForScan(self, target, last_position, approach_steps, max_step, focuser):
+        """Always approach a measured point from below; limit travel in caller."""
+        self._checkAutofocusActive()
+        if target < 0 or target > max_step:
+            raise AutofocusNotConverged(f"Focuser target {target} out of travel 0..{max_step}")
+        if target == last_position:
+            # Initial reference requires no movement, and no redundant slew
+            # is needed if the focuser is already at this exact position.
+            pass
+        elif last_position is None or target < last_position:
+            self._approachFocusFromBelow(target, approach_steps, max_step, focuser)
+        else:
+            focuser.move_to(int(target), keep_running_callback=self._isAutofocusActive)
+        self.current_focuser_position = focuser.position
+        self.current_testing_position = int(target)
+        self._autofocusSettle()
+        self._checkAutofocusActive()
+        return int(focuser.position)
 
     def _validateFocusResponse(self, positions, results, best_pos, best_score):
         """Conservative multi-position check that PSF width responds to focus.
@@ -733,9 +769,12 @@ class FocusThread(QtCore.QThread):
                 )
             # Also require near-neighbor improvement to exceed sample scatter,
             # not merely the pre-existing 1% relative contrast threshold.
+            # A smooth minimum between encoder steps can make its closest
+            # neighbor nearly indistinguishable from the best sample. The
+            # farther-point rise and quadratic-fit checks carry more weight.
             required_near_rise = max(
-                self.af_min_contrast * best_score,
-                best_mad + near_mad,
+                0.003 * best_score,
+                0.5 * (best_mad + near_mad),
             )
             if near_sigma - best_score < required_near_rise:
                 raise AutofocusNotConverged(
@@ -760,20 +799,19 @@ class FocusThread(QtCore.QThread):
         return diagnostics
 
     def runAutofocus(self):
-        """Measured-position focus scan with a mandatory final verification.
+        """Bounded coarse search and fine refinement using fixed reference stars.
 
-        ACP owns pointing, weather, dome and pier safety. This method ONLY
-        moves the ASCOM focuser and captures images through ColibriGrab.
+        If the initial focus is so poor that no stars can be fitted anywhere in
+        the bounded range, abort safely. This is not a blind full-travel finder.
         """
-        print("Starting autofocus sweep.")
+        print("Starting v3 matched-star coarse-to-fine autofocus sweep.")
         self.current_testing_position = None
         self.current_best_position = None
-        start_pos = None
-        best_pos = None
-        best_score = None
-        verification = None
-        results = []
-        response_diagnostics = None
+        self.af_catalog = None
+        self.af_tracking_active = True
+        start_pos, best_pos, best_score, verification = None, None, None, None
+        results, coarse_results, fine_results = [], {}, {}
+        response_diagnostics, fitted_vertex = None, None
         approach_steps = None
         try:
             self._checkAutofocusActive()
@@ -781,152 +819,168 @@ class FocusThread(QtCore.QThread):
                 self.focuser_controller = ASCOMFocuserController(self.focuser_driver_id)
             focuser = self.focuser_controller
             focuser.connect()
-            start_pos = focuser.position
+            start_pos = int(focuser.position)
             self.current_focuser_position = start_pos
-            print(f"Starting focuser position: {start_pos}")
-            step = int(self.af_step_size)
+            fine_step = int(self.af_step_size)
             side = int(self.af_steps_each_side)
             frames = int(self.af_frames_per_position)
             backlash = int(self.af_backlash_steps)
-            contrast = float(self.af_min_contrast)
-            verification_tolerance = float(self.af_verify_tolerance)
-            if step <= 0 or side < 2 or frames < 2 or backlash < 0:
-                raise ValueError("Autofocus needs a positive step, at least 5 scan positions "
-                                 "and at least 2 frames per position")
-            if not (0.0 <= contrast < 1.0) or not (0.0 <= verification_tolerance <= 2.0):
-                raise ValueError("Invalid autofocus curve or verification tolerance")
-            positions = [start_pos + i*step for i in range(-side, side+1)]
+            coarse_mult = int(self.af_coarse_multiplier)
+            max_excursion = int(self.af_max_excursion)
+            if fine_step <= 0 or side < 2 or frames < 2 or backlash < 0:
+                raise ValueError("Requires positive focus step, >=2 steps each side, >=2 frames")
+            if coarse_mult < 2 or max_excursion < side*fine_step*coarse_mult:
+                raise ValueError("Coarse multiplier >=2 and max travel must cover the initial coarse sweep")
+            coarse_step = fine_step * coarse_mult
+            approach_steps = max(coarse_step, backlash)
             max_step = int(focuser.focuser.MaxStep)
-            # With no measured backlash, approach by one scan step. This is
-            # directional consistency, NOT a claim of full compensation.
-            approach_steps = max(step, backlash)
-            if positions[0] - approach_steps < 0 or positions[-1] > max_step:
-                raise ValueError(
-                    f"Sweep or preload exceeds 0..{max_step}: "
-                    f"requested {positions[0]}..{positions[-1]}, "
-                    f"preload to {positions[0] - approach_steps}"
-                )
+            # Include the negative-direction preload in the excursion budget.
+            lower_limit = max(approach_steps, start_pos - max_excursion + approach_steps)
+            upper_limit = min(max_step, start_pos + max_excursion)
+            if lower_limit >= start_pos or upper_limit <= start_pos:
+                raise AutofocusNotConverged("Not enough safe focuser travel around starting position")
+            if start_pos - side*coarse_step < lower_limit or start_pos + side*coarse_step > upper_limit:
+                raise AutofocusNotConverged(
+                    f"Coarse sweep needs {start_pos-side*coarse_step}.."
+                    f"{start_pos+side*coarse_step}, safe limits {lower_limit}..{upper_limit}")
             min_valid_frames = min(2, frames)
-            print(f"Sweep {positions[0]}..{positions[-1]}; scan step={step}; "
-                  f"positive-direction approach allowance={approach_steps} "
-                  f"(measured backlash={backlash})")
-            self.updateStatus.emit(self.makeAFStatus("Moving below first scan position"))
-            self._approachFocusFromBelow(positions[0], approach_steps, max_step, focuser)
-            for idx, position in enumerate(positions):
-                self._checkAutofocusActive()
-                self.current_testing_position = position
-                self.updateStatus.emit(self.makeAFStatus(f"Autofocus: moving to {position}"))
-                # After the initial preload, every position is approached
-                # by increasing the absolute focuser position.
-                if idx:
-                    focuser.move_to(position, keep_running_callback=self._isAutofocusActive)
-                self.current_focuser_position = focuser.position
-                self._autofocusSettle()
-                measured = self._measureFocusBatch(position, frames, min_valid_frames)
-                if measured is None:
-                    continue
-                results.append(measured)
-                self.updateAutofocusPlot.emit(position, measured["sigma_px"])
-                print(f"Position {position}: median sigma={measured['sigma_px']:.4f} "
-                      f"MAD={measured['sigma_mad_px']:.4f} "
-                      f"({measured['valid_frames']}/{frames} valid frames)")
+            last_pos = start_pos
+            print(f"Reference start={start_pos}; coarse step={coarse_step}; fine step={fine_step}; "
+                  f"maximum excursion +/-{max_excursion}, safe range={lower_limit}..{upper_limit}")
 
-            self._checkAutofocusActive()
-            if len(results) < 5:
-                raise AutofocusNotConverged(
-                    f"Only {len(results)}/{len(positions)} scan positions gave reliable PSFs"
-                )
-            scores = [r["sigma_px"] for r in results]
-            # A nearly flat scan is not enough evidence to select a focus.
-            if max(scores) - min(scores) < contrast * min(scores):
-                raise AutofocusNotConverged(
-                    f"Focus curve is too flat to locate a minimum "
-                    f"(spread={max(scores)-min(scores):.4f} px, "
-                    f"required >= {contrast:.1%} of best sigma)"
-                )
-            best = min(results, key=lambda r: r["sigma_px"])
-            best_pos = best["position"]
-            best_score = best["sigma_px"]
-            # Require the actual requested scan range to bracket the minimum.
-            if best_pos in (positions[0], positions[-1]):
-                raise AutofocusNotConverged(
-                    f"Best position {best_pos} is at a scan boundary; widen/recenter sweep"
-                )
-            left = [r for r in results if r["position"] < best_pos]
-            right = [r for r in results if r["position"] > best_pos]
-            if not left or not right:
-                raise AutofocusNotConverged(
-                    "No valid measurements on BOTH sides of the minimum"
-                )
-            left_nearest, right_nearest = left[-1], right[0]
-            if (left_nearest["position"] != best_pos - step or
-                    right_nearest["position"] != best_pos + step):
-                raise AutofocusNotConverged(
-                    "Missing a valid measurement at one or both immediately "
-                    "adjacent focuser positions"
-                )
-            # Reject an almost-flat V bottom. 1% is a conservative provisional
-            # threshold, subject to adjustment after measured sky curves.
-            min_neighbor_score = best_score * (1.0 + contrast)
-            if (left_nearest["sigma_px"] < min_neighbor_score or
-                    right_nearest["sigma_px"] < min_neighbor_score):
-                raise AutofocusNotConverged(
-                    f"Focus minimum not resolved: adjacent sigma widths "
-                    f"{left_nearest['sigma_px']:.4f}, {right_nearest['sigma_px']:.4f} "
-                    f"versus best {best_score:.4f}; required contrast {contrast:.1%}"
-                )
+            def measure_at(position, storage, phase):
+                nonlocal last_pos
+                position = int(position)
+                if position < lower_limit or position > upper_limit:
+                    raise AutofocusNotConverged(f"{phase} target {position} outside safe autofocus range")
+                if position in storage:
+                    return storage[position]
+                self.updateStatus.emit(self.makeAFStatus(f"{phase}: focus {position}"))
+                last_pos = self._moveFocusForScan(position, last_pos, approach_steps, max_step, focuser)
+                result = self._measureFocusBatch(position, frames, min_valid_frames)
+                storage[position] = result
+                if result is not None:
+                    results.append(dict(result, stage=phase))
+                    self.updateAutofocusPlot.emit(position, result["sigma_px"])
+                    print(f"{phase} {position}: normalized sigma={result['sigma_px']:.4f} "
+                          f"MAD={result['sigma_mad_px']:.4f}, "
+                          f"matched stars={result['median_matched_stars']:.0f}")
+                return result
 
-            # Validate a physically plausible PSF-width response across two
-            # measured positions on EACH side, rather than trusting a single
-            # low point that could have come from detector artifacts or seeing.
+            self.updateAutofocusStage.emit("Coarse search")
+            # Build the reference at the current focus before moving. If it is
+            # unusable, the bounded coarse probes may discover reference stars.
+            measure_at(start_pos, coarse_results, "coarse")
+            base_positions = sorted(set(start_pos + j*coarse_step for j in range(-side,side+1)))
+            if self.af_catalog is None:
+                # Discover a usable reference symmetrically, nearest first.
+                discovery = sorted((p for p in base_positions if p != start_pos),
+                                   key=lambda p:(abs(p-start_pos),p))
+                for p in discovery:
+                    measure_at(p,coarse_results,"reference discovery")
+                    if self.af_catalog is not None:
+                        break
+                if self.af_catalog is None:
+                    raise AutofocusNotConverged(
+                        "No reference field with >=8 valid separated PSFs in initial coarse sweep; "
+                        "manual approximate focusing required")
+            print(f"Locked reference catalog: {len(self.af_catalog.stars)} sources")
+            # Previously invalid images may now be remeasured with the catalog.
+            for p in base_positions:
+                if p in coarse_results and coarse_results[p] is None:
+                    del coarse_results[p]
+                measure_at(p,coarse_results,"coarse")
+
+            # Extend only toward a sampled minimum at a scan edge, bounded by
+            # hard limits and a maximum total acquisition count.
+            max_coarse_samples = max(len(base_positions), 15)
+            while True:
+                usable = {p:r["sigma_px"] for p,r in coarse_results.items() if r is not None}
+                if len(usable) < 5:
+                    raise AutofocusNotConverged("Too few valid coarse measurements with matched stars")
+                samples = sorted(usable)
+                best_coarse_pos = min(usable, key=usable.get)
+                if best_coarse_pos != samples[0] and best_coarse_pos != samples[-1]:
+                    # A bracket exists. Fine scan and physical validation decide success.
+                    break
+                if len(coarse_results) >= max_coarse_samples:
+                    raise AutofocusNotConverged("Coarse focus minimum not bracketed within acquisition limit")
+                side_sign = -1 if best_coarse_pos == samples[0] else +1
+                next_pos = best_coarse_pos + side_sign*coarse_step
+                if next_pos < lower_limit or next_pos > upper_limit:
+                    raise AutofocusNotConverged("Coarse focus minimum outside allowed travel; restore start")
+                if next_pos in coarse_results:
+                    raise AutofocusNotConverged("Coarse search cannot extend past invalid samples")
+                # A weak edge improvement is not evidence for limitless travel.
+                prev_pos = best_coarse_pos - side_sign*coarse_step
+                if prev_pos in usable:
+                    improvement = usable[prev_pos] - usable[best_coarse_pos]
+                    if improvement < max(0.005*usable[best_coarse_pos],
+                                          1.5*float(coarse_results[best_coarse_pos]["sigma_mad_px"])):
+                        raise AutofocusNotConverged("Coarse edge trend too weak to justify wider search")
+                print(f"Coarse minimum at boundary {best_coarse_pos}; extending to {next_pos}")
+                measure_at(next_pos, coarse_results, "coarse extended")
+
+            print(f"Coarse focus bracketed near {best_coarse_pos}; refining")
+            self.updateAutofocusStage.emit("Fine refinement")
+            fine_positions = [best_coarse_pos + j*fine_step for j in range(-side,side+1)]
+            for p in fine_positions:
+                measure_at(p, fine_results, "fine")
+            # All fine positions are required for the existing physical-response
+            # check to reject jagged curves; no silent gap interpolation.
+            if any(fine_results[p] is None for p in fine_positions):
+                raise AutofocusNotConverged("One or more fine-scan positions have no reliable matched-star score")
+            fine_rows = [fine_results[p] for p in fine_positions]
+            best_row = min(fine_rows, key=lambda r:r["sigma_px"])
+            sample_best = int(best_row["position"])
+            best_score = float(best_row["sigma_px"])
+            if fine_positions.index(sample_best) < 2 or fine_positions.index(sample_best) > len(fine_positions)-3:
+                raise AutofocusNotConverged("Fine minimum not bracketed; no validated focus solution")
+            # Re-use tested A+C physical response safeguard on the fine scan.
             response_diagnostics = self._validateFocusResponse(
-                positions, results, best_pos, best_score
-            )
-
+                fine_positions, fine_rows, sample_best, best_score)
+            fitted_vertex = fitted_focus_vertex(fine_positions,
+                                                 [r["sigma_px"] for r in fine_rows])
+            if fitted_vertex is None:
+                raise AutofocusNotConverged("Fine curve not sufficiently parabolic for safe interpolation")
+            best_pos = int(fitted_vertex["position"])
             self.current_best_position = best_pos
             self.current_testing_position = None
-            self.updateStatus.emit(self.makeAFStatus(
-                f"Returning to measured best focus {best_pos}", sigma_avg=best_score
-            ))
+            if not lower_limit <= best_pos <= upper_limit:
+                raise AutofocusNotConverged("Interpolated best focus outside safe travel")
+            print(f"Fine quadratic vertex={best_pos}, best sampled={sample_best}; verifying")
+            self.updateStatus.emit(self.makeAFStatus(f"Verifying interpolated focus {best_pos}"))
             self._approachFocusFromBelow(best_pos, approach_steps, max_step, focuser)
+            last_pos = int(focuser.position)
             self._autofocusSettle()
-            self._checkAutofocusActive()
-
-            # Independent post-return verification. No success marker or
-            # success JSON until additional images confirm this position.
-            self.updateStatus.emit(self.makeAFStatus(
-                f"Verifying focus at {best_pos} with {frames} fresh RCD frames"
-            ))
             verification = self._measureFocusBatch(best_pos, frames, min_valid_frames)
             if verification is None:
+                raise AutofocusVerificationFailed("Final check lacked enough locked-star measurements")
+            verified_score = float(verification["sigma_px"])
+            if verified_score > best_score*(1+self.af_verify_tolerance):
                 raise AutofocusVerificationFailed(
-                    "Final verification produced insufficient usable star images"
-                )
-            verified_score = verification["sigma_px"]
-            if verified_score > best_score * (1.0 + verification_tolerance):
-                raise AutofocusVerificationFailed(
-                    f"Final PSF sigma {verified_score:.4f} px exceeds scan "
-                    f"minimum {best_score:.4f} px by more than "
-                    f"{verification_tolerance:.0%}"
-                )
+                    f"Verification sigma {verified_score:.4f} differs from "
+                    f"best sampled sigma {best_score:.4f} beyond tolerance")
             self._checkAutofocusActive()
-            self.updateBestFocus.emit(int(best_pos), float(best_score))
-            self.updateStatus.emit(self.makeAFStatus(
-                f"Autofocus verified at {best_pos}: scan sigma {best_score:.3f}, "
-                f"final sigma {verified_score:.3f}", sigma_avg=verified_score
-            ))
+            self.current_focuser_position = int(focuser.position)
+            self.updateBestFocus.emit(best_pos, best_score)
             result = {
-                "success": True, "best_position": int(best_pos),
-                "best_sigma_px": float(best_score), "start_position": int(start_pos),
+                "success": True, "best_position": best_pos,
+                "best_sampled_position": sample_best,
+                "best_sigma_px": best_score,
+                "start_position": start_pos,
                 "verification": verification,
-                "focus_response": response_diagnostics,
+                "coarse_positions": [r for r in results if r['stage'].startswith('coarse')],
+                "fine_positions": [r for r in results if r['stage']=='fine'],
                 "positions": results,
-                "approach_direction": "increasing_position",
-                "approach_steps": int(approach_steps),
-                "backlash_steps": backlash,
-                "minimum_neighbor_contrast": contrast,
-                "verification_tolerance": verification_tolerance,
-                "camera_backend": "ColibriGrab",
+                "reference_star_count":len(self.af_catalog.stars),
+                "reference_stars": [{"id":i,"x":q[0],"y":q[1],"sigma_px":q[2]}
+                                    for i,q in enumerate(self.af_catalog.stars)],
+                "focus_response":response_diagnostics,
+                "quadratic_fit": fitted_vertex,
+                "approach_direction":"increasing_position",
+                "approach_steps": approach_steps,
+                "camera_backend":"ColibriGrab",
                 "rcd_output_root": str(self._getGrabber().output_root / self._getGrabber().run_id),
             }
             self.autofocusResult.emit(result)
@@ -934,52 +988,38 @@ class FocusThread(QtCore.QThread):
         except Exception as error:
             cancelled = isinstance(error, (AutofocusCancelled, GrabCancelled))
             restoration = "not attempted"
-            # Ordinary inconclusive scans AND failed final verification should
-            # return to the pre-sweep focus whenever the session remains active.
-            # Never command recovery motion on cancellation, unsafe shutdown,
-            # or unexpected hardware/COM errors. Those require operator review.
-            if (isinstance(error, (AutofocusNotConverged, AutofocusVerificationFailed))
+            if (isinstance(error,(AutofocusNotConverged, AutofocusVerificationFailed))
                     and start_pos is not None and self._isAutofocusActive()):
                 try:
-                    if approach_steps is not None and start_pos >= approach_steps:
-                        self._approachFocusFromBelow(start_pos, approach_steps,
-                                                     int(self.focuser_controller.focuser.MaxStep),
-                                                     self.focuser_controller)
-                    else:
-                        self.focuser_controller.move_to(
-                            start_pos, keep_running_callback=self._isAutofocusActive)
-                        self.current_focuser_position = self.focuser_controller.position
+                    self._approachFocusFromBelow(start_pos, approach_steps,
+                                                 int(self.focuser_controller.focuser.MaxStep),
+                                                 self.focuser_controller)
+                    self.current_focuser_position = int(self.focuser_controller.position)
                     restoration = "returned to starting position"
                 except Exception as recovery_error:
                     restoration = f"restore failed: {recovery_error}"
-            elif isinstance(error, (AutofocusNotConverged, AutofocusVerificationFailed)):
-                restoration = "not attempted (session stopped or unsafe; operator check required)"
+            elif isinstance(error,(AutofocusNotConverged, AutofocusVerificationFailed)):
+                restoration = "not attempted (stopped or unsafe)"
             message = f"Autofocus {'cancelled' if cancelled else 'failed'}: {error} ({restoration})"
             print(message)
             self.updateStatus.emit(self.makeAFStatus(message))
-            result = {
-                "success": False, "cancelled": cancelled, "error": str(error),
-                "camera_backend": "ColibriGrab",
-                "start_position": start_pos,
-                "last_position": self.current_focuser_position,
-                "chosen_position": best_pos,
-                "verification": verification,
-                "focus_response": response_diagnostics,
-                "restoration": restoration,
-                "positions": results,
-                "approach_direction": "increasing_position",
-                "approach_steps": approach_steps,
-            }
+            result = {"success":False,"cancelled":cancelled,"error":str(error),
+                      "start_position":start_pos,"last_position":self.current_focuser_position,
+                      "chosen_position":best_pos,"restoration":restoration,
+                      "positions":results,"verification":verification,
+                      "camera_backend":"ColibriGrab"}
             self.autofocusResult.emit(result)
             return result
         finally:
+            self.af_tracking_active = False
+            self.af_catalog = None
+            self.current_testing_position = None
             while True:
                 try:
                     self.focus_command_queue.get_nowait()
                 except queue.Empty:
                     break
             self.threadactive = False
-            self.current_testing_position = None
 
     def measureFocusMetric(self, image_path=None):
         """
@@ -1141,13 +1181,23 @@ class FocusThread(QtCore.QThread):
         # Unpack coordinates.
         y, x = np.hsplit(xy, 2)
 
-        # Limit PSF fitting to brightest N candidates to improve speed.
-        if self.capture_mode == "Autofocus":
-            max_candidates = 20
-        else:
-            max_candidates = 10
-
-        if len(x) > max_candidates:
+        # During autofocus, do NOT repeatedly choose unrelated brightest stars.
+        # The first valid frame seeds a fixed catalog. Subsequent images use
+        # only peaks near those original catalog objects (with small drift).
+        locked_candidate_ids = None
+        if self.af_tracking_active and self.af_catalog is not None:
+            points = np.column_stack((x.flatten(),y.flatten()))
+            matches, locked_candidate_ids = self.af_catalog.choose_candidates(points)
+            if matches:
+                x = np.asarray([q[0] for q in matches]).reshape(-1,1)
+                y = np.asarray([q[1] for q in matches]).reshape(-1,1)
+            else:
+                x,y = np.empty((0,1)),np.empty((0,1))
+            print(f"Locked star candidates: {len(matches)} of {len(self.af_catalog.stars)}")
+        # Until the initial reference exists, retain original bright-star
+        # selection. Ordinary streaming/Single Image behavior is unchanged.
+        max_candidates = 25 if self.af_tracking_active else 10
+        if locked_candidate_ids is None and len(x) > max_candidates:
             peak_values = []
 
             for yy, xx in zip(y.flatten(), x.flatten()):
@@ -1182,6 +1232,22 @@ class FocusThread(QtCore.QThread):
             fitted_points = np.empty((0, 2))
 
         self.updateStarOverlay.emit(candidate_points, fitted_points)
+
+        # Capture source identities after PSF rejection. The score uses only
+        # these matched fixed IDs, normalized to the same reference widths.
+        locked_star_sigmas = {}
+        if self.af_tracking_active:
+            fits = [(float(xx),float(yy),(float(sx)+float(sy))/2.0)
+                    for xx,yy,sx,sy in zip(x2,y2,sigma_x_fitted,sigma_y_fitted)]
+            if self.af_catalog is None and len(fits) >= 8:
+                try:
+                    self.af_catalog = StarCatalog(fits,min_stars=8,max_stars=25)
+                    print(f"Established fixed star catalog: {len(self.af_catalog.stars)} sources")
+                except ValueError as e:
+                    print(f"Reference catalog not yet available: {e}")
+            if self.af_catalog is not None:
+                locked_star_sigmas = self.af_catalog.match_fits(fits)
+                print(f"Matched reference PSFs: {len(locked_star_sigmas)}/{len(self.af_catalog.stars)}")
 
         print(f"Detected peaks: {num_objects}")
         print(f"Valid PSF fits: {len(sigma_x_fitted)}")
@@ -1236,6 +1302,8 @@ class FocusThread(QtCore.QThread):
             focuser_position
         )
 
+        if self.af_tracking_active:
+            status["locked_star_sigmas"] = locked_star_sigmas
         return status
     
 
@@ -1312,7 +1380,7 @@ class FocusThread(QtCore.QThread):
         # Loop over all stars
         for star in zip(list(y2), list(x2)):
 
-            y, x = star
+            y, x = (float(np.asarray(v).item()) for v in star)
 
             y_min = y - segment_radius
             y_max = y + segment_radius
@@ -1327,7 +1395,7 @@ class FocusThread(QtCore.QThread):
                 x_min = np.array([0])
                 # print(x_min)
             if x_max > np.shape(imarray)[1]:
-                x_max = np.array(np.shape(imarray[1]))
+                x_max = np.shape(imarray)[1]
 
             # # Check for NaN
             # if np.any(np.isnan([x_min, x_max, y_min, y_max])):
@@ -2126,6 +2194,16 @@ class Ui(QtWidgets.QMainWindow):
         self.AFSettleTime_spin.setDecimals(1)
         self.AFSettleTime_spin.setValue(1.0)
 
+        self.AFCoarseMultiplier_spin = QtWidgets.QSpinBox()
+        self.AFCoarseMultiplier_spin.setRange(2, 8)
+        self.AFCoarseMultiplier_spin.setValue(3)
+        self.AFMaxExcursion_spin = QtWidgets.QSpinBox()
+        self.AFMaxExcursion_spin.setRange(100, 10000)
+        self.AFMaxExcursion_spin.setSingleStep(100)
+        self.AFMaxExcursion_spin.setValue(900)
+        self.AFCoarseMultiplier_label = QtWidgets.QLabel("Coarse step multiplier:")
+        self.AFMaxExcursion_label = QtWidgets.QLabel("Max travel from start:")
+
         self.AFStep_label = QtWidgets.QLabel("AF step size:")
         self.AFStepsEachSide_label = QtWidgets.QLabel("AF steps each side:")
         self.AFFramesPerPosition_label = QtWidgets.QLabel("AF frames/position:")
@@ -2142,6 +2220,10 @@ class Ui(QtWidgets.QMainWindow):
 
         settings_layout.addWidget(self.AFSettleTime_label, 4, 2)
         settings_layout.addWidget(self.AFSettleTime_spin, 4, 3)
+        settings_layout.addWidget(self.AFCoarseMultiplier_label, 5, 0)
+        settings_layout.addWidget(self.AFCoarseMultiplier_spin, 5, 1)
+        settings_layout.addWidget(self.AFMaxExcursion_label, 5, 2)
+        settings_layout.addWidget(self.AFMaxExcursion_spin, 5, 3)
 
         self.autofocus_controls = [
             self.AFStep_label,
@@ -2152,6 +2234,10 @@ class Ui(QtWidgets.QMainWindow):
             self.AFFramesPerPosition_spin,
             self.AFSettleTime_label,
             self.AFSettleTime_spin,
+            self.AFCoarseMultiplier_label,
+            self.AFCoarseMultiplier_spin,
+            self.AFMaxExcursion_label,
+            self.AFMaxExcursion_spin,
         ]
 
         self.Exposure_spinbox.valueChanged.connect(
@@ -2176,6 +2262,8 @@ class Ui(QtWidgets.QMainWindow):
         self.AFSettleTime_spin.valueChanged.connect(
             self.updateWorkerSettings
         )
+        self.AFCoarseMultiplier_spin.valueChanged.connect(self.updateWorkerSettings)
+        self.AFMaxExcursion_spin.valueChanged.connect(self.updateWorkerSettings)
 
         self.plot_update_stride = 2
 
@@ -2183,7 +2271,7 @@ class Ui(QtWidgets.QMainWindow):
         
         settings_group.setLayout(settings_layout)
         settings_group.setMinimumHeight(150)
-        settings_group.setMaximumHeight(185)
+        settings_group.setMaximumHeight(235)
         settings_group.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed
@@ -2319,6 +2407,8 @@ class Ui(QtWidgets.QMainWindow):
             "af_steps_each_side": self.AFStepsEachSide_spin.value(),
             "af_frames_per_position": self.AFFramesPerPosition_spin.value(),
             "af_settle_time": self.AFSettleTime_spin.value(),
+            "af_coarse_multiplier": self.AFCoarseMultiplier_spin.value(),
+            "af_max_excursion": self.AFMaxExcursion_spin.value(),
             "focuser_driver_id": DEFAULT_FOCUSER_DRIVER_ID,
         }
     
@@ -2427,9 +2517,28 @@ class Ui(QtWidgets.QMainWindow):
         self.LiveTrend_button.blockSignals(False)
         self.AFCurve_button.blockSignals(False)
 
+    def updateAutofocusStage(self, stage):
+        """Display one focus-search phase at a time; preserve data in JSON."""
+        self._active_af_stage = str(stage)
+        self.AFPositions = []
+        self.AFScores = []
+        self.af_curve_line.setData([], [])
+        self.best_focus_line.hide()
+        self.AFPlot.getPlotItem().setTitle(str(stage))
+        self.focus_guidance_label.setText(
+            str(stage) + ": acquiring fixed-star normalized PSF measurements"
+        )
+
     def updateAutofocusPlot(self, focuser_position, median_sigma):
         self.AFPositions.append(int(focuser_position))
         self.AFScores.append(float(median_sigma))
+        best_index = int(np.argmin(self.AFScores))
+        self.focus_guidance_label.setText(
+            f"{getattr(self, '_active_af_stage', 'Autofocus')}: "
+            f"latest {float(median_sigma):.3f} px @ {int(focuser_position)} | "
+            f"best sampled {self.AFScores[best_index]:.3f} px @ "
+            f"{self.AFPositions[best_index]} | fixed-star normalized width"
+        )
 
         # Sort by focuser position so the curve is visually sane.
         ordered = sorted(zip(self.AFPositions, self.AFScores), key=lambda item: item[0])
@@ -2480,6 +2589,7 @@ class Ui(QtWidgets.QMainWindow):
         self.thread.updateStarOverlay.connect(self.updateStarOverlay)
         self.thread.sessionFinished.connect(self.onFocusSessionFinished)
         self.thread.updateAutofocusPlot.connect(self.updateAutofocusPlot)
+        self.thread.updateAutofocusStage.connect(self.updateAutofocusStage)
         self.thread.updateBestFocus.connect(self.updateBestFocusMarker)
         self.thread.updateFocuserPosition.connect(self.updateFocuserPositionLabel)
 
@@ -2681,6 +2791,11 @@ class Ui(QtWidgets.QMainWindow):
 
         
 
+        if self.CaptureMode_combo.currentText() == "Autofocus":
+            # The live rolling median mixes frames from DIFFERENT focus
+            # positions. Only the stage-specific matched-star curve is
+            # meaningful for autofocus selection.
+            return
         self.focus_guidance_label.setText(
             f"Current average sigma: {raw_score:.3f} px   |   "
             f"7-frame median sigma: {score:.3f} px   |   "
@@ -2704,8 +2819,8 @@ class Ui(QtWidgets.QMainWindow):
 
         if hasattr(self, "settings_group"):
             if autofocus_enabled:
-                self.settings_group.setMinimumHeight(190)
-                self.settings_group.setMaximumHeight(230)
+                self.settings_group.setMinimumHeight(205)
+                self.settings_group.setMaximumHeight(255)
             else:
                 self.settings_group.setMinimumHeight(150)
                 self.settings_group.setMaximumHeight(185)
@@ -3209,6 +3324,8 @@ def headless_autofocus(args):
         "af_backlash_steps": args.backlash_steps,
         "af_min_contrast": args.min_focus_contrast,
         "af_verify_tolerance": args.verify_tolerance,
+        "af_coarse_multiplier": args.coarse_multiplier,
+        "af_max_excursion": args.max_excursion,
     }
     if args.stop_file and Path(args.stop_file).exists():
         print(f"ERROR: Stop file already exists: {args.stop_file}")
@@ -3264,6 +3381,10 @@ if __name__ == '__main__':
     arg_parser.add_argument('--step-size', type=int, default=50)
     arg_parser.add_argument('--steps-each-side', type=int, default=3)
     arg_parser.add_argument('--frames-per-position', type=int, default=3)
+    arg_parser.add_argument('--coarse-multiplier', type=int, default=3,
+        help='Coarse scan step = multiplier * fine step; default 3')
+    arg_parser.add_argument('--max-excursion', type=int, default=900,
+        help='Maximum focus travel in steps from starting position, default 900')
     arg_parser.add_argument('--settle-time', type=float, default=1.0)
     arg_parser.add_argument('--backlash-steps', type=int, default=0,
         help='Measured backlash correction; 0 disables final-approach compensation')
