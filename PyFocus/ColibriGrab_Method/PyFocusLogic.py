@@ -136,3 +136,55 @@ def fitted_focus_vertex(positions, scores, max_deviation_from_best_steps=1.0):
     target = float(p[best_i] + vertex_step*spacing)
     return {"position": int(round(target)), "rms_residual_px": residual,
             "curvature":float(a), "vertex_steps_from_sample":float(vertex_step)}
+
+
+def matched_cohort_score(row, reference_stars, star_ids, min_stars=8):
+    """Score a batch against prescribed star IDs, without substituting new stars.
+
+    This is intentionally pure analysis and independent of the camera/backend.
+    """
+    widths = row.get("per_star_median_sigma_px") or {}
+    values = []
+    references = [float(s[2]) for s in reference_stars]
+    scale = float(np.median(references))
+    for sid in star_ids:
+        sid = int(sid)
+        observed = widths.get(str(sid), widths.get(sid))
+        if (observed is not None and 0 <= sid < len(references)
+                and np.isfinite(observed) and float(observed) > 0
+                and np.isfinite(references[sid]) and references[sid] > 0):
+            values.append(float(observed)/references[sid])
+    if len(values) < min_stars:
+        raise ValueError('Only %d/%d common stars remain (require >=%d)'
+                         % (len(values), len(star_ids), min_stars))
+    return scale*float(np.median(values)), len(values)
+
+
+def rescore_stable_cohort(rows, reference_stars, min_stars=8):
+    """Compare exactly the same source IDs at all positions of a fine scan.
+
+    Star medians are formed from repeated frames at each position. A source
+    missing from ANY position cannot influence ANY of the scores. This avoids
+    sample-composition changes masquerading as optical focus changes.
+    """
+    if len(rows) < 5:
+        raise ValueError('At least five valid fine positions required')
+    ids = None
+    for row in rows:
+        if row is None:
+            raise ValueError('A fine position has no valid stellar measurements')
+        widths = row.get('per_star_median_sigma_px') or {}
+        found = {int(k) for k,v in widths.items()
+                 if np.isfinite(v) and float(v)>0}
+        ids = found if ids is None else ids.intersection(found)
+    ids = sorted(i for i in ids if 0 <= i < len(reference_stars))
+    if len(ids) < min_stars:
+        raise ValueError('Only %d stars are shared by all %d positions (require >=%d)'
+                         % (len(ids),len(rows),min_stars))
+    scored = []
+    for row in rows:
+        score,n = matched_cohort_score(row,reference_stars,ids,min_stars=min_stars)
+        scored.append(dict(row, sigma_px=score, stable_cohort_count=n,
+                           stable_cohort_star_ids=ids,
+                           score_method='median per-star ratios for identical stars'))
+    return scored,ids

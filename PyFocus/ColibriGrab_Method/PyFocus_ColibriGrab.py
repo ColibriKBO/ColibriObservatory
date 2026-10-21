@@ -5,6 +5,9 @@ import numba as nb
 import pyqtgraph as pg
 import threading
 import queue
+import csv
+import json
+from collections import Counter
 
 pg.setConfigOptions(imageAxisOrder='row-major')
 
@@ -20,7 +23,9 @@ import win32com.client
 import pythoncom
 from ColibriGrabCapture import (ColibriGrabCapture, read_rcd_high_gain,
                                 RCD_SATURATION, GrabCancelled)
-from PyFocusLogic import StarCatalog, choose_bracketed_best, fitted_focus_vertex
+from PyFocusLogic import (StarCatalog, choose_bracketed_best, fitted_focus_vertex,
+                               rescore_stable_cohort, matched_cohort_score)
+from PyFocusStarSelection import spatial_candidate_order, field_counts, field_region, reliable_star_cohort
 
 #from alpaca.telescope import *
 #from alpaca.camera import *
@@ -203,7 +208,7 @@ class FocusThread(QtCore.QThread):
     updateAutofocusStart = QtCore.pyqtSignal(int)
 
     updateStatus = QtCore.pyqtSignal(object)
-    updateStarOverlay = QtCore.pyqtSignal(object, object)
+    updateStarOverlay = QtCore.pyqtSignal(object, object, object, object)
     updateFocuserPosition = QtCore.pyqtSignal(object)
     sessionFinished = QtCore.pyqtSignal()
     autofocusResult = QtCore.pyqtSignal(object)
@@ -250,15 +255,17 @@ class FocusThread(QtCore.QThread):
 
         # Star detection / fitting settings
         self.neighborhood_size = int(settings.get("neighborhood_size", 25))
-        self.intensity_threshold = float(settings.get("intensity_threshold", 30))
+        # Noise-adaptive 4-sigma screening remains active; lower old 30-ADU floor.
+        self.intensity_threshold = float(settings.get("intensity_threshold", 18))
         self.segment_radius = int(settings.get("segment_radius", 25))
-        self.roundness_threshold = float(settings.get("roundness_threshold", 0.5))
+        # Allow real off-axis elongation; true single-pixel artifacts still fail width checks.
+        self.roundness_threshold = float(settings.get("roundness_threshold", 0.35))
         self.max_feature_ratio = float(settings.get("max_feature_ratio", 0.8))
 
         # Autofocus settings
         self.af_step_size = int(settings.get("af_step_size", 25))
         self.af_steps_each_side = int(settings.get("af_steps_each_side", 3))
-        self.af_frames_per_position = int(settings.get("af_frames_per_position", 3))
+        self.af_frames_per_position = int(settings.get("af_frames_per_position", 7))
         self.af_settle_time = float(settings.get("af_settle_time", 1.0))
         # Set only after a real backlash measurement; 0 means no compensation.
         self.af_backlash_steps = int(settings.get("af_backlash_steps", 0))
@@ -270,6 +277,18 @@ class FocusThread(QtCore.QThread):
         self.af_max_excursion = int(settings.get("af_max_excursion", 900))
         self.af_catalog = None
         self.af_tracking_active = False
+        # Stream mode now locks the *same* sources across frames. This is a
+        # separate catalog from autofocus and cannot affect an AF run.
+        self.stream_catalog = None
+        self.stream_recent_matches = []
+        self.stream_cohort_history = []
+        self.stream_quality_summary = {}
+        self.stream_cohort_ids = None
+        self.stream_low_match_streak = 0
+        self.stream_frame_index = 0
+        self.stream_diagnostic_path = None
+        self.stream_score_min_fraction = 0.75
+        self.max_fit_candidates = int(settings.get("max_fit_candidates", 40))
 
         # Optional persistent focuser connection.
         # Used for displaying focuser position in Single Image / Stream,
@@ -356,6 +375,15 @@ class FocusThread(QtCore.QThread):
         """
 
         self.updateCaptureSettings(settings)
+        self.stream_catalog = None
+        self.stream_recent_matches = []
+        self.stream_cohort_history = []
+        self.stream_quality_summary = {}
+        self.stream_cohort_ids = None
+        self.stream_low_match_streak = 0
+        self.stream_frame_index = 0
+        self.stream_diagnostic_path = None
+        self.stream_score_min_fraction = 0.75
         self.threadactive = True
         self.session_active = True
         self.command_event.set()
@@ -652,16 +680,33 @@ class FocusThread(QtCore.QThread):
         paths = self._captureBatch(frames)    # unchanged working acquisition path
         measurements, star_counts, common_counts = [], [], []
         per_star_widths = {}
+        frame_diagnostics = []
+        batch_started_utc_epoch = time.time()
         for index, image_path in enumerate(paths):
             self._checkAutofocusActive()
             self.updateStatus.emit(self.makeAFStatus(
                 f"Autofocus: {position}, frame {index+1}/{frames}"))
             metric = self.measureFocusMetric(image_path=image_path)
             self._checkAutofocusActive()
-            if metric is None or self.af_catalog is None:
-                continue
-            locked = metric.get("locked_star_sigmas", {})
-            score = self.af_catalog.normalized_score(locked)
+            locked = (metric or {}).get("locked_star_sigmas", {})
+            score = (self.af_catalog.normalized_score(locked)
+                     if self.af_catalog is not None else None)
+            frame_diagnostics.append({
+                "frame_index": index + 1,
+                "rcd_filename": Path(image_path).name,
+                "analysis_utc_epoch": time.time(),
+                "score_px": float(score) if score is not None and np.isfinite(score) else None,
+                "valid_fits": int((metric or {}).get("valid_fits", 0)),
+                "matched_star_count": len(locked),
+                "per_star_sigma_px": {str(k): float(v) for k, v in locked.items()},
+                "image_mean_adu": float(metric["mean"]) if metric is not None else None,
+                "image_std_adu": float(metric["std"]) if metric is not None else None,
+                "fit_rejections": (metric or {}).get("fit_rejections", {}),
+                "candidate_rejections": (metric or {}).get("candidate_rejections", {}),
+                "field_counts": (metric or {}).get("field_counts", {}),
+                "region_psf_scores_px": (metric or {}).get("region_psf_scores_px", {}),
+                "fit_diagnostics": (metric or {}).get("fit_diagnostics", []),
+            })
             if score is not None and np.isfinite(score):
                 measurements.append(float(score))
                 star_counts.append(int(metric.get("valid_fits", 0)))
@@ -671,11 +716,43 @@ class FocusThread(QtCore.QThread):
         if len(measurements) < min_valid_frames:
             print(f"Position {position}: only {len(measurements)}/{frames} valid locked-star "
                   "frames; rejecting position")
+            if hasattr(self, 'af_rejected_batches'):
+                self.af_rejected_batches.append({
+                    'position':int(position), 'reason':'insufficient_valid_frames',
+                    'valid_frames':len(measurements), 'required_frames':int(min_valid_frames),
+                    'frame_diagnostics':frame_diagnostics})
             return None
+        # At a given position, require each contributor to be fitted in at
+        # least 70% of the requested frames. Intermittent outliers should not
+        # quietly enter the cross-position stable-star cohort.
+        required_per_star = max(2, int(np.ceil(frames * 0.70)))
+        reliable = {sid:widths for sid,widths in per_star_widths.items()
+                    if len(widths) >= required_per_star}
+        if len(reliable) < 8:
+            print(f"Position {position}: only {len(reliable)} stars present in "
+                  f">={required_per_star}/{frames} frames; rejecting position")
+            if hasattr(self, 'af_rejected_batches'):
+                self.af_rejected_batches.append({
+                    'position':int(position),'reason':'insufficient_reliable_stars',
+                    'valid_frames':len(measurements), 'reliable_star_count':len(reliable),
+                    'required_frames_per_star':int(required_per_star),
+                    'frame_diagnostics':frame_diagnostics})
+            return None
+        # Reject intrinsically unstable fits from contributing to cross-position
+        # AF score, but never reduce a usable field below eight reliable stars.
+        quality_reliable = {sid:w for sid,w in reliable.items()
+            if float(1.4826*np.median(np.abs(np.asarray(w)-np.median(w))) /
+                     max(np.median(w),1.e-8)) <= 0.16}
+        if len(quality_reliable) >= 8:
+            reliable = quality_reliable
+        per_star_widths = reliable
         median_score = float(np.median(measurements))
         median_abs_deviation = float(np.median(np.abs(np.asarray(measurements) - median_score)))
         return {
             "position": int(position),
+            "batch_started_utc_epoch": batch_started_utc_epoch,
+            "batch_finished_utc_epoch": time.time(),
+            "frame_diagnostics": frame_diagnostics,
             "sigma_px": median_score,
             "sigma_mad_px": median_abs_deviation,
             "valid_frames": len(measurements),
@@ -686,6 +763,10 @@ class FocusThread(QtCore.QThread):
             "matched_star_ids": sorted(per_star_widths),
             "per_star_median_sigma_px": {str(k):float(np.median(v))
                                          for k,v in per_star_widths.items()},
+            "per_star_valid_frames": {str(k):len(v)
+                                      for k,v in per_star_widths.items()},
+            "per_star_mad_sigma_px": {str(k):float(np.median(np.abs(np.asarray(v)-np.median(v))))
+                                     for k,v in per_star_widths.items()},
         }
 
     def _moveFocusForScan(self, target, last_position, approach_steps, max_step, focuser):
@@ -801,20 +882,99 @@ class FocusThread(QtCore.QThread):
         )
         return diagnostics
 
+    def _compareRepeatBatches(self, initial, repeated, label):
+        """Compare two visits to the SAME focus position with common star IDs.
+
+        Only diagnostic statistics. Caller decides if unstable seeing warrants
+        rejection. Both measurements are rescored with the same reference IDs.
+        """
+        if initial is None or repeated is None or self.af_catalog is None:
+            raise AutofocusNotConverged(f"{label} repeat lacks valid stellar batches")
+        initial_ids = {int(i) for i in initial.get("per_star_median_sigma_px", {})}
+        repeat_ids = {int(i) for i in repeated.get("per_star_median_sigma_px", {})}
+        common_ids = sorted(initial_ids & repeat_ids)
+        first_score, n1 = matched_cohort_score(
+            initial, self.af_catalog.stars, common_ids, min_stars=8)
+        repeat_score, n2 = matched_cohort_score(
+            repeated, self.af_catalog.stars, common_ids, min_stars=8)
+        drift = abs(repeat_score - first_score)
+        allowance = max(0.04 * first_score,
+                        3.0 * (float(initial.get("sigma_mad_px", 0.0)) +
+                               float(repeated.get("sigma_mad_px", 0.0))))
+        return {
+            "label": str(label), "position": int(initial["position"]),
+            "original_score_px": float(first_score),
+            "repeated_score_px": float(repeat_score),
+            "absolute_change_px": float(drift),
+            "relative_change_percent": float(100 * drift / first_score),
+            "allowed_change_px": float(allowance),
+            "matched_cohort_stars": min(n1, n2),
+            "shared_star_ids": common_ids,
+            "original_batch_started_utc_epoch": initial.get("batch_started_utc_epoch"),
+            "repeat_batch_started_utc_epoch": repeated.get("batch_started_utc_epoch"),
+            "passed": bool(drift <= allowance),
+            "repeated_batch": repeated,
+        }
+
+    def _saveAutofocusDiagnostics(self, result, stable_fine_rows):
+        """Save small read-only analysis files: no raw RCD image data or hardware I/O.
+
+        The GUI needs these particularly on failure, because full RCD batches
+        are too large to share and a console transcript omits per-star values.
+        """
+        import csv
+        import json
+        try:
+            root = self._getGrabber().output_root / self._getGrabber().run_id
+            root.mkdir(parents=True, exist_ok=True)
+            identifier = time.strftime('%Y%m%d_%H%M%S', time.gmtime())
+            json_path = root / f'autofocus_diagnostics_{identifier}.json'
+            csv_path = root / f'autofocus_curve_{identifier}.csv'
+            summary = dict(result)
+            summary['stable_cohort_fine_positions'] = list(stable_fine_rows)
+            json_path.write_text(json.dumps(summary, indent=2, default=float), encoding='utf-8')
+            coarse = [r for r in result.get('positions', [])
+                      if str(r.get('stage','')).startswith('coarse')]
+            fine = list(stable_fine_rows)
+            if not fine:
+                fine = [r for r in result.get('positions',[])
+                        if str(r.get('stage','')).startswith('fine')]
+            with csv_path.open('w', newline='', encoding='utf-8') as fh:
+                writer = csv.writer(fh)
+                writer.writerow(['stage','focuser_position','normalized_width_px',
+                                 'frame_mad_px','matched_stars','stable_cohort_stars'])
+                for stage, values in (('coarse', coarse),('fine', fine)):
+                    for r in sorted(values,key=lambda t:int(t['position'])):
+                        writer.writerow([stage,r['position'],r.get('sigma_px'),
+                                         r.get('sigma_mad_px'),r.get('median_matched_stars'),
+                                         r.get('stable_cohort_count','')])
+            result['diagnostics_json'] = str(json_path)
+            result['diagnostics_csv'] = str(csv_path)
+            print('Autofocus diagnostics saved: ' + str(json_path))
+            print('Autofocus focus curve saved: ' + str(csv_path))
+        except Exception as exc:
+            # Failed disk logging must never cause new focuser movements.
+            print('WARNING: Could not save autofocus diagnostics: ' + str(exc))
+
     def runAutofocus(self):
         """Bounded coarse search and fine refinement using fixed reference stars.
 
         If the initial focus is so poor that no stars can be fitted anywhere in
         the bounded range, abort safely. This is not a blind full-travel finder.
         """
-        print("Starting v3 matched-star coarse-to-fine autofocus sweep.")
+        print("Starting v3.5.1 spatial-star/fit-diagnostic autofocus sweep.")
         self.current_testing_position = None
         self.current_best_position = None
         self.af_catalog = None
         self.af_tracking_active = True
+        self.af_rejected_batches = []
         start_pos, best_pos, best_score, verification = None, None, None, None
         results, coarse_results, fine_results = [], {}, {}
         response_diagnostics, fitted_vertex = None, None
+        repeatability = None
+        coarse_repeatability = None
+        fine_cohort_ids = []
+        fine_rows = []
         approach_steps = None
         try:
             self._checkAutofocusActive()
@@ -848,7 +1008,8 @@ class FocusThread(QtCore.QThread):
                 raise AutofocusNotConverged(
                     f"Coarse sweep needs {start_pos-side*coarse_step}.."
                     f"{start_pos+side*coarse_step}, safe limits {lower_limit}..{upper_limit}")
-            min_valid_frames = min(2, frames)
+            # Reject batches where a minority of frames alone have usable PSFs.
+            min_valid_frames = max(2, int(np.ceil(frames * 0.70)))
             last_pos = start_pos
             print(f"Reference start={start_pos}; coarse step={coarse_step}; fine step={fine_step}; "
                   f"maximum excursion +/-{max_excursion}, safe range={lower_limit}..{upper_limit}")
@@ -920,39 +1081,176 @@ class FocusThread(QtCore.QThread):
                 prev_pos = best_coarse_pos - side_sign*coarse_step
                 if prev_pos in usable:
                     improvement = usable[prev_pos] - usable[best_coarse_pos]
-                    if improvement < max(0.005*usable[best_coarse_pos],
-                                          1.5*float(coarse_results[best_coarse_pos]["sigma_mad_px"])):
-                        raise AutofocusNotConverged("Coarse edge trend too weak to justify wider search")
+                    short_threshold = max(
+                        0.005 * usable[best_coarse_pos],
+                        1.5 * float(coarse_results[best_coarse_pos]["sigma_mad_px"]))
+                    if improvement < short_threshold:
+                        # A near-flat *last* interval can mask a real longer
+                        # decreasing trend. Permit one more bounded probe only
+                        # if the preceding interval was improving and the
+                        # two-interval decrease exceeds the observed batch
+                        # scatter. This does NOT accept focus at the edge.
+                        lookback_pos = prev_pos - side_sign * coarse_step
+                        supported = False
+                        if lookback_pos in usable:
+                            lookback_gain = usable[lookback_pos] - usable[best_coarse_pos]
+                            trend_threshold = max(
+                                0.02 * usable[best_coarse_pos],
+                                2.0 * float(np.hypot(
+                                    coarse_results[lookback_pos]["sigma_mad_px"],
+                                    coarse_results[best_coarse_pos]["sigma_mad_px"])))
+                            supported = (usable[lookback_pos] > usable[prev_pos]
+                                         and lookback_gain >= trend_threshold)
+                        if not supported:
+                            raise AutofocusNotConverged(
+                                "Coarse edge trend too weak to justify wider search")
+                        print(
+                            f"Coarse last step inconclusive ({improvement:.4f} < "
+                            f"{short_threshold:.4f}), but preceding two-step "
+                            f"trend supports one bounded confirmation at {next_pos}")
                 print(f"Coarse minimum at boundary {best_coarse_pos}; extending to {next_pos}")
                 measure_at(next_pos, coarse_results, "coarse extended")
 
-            print(f"Coarse focus bracketed near {best_coarse_pos}; refining")
+            print(f"Coarse focus bracketed near {best_coarse_pos}; running coarse repeat check")
+            self.updateStatus.emit(self.makeAFStatus(
+                f"Diagnostic: repeat coarse focus position {best_coarse_pos}"))
+            last_pos = self._moveFocusForScan(
+                best_coarse_pos, last_pos, approach_steps, max_step, focuser)
+            coarse_repeated = self._measureFocusBatch(
+                best_coarse_pos, frames, min_valid_frames)
+            if coarse_results[best_coarse_pos] is not None and coarse_repeated is not None:
+                try:
+                    coarse_repeatability = self._compareRepeatBatches(
+                        coarse_results[best_coarse_pos], coarse_repeated,
+                        "coarse_best_revisited_before_fine")
+                    print(f"Coarse repeat at {best_coarse_pos}: "
+                          f"{coarse_repeatability['original_score_px']:.4f} -> "
+                          f"{coarse_repeatability['repeated_score_px']:.4f} "
+                          f"({coarse_repeatability['relative_change_percent']:.1f}% change)")
+                except ValueError as exc:
+                    coarse_repeatability = {"position": best_coarse_pos,
+                                            "error": str(exc), "passed": False}
+            else:
+                coarse_repeatability = {"position": best_coarse_pos,
+                                        "error": "Insufficient stars in repeat", "passed": False}
+            # Coarse repeat drift is diagnostic only; it must not cause an
+            # unsafe response or make us skip the independent fine assessment.
             self.updateAutofocusStage.emit("Fine refinement")
             fine_positions = [best_coarse_pos + j*fine_step for j in range(-side,side+1)]
             for p in fine_positions:
                 measure_at(p, fine_results, "fine")
-            # All fine positions are required for the existing physical-response
-            # check to reject jagged curves; no silent gap interpolation.
-            if any(fine_results[p] is None for p in fine_positions):
-                raise AutofocusNotConverged("One or more fine-scan positions have no reliable matched-star score")
-            fine_rows = [fine_results[p] for p in fine_positions]
-            best_row = min(fine_rows, key=lambda r:r["sigma_px"])
-            sample_best = int(best_row["position"])
+
+            # Evaluate a common set of stars at EVERY fine position, not just
+            # whichever 18..23 sources happened to be available in each frame.
+            # If the minimum sits near a fine-scan edge, extend only in that
+            # direction, subject to the same hard motor limits and an additional
+            # six-sample cap. Reject rather than extrapolate from an edge.
+            max_extra_fine_positions = 6
+            added_fine_positions = 0
+            while True:
+                if any(fine_results.get(p) is None for p in fine_positions):
+                    raise AutofocusNotConverged(
+                        "One or more fine-scan positions lack reliable matched-star images")
+                try:
+                    fine_rows, fine_cohort_ids = rescore_stable_cohort(
+                        [fine_results[p] for p in fine_positions], self.af_catalog.stars,
+                        min_stars=8)
+                except ValueError as cohort_error:
+                    raise AutofocusNotConverged(
+                        "Cannot compare the same stars over the fine sweep: " + str(cohort_error))
+                best_row = min(fine_rows, key=lambda r:r["sigma_px"])
+                sample_best = int(best_row["position"])
+                best_index = fine_positions.index(sample_best)
+                if 2 <= best_index <= len(fine_positions) - 3:
+                    break
+                if added_fine_positions >= max_extra_fine_positions:
+                    raise AutofocusNotConverged(
+                        "Fine minimum remains near a boundary after six extensions")
+                direction = -1 if best_index < 2 else 1
+                next_pos = (fine_positions[0] - fine_step if direction < 0
+                            else fine_positions[-1] + fine_step)
+                if not lower_limit <= next_pos <= upper_limit:
+                    raise AutofocusNotConverged(
+                        "Fine minimum remains near a boundary; travel limit reached")
+                print(f"Fine best sampled at {sample_best} near sweep edge; "
+                      f"extending to {next_pos} (extra {added_fine_positions+1}/6)")
+                self.updateStatus.emit(self.makeAFStatus(
+                    f"Fine search extending to {next_pos} (within safety limits)"))
+                measure_at(next_pos, fine_results, "fine extended")
+                if direction < 0:
+                    fine_positions.insert(0, next_pos)
+                else:
+                    fine_positions.append(next_pos)
+                added_fine_positions += 1
+
+            # Replot the final stable-cohort scores. The interim curve was a
+            # quick per-image score, not identical-star aggregate measurements.
+            self.updateAutofocusStage.emit("Fine refinement — common-star scores")
+            for row in fine_rows:
+                self.updateAutofocusPlot.emit(int(row["position"]), float(row["sigma_px"]))
+            print(f"Fine stable cohort: {len(fine_cohort_ids)} shared stars "
+                  f"at {len(fine_rows)} positions; best sampled={sample_best}")
             best_score = float(best_row["sigma_px"])
-            if fine_positions.index(sample_best) < 2 or fine_positions.index(sample_best) > len(fine_positions)-3:
-                raise AutofocusNotConverged("Fine minimum not bracketed; no validated focus solution")
-            # Re-use tested A+C physical response safeguard on the fine scan.
+            # Critical v3.3 change: collect repeatability even if the curve is
+            # jagged and will fail the response validator. Never write a focus
+            # success based solely on the apparent best point.
+            # Revisit a previously measured point at the END of the fine scan.
+            # This detects seeing/time-dependent measurement changes without
+            # declaring an apparent one-frame improvement to be a focus fix.
+            print(f"Repeating focus measurement at {sample_best} to test stability")
+            self.updateStatus.emit(self.makeAFStatus(
+                f"Checking repeatability at {sample_best}"))
+            last_pos = self._moveFocusForScan(
+                sample_best, last_pos, approach_steps, max_step, focuser)
+            repeated = self._measureFocusBatch(sample_best, frames, min_valid_frames)
+            if repeated is None:
+                raise AutofocusNotConverged("Repeatability test produced too few matched stars")
+            try:
+                repeated_score, repeated_count = matched_cohort_score(
+                    repeated, self.af_catalog.stars, fine_cohort_ids, min_stars=8)
+            except ValueError as exc:
+                raise AutofocusNotConverged("Repeatability check lost stable stars: " + str(exc))
+            original = next(r for r in fine_rows if r["position"] == sample_best)
+            try:
+                repeatability = self._compareRepeatBatches(
+                    original, repeated, "fine_best_revisited_before_curve_validation")
+            except ValueError as exc:
+                raise AutofocusNotConverged("Fine repeat could not match stars: " + str(exc))
+            repeatability["stable_fine_cohort_score_px"] = float(original["sigma_px"])
+            repeatability["revisit_stable_fine_cohort_score_px"] = float(repeated_score)
+            repeatability["stable_fine_cohort_count"] = repeated_count
+            stable_drift = abs(float(original["sigma_px"]) - float(repeated_score))
+            stable_allowance = max(
+                0.04 * float(original["sigma_px"]),
+                3.0 * (float(original.get("sigma_mad_px", 0.0)) +
+                       float(repeated.get("sigma_mad_px", 0.0))))
+            repeatability["stable_cohort_absolute_change_px"] = stable_drift
+            repeatability["stable_cohort_allowed_change_px"] = stable_allowance
+            repeatability["stable_cohort_passed"] = stable_drift <= stable_allowance
+            repeatability["passed"] = (repeatability["passed"] and
+                                       repeatability["stable_cohort_passed"])
+            print(f"Fine repeat at {sample_best}: "
+                  f"{repeatability['original_score_px']:.4f} -> "
+                  f"{repeatability['repeated_score_px']:.4f} "
+                  f"(max change {repeatability['allowed_change_px']:.4f})")
+            if not repeatability["passed"]:
+                raise AutofocusNotConverged(
+                    f"Focus score drifted at unchanged position {sample_best}: "
+                    f"difference={repeatability['absolute_change_px']:.4f}, "
+                    f"allowed={repeatability['allowed_change_px']:.4f}")
             response_diagnostics = self._validateFocusResponse(
                 fine_positions, fine_rows, sample_best, best_score)
             fitted_vertex = fitted_focus_vertex(fine_positions,
                                                  [r["sigma_px"] for r in fine_rows])
             if fitted_vertex is None:
-                raise AutofocusNotConverged("Fine curve not sufficiently parabolic for safe interpolation")
+                raise AutofocusNotConverged(
+                    "Stable-star fine curve not sufficiently parabolic to interpolate")
             best_pos = int(fitted_vertex["position"])
             self.current_best_position = best_pos
             self.current_testing_position = None
             if not lower_limit <= best_pos <= upper_limit:
                 raise AutofocusNotConverged("Interpolated best focus outside safe travel")
+
             print(f"Fine quadratic vertex={best_pos}, best sampled={sample_best}; verifying")
             self.updateStatus.emit(self.makeAFStatus(f"Verifying interpolated focus {best_pos}"))
             self._approachFocusFromBelow(best_pos, approach_steps, max_step, focuser)
@@ -961,7 +1259,15 @@ class FocusThread(QtCore.QThread):
             verification = self._measureFocusBatch(best_pos, frames, min_valid_frames)
             if verification is None:
                 raise AutofocusVerificationFailed("Final check lacked enough locked-star measurements")
-            verified_score = float(verification["sigma_px"])
+            # Final verification must also use the same fine-scan star cohort.
+            try:
+                verified_score, verified_count = matched_cohort_score(
+                    verification, self.af_catalog.stars, fine_cohort_ids, min_stars=8)
+            except ValueError as exc:
+                raise AutofocusVerificationFailed(
+                    "Final verification lost common reference stars: " + str(exc))
+            verification["stable_cohort_score_px"] = verified_score
+            verification["stable_cohort_star_count"] = verified_count
             if verified_score > best_score*(1+self.af_verify_tolerance):
                 raise AutofocusVerificationFailed(
                     f"Verification sigma {verified_score:.4f} differs from "
@@ -977,18 +1283,26 @@ class FocusThread(QtCore.QThread):
                 "start_position": start_pos,
                 "verification": verification,
                 "coarse_positions": [r for r in results if r['stage'].startswith('coarse')],
-                "fine_positions": [r for r in results if r['stage']=='fine'],
+                "fine_positions": fine_rows,
                 "positions": results,
+                "rejected_batches":self.af_rejected_batches,
                 "reference_star_count":len(self.af_catalog.stars),
                 "reference_stars": [{"id":i,"x":q[0],"y":q[1],"sigma_px":q[2]}
                                     for i,q in enumerate(self.af_catalog.stars)],
                 "focus_response":response_diagnostics,
                 "quadratic_fit": fitted_vertex,
+                "stable_fine_star_ids": fine_cohort_ids,
+                "stable_fine_star_count": len(fine_cohort_ids),
+                "fine_extensions": added_fine_positions,
+                "repeatability": repeatability,
+                "coarse_repeatability": coarse_repeatability,
+                "diagnostic_version": "v3.5.1",
                 "approach_direction":"increasing_position",
                 "approach_steps": approach_steps,
                 "camera_backend":"ColibriGrab",
                 "rcd_output_root": str(self._getGrabber().output_root / self._getGrabber().run_id),
             }
+            self._saveAutofocusDiagnostics(result, fine_rows)
             self.autofocusResult.emit(result)
             return result
         except Exception as error:
@@ -1018,7 +1332,17 @@ class FocusThread(QtCore.QThread):
                       "start_position":start_pos,"last_position":self.current_focuser_position,
                       "chosen_position":best_pos,"restoration":restoration,
                       "positions":results,"verification":verification,
+                      "rejected_batches":self.af_rejected_batches,
+                      "repeatability":repeatability,
+                      "coarse_repeatability":coarse_repeatability,
+                      "diagnostic_version":"v3.5.1",
+                      "reference_stars": ([{"id":i,"x":q[0],"y":q[1],"sigma_px":q[2]}
+                                          for i,q in enumerate(self.af_catalog.stars)]
+                                          if self.af_catalog is not None else []),
+                      "fine_positions":fine_rows,
+                      "stable_fine_star_ids":fine_cohort_ids,
                       "camera_backend":"ColibriGrab"}
+            self._saveAutofocusDiagnostics(result, fine_rows)
             self.autofocusResult.emit(result)
             return result
         finally:
@@ -1031,6 +1355,45 @@ class FocusThread(QtCore.QThread):
                 except queue.Empty:
                     break
             self.threadactive = False
+
+    def _streamDropout(self):
+        """Allow recovery after a cloud, field change, or persistent tracking loss."""
+        if self.capture_mode != 'Stream' or self.stream_catalog is None:
+            return
+        self.stream_low_match_streak += 1
+        if self.stream_low_match_streak >= 6:
+            print('Stream reference stars missing for six frames; reacquiring catalog')
+            self.stream_catalog = None
+            self.stream_cohort_ids = None
+            self.stream_recent_matches = []
+            self.stream_low_match_streak = 0
+
+    def _logStreamFrame(self, record):
+        """Append a small stationary/stream focus measurement; never interrupt imaging."""
+        if self.capture_mode != "Stream":
+            return
+        try:
+            if self.stream_diagnostic_path is None:
+                grab = self._getGrabber()
+                run_dir = Path(grab.output_root) / grab.run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+                self.stream_diagnostic_path = run_dir / 'stream_star_diagnostics_v35.csv'
+            fields = ['frame', 'utc_epoch', 'focuser_position', 'matched_stars',
+                      'accepted_psfs', 'detected_peaks', 'psf_score_px',
+                      'field_counts_json', 'region_scores_json', 'rejections_json',
+                      'fit_details_json', 'star_widths_json', 'reference_stars_json',
+                      'stable_cohort_ids_json', 'star_quality_json', 'cohort_present']
+            path = self.stream_diagnostic_path
+            is_new = not path.exists()
+            with path.open('a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fields)
+                if is_new:
+                    writer.writeheader()
+                writer.writerow({key:record.get(key) for key in fields})
+        except Exception as exc:
+            # Disk write failure must not affect camera/focuser behavior.
+            if self.stream_frame_index <= 2:
+                print(f'WARNING: stream CSV unavailable: {exc}')
 
     def measureFocusMetric(self, image_path=None):
         """
@@ -1055,6 +1418,8 @@ class FocusThread(QtCore.QThread):
 
         # Display latest image in GUI
         self.updateFocusFrame.emit(nda)
+        if self.capture_mode == 'Stream':
+            self.stream_frame_index += 1
 
         # Basic image statistics
         global_mean = np.mean(nda)
@@ -1165,8 +1530,13 @@ class FocusThread(QtCore.QThread):
 
         if num_objects == 0:
             print("No stars found.")
-
-            self.updateStarOverlay.emit([], [])
+            self._streamDropout()
+            self._logStreamFrame({
+                'frame':self.stream_frame_index,'utc_epoch':time.time(),
+                'focuser_position':focuser_position,'matched_stars':0,
+                'accepted_psfs':0,'detected_peaks':0,'psf_score_px':None,
+                'rejections_json':json.dumps({'no_detected_peaks':1})})
+            self.updateStarOverlay.emit([], [], [], [])
 
             no_star_status = basic_status.copy()
             no_star_status["state"] = "Image captured, but no stars were found."
@@ -1179,8 +1549,8 @@ class FocusThread(QtCore.QThread):
 
         if xy.size == 0:
             print("No star centers found.")
-
-            self.updateStarOverlay.emit([], [])
+            self._streamDropout()
+            self.updateStarOverlay.emit([], [], [], [])
 
             no_center_status = basic_status.copy()
             no_center_status["state"] = "Image captured, but no star centers were found."
@@ -1192,73 +1562,127 @@ class FocusThread(QtCore.QThread):
         # Unpack coordinates.
         y, x = np.hsplit(xy, 2)
 
-        # During autofocus, do NOT repeatedly choose unrelated brightest stars.
-        # The first valid frame seeds a fixed catalog. Subsequent images use
-        # only peaks near those original catalog objects (with small drift).
-        locked_candidate_ids = None
-        if self.af_tracking_active and self.af_catalog is not None:
-            points = np.column_stack((x.flatten(),y.flatten()))
-            matches, locked_candidate_ids = self.af_catalog.choose_candidates(points)
-            if matches:
-                x = np.asarray([q[0] for q in matches]).reshape(-1,1)
-                y = np.asarray([q[1] for q in matches]).reshape(-1,1)
-            else:
-                x,y = np.empty((0,1)),np.empty((0,1))
-            print(f"Locked star candidates: {len(matches)} of {len(self.af_catalog.stars)}")
-        # Until the initial reference exists, retain original bright-star
-        # selection. Ordinary streaming/Single Image behavior is unchanged.
-        max_candidates = 25 if self.af_tracking_active else 10
-        if locked_candidate_ids is None and len(x) > max_candidates:
-            peak_values = []
-
-            for yy, xx in zip(y.flatten(), x.flatten()):
-                iy = int(round(yy))
-                ix = int(round(xx))
-
-                if 0 <= iy < nda.shape[0] and 0 <= ix < nda.shape[1]:
-                    peak_values.append(nda[iy, ix])
-                else:
-                    peak_values.append(0)
-
-            peak_values = np.array(peak_values)
-            best_indices = np.argsort(peak_values)[-max_candidates:]
-
-            x = x[best_indices]
-            y = y[best_indices]
-
-            print(f"Limited PSF fitting to {max_candidates} candidates.")
-
-        x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted = self.fitPSF(
-            nda, global_mean, x, y
-        )
+        all_points = np.column_stack((x.flatten(), y.flatten()))
+        # A locked catalog is used in both AF and Stream, but they are never
+        # shared. A disappearing star is *not* replaced by an unrelated peak.
+        catalog = self.af_catalog if self.af_tracking_active else (
+            self.stream_catalog if self.capture_mode == "Stream" else None)
+        if catalog is not None:
+            chosen, _ids = catalog.choose_candidates(all_points)
+            candidate_points = np.asarray(chosen, dtype=float).reshape(-1, 2)
+            selection_rejections = {'catalog_not_found': len(catalog.stars)-len(chosen)}
+        else:
+            # Consider bright, isolated peaks from center + all quadrants.
+            # The candidate budget is applied *before* expensive Gaussian fitting.
+            peaks = np.asarray([
+                max(0., float(nda[int(round(py)),int(round(px))]) - float(median))
+                if 0 <= int(round(py)) < nda.shape[0] and 0 <= int(round(px)) < nda.shape[1]
+                else 0. for px, py in all_points], dtype=float)
+            indices, selection_rejections = spatial_candidate_order(
+                all_points, peaks, nda.shape,
+                limit=max(8, self.max_fit_candidates),
+                edge_margin=max(14,int(np.ceil(self.segment_radius/2)))
+            )
+            candidate_points = all_points[indices]
+        # Locked stars must always be attempted. For a new field, start with
+        # 28 distributed targets and only spend the remaining fitting budget
+        # if rejects leave <25 reliable Gaussian fits.
+        locked_selection = catalog is not None
+        initial = len(candidate_points) if locked_selection else min(28,len(candidate_points))
+        attempted_points = candidate_points[:initial].copy()
+        x = attempted_points[:,0].reshape(-1,1)
+        y = attempted_points[:,1].reshape(-1,1)
+        (x2, y2, amplitude, intensity, sigma_y_fitted, sigma_x_fitted,
+         fit_records) = self.fitPSF(nda, global_mean, x, y, return_diagnostics=True)
+        if not locked_selection and len(x2)<25 and len(candidate_points)>initial:
+            reserve = candidate_points[initial:]
+            second = self.fitPSF(nda, global_mean,
+                                 reserve[:,0].reshape(-1,1),reserve[:,1].reshape(-1,1),
+                                 return_diagnostics=True)
+            x2 += second[0]; y2 += second[1]; amplitude += second[2]
+            intensity += second[3]; sigma_y_fitted += second[4]
+            sigma_x_fitted += second[5]; fit_records += second[6]
+            attempted_points = np.concatenate((attempted_points,reserve),axis=0)
+            print(f'Backfilled {len(reserve)} reserve stars after initial fit rejections')
+        candidate_points = attempted_points
+        fit_rejections = dict(Counter(rec['reason'] for rec in fit_records
+                                      if rec['reason'] != 'accepted'))
 
         # Send star locations to the GUI overlay.
         # Candidate points are the stars selected for fitting.
         # Fitted points are stars that passed the PSF fit filters.
-        candidate_points = np.column_stack((x.flatten(), y.flatten()))
-
         if len(x2) > 0:
             fitted_points = np.column_stack((np.asarray(x2), np.asarray(y2)))
         else:
             fitted_points = np.empty((0, 2))
 
-        self.updateStarOverlay.emit(candidate_points, fitted_points)
-
-        # Capture source identities after PSF rejection. The score uses only
-        # these matched fixed IDs, normalized to the same reference widths.
+        # Match accepted Gaussian centroids to a *persistent* reference ID.
+        # Reference catalogs are seeded by a distributed candidate pool, not
+        # by the arbitrary brightest ten stars.
+        fits = [(float(xx),float(yy),(float(sx)+float(sy))/2.0)
+                for xx,yy,sx,sy in zip(x2,y2,sigma_x_fitted,sigma_y_fitted)]
         locked_star_sigmas = {}
+        stream_star_sigmas = {}
         if self.af_tracking_active:
-            fits = [(float(xx),float(yy),(float(sx)+float(sy))/2.0)
-                    for xx,yy,sx,sy in zip(x2,y2,sigma_x_fitted,sigma_y_fitted)]
             if self.af_catalog is None and len(fits) >= 8:
                 try:
                     self.af_catalog = StarCatalog(fits,min_stars=8,max_stars=25)
-                    print(f"Established fixed star catalog: {len(self.af_catalog.stars)} sources")
-                except ValueError as e:
-                    print(f"Reference catalog not yet available: {e}")
+                    print(f"Established fixed AF catalog: {len(self.af_catalog.stars)} stars")
+                except ValueError as exc:
+                    print(f"Reference catalog not yet available: {exc}")
             if self.af_catalog is not None:
                 locked_star_sigmas = self.af_catalog.match_fits(fits)
-                print(f"Matched reference PSFs: {len(locked_star_sigmas)}/{len(self.af_catalog.stars)}")
+        elif self.capture_mode == "Stream":
+            if self.stream_catalog is None and len(fits) >= 8:
+                try:
+                    self.stream_catalog = StarCatalog(fits,min_stars=8,max_stars=25)
+                    self.stream_cohort_ids = None
+                    self.stream_recent_matches = []
+                    self.stream_cohort_history = []
+                    self.stream_quality_summary = {}
+                    self.stream_low_match_streak = 0
+                    print(f"Established stream catalog: {len(self.stream_catalog.stars)} stars")
+                except ValueError:
+                    pass
+            if self.stream_catalog is not None:
+                stream_star_sigmas = self.stream_catalog.match_fits(fits)
+                self.stream_cohort_history.append(dict(stream_star_sigmas))
+                self.stream_cohort_history = self.stream_cohort_history[-24:]
+                self.stream_recent_matches.append(set(stream_star_sigmas))
+                self.stream_recent_matches = self.stream_recent_matches[-24:]
+                if self.stream_cohort_ids is None and len(self.stream_cohort_history)>=20:
+                    cohort,summary = reliable_star_cohort(
+                        self.stream_cohort_history,self.stream_catalog.stars)
+                    self.stream_quality_summary = summary
+                    if len(cohort)>=8:
+                        self.stream_cohort_ids = cohort
+                        print(f'Locked quality-screened Stream cohort: {len(cohort)} '
+                              'stars using 20-frame repeatability history')
+                if len(stream_star_sigmas) < 6:
+                    self._streamDropout()  # severe *whole-field* tracking failure only
+                else:
+                    self.stream_low_match_streak = 0
+        # Always keep accepted/detected reference positions visible, even when
+        # their Gaussian fits fail intermittently. Red crosses are *rejected
+        # fits*; grey circles are reference stars (not a successful fit).
+        rejected_points = [(rec['x'],rec['y']) for rec in fit_records
+                           if rec['reason'] != 'accepted']
+        active_catalog = self.af_catalog if self.af_tracking_active else (
+            self.stream_catalog if self.capture_mode=='Stream' else None)
+        reference_points = ([] if active_catalog is None else
+            [(rx+active_catalog.shift[0],ry+active_catalog.shift[1])
+             for rx,ry,_ in active_catalog.stars])
+        self.updateStarOverlay.emit(candidate_points, fitted_points,
+                                    rejected_points,reference_points)
+        region_counts = field_counts(fitted_points, nda.shape)
+        selected_region_counts = field_counts(candidate_points, nda.shape)
+        field_scores = {}
+        for xx,yy,sx,sy in zip(x2,y2,sigma_x_fitted,sigma_y_fitted):
+            region = field_region(xx,yy,nda.shape[1],nda.shape[0])
+            field_scores.setdefault(region,[]).append((float(sx)+float(sy))/2)
+        field_scores = {k:round(float(np.median(v)),5) for k,v in field_scores.items()}
+        print(f"Fit accepted: {len(fits)}/{len(candidate_points)}; rejection counts={fit_rejections}; "
+              f"spatial PSFs={region_counts}")
 
         print(f"Detected peaks: {num_objects}")
         print(f"Valid PSF fits: {len(sigma_x_fitted)}")
@@ -1275,7 +1699,28 @@ class FocusThread(QtCore.QThread):
             )
             no_fit_status["detected_peaks"] = num_objects
             no_fit_status["valid_fits"] = len(sigma_x_fitted)
+            no_fit_status.update(fit_rejections=fit_rejections,
+                                 candidate_rejections=selection_rejections,
+                                 attempted_candidates=len(candidate_points),
+                                 matched_stars=len(stream_star_sigmas),
+                                 field_counts=region_counts,
+                                 region_psf_scores_px=field_scores,
+                                 fit_diagnostics=fit_records)
             self.updateStatus.emit(no_fit_status)
+            self._logStreamFrame({
+                'frame':self.stream_frame_index,'utc_epoch':time.time(),
+                'focuser_position':focuser_position,
+                'matched_stars':len(stream_star_sigmas),
+                'accepted_psfs':len(fits),'detected_peaks':num_objects,
+                'psf_score_px':None,'field_counts_json':json.dumps(region_counts),
+                'region_scores_json':json.dumps(field_scores),
+                'rejections_json':json.dumps(fit_rejections),
+                'fit_details_json':json.dumps(fit_records),
+                'star_widths_json':json.dumps({str(k):v for k,v in stream_star_sigmas.items()}),
+                'reference_stars_json':json.dumps(self.stream_catalog.stars if self.stream_catalog else []),
+                'stable_cohort_ids_json':json.dumps(self.stream_cohort_ids or []),
+                'star_quality_json':json.dumps(self.stream_quality_summary),
+                'cohort_present':cohort_present if 'cohort_present' in locals() else 0})
 
             return None
 
@@ -1284,6 +1729,25 @@ class FocusThread(QtCore.QThread):
         sigmax = float(np.median(sigma_x_fitted))
         sigmay = float(np.median(sigma_y_fitted))
         sigmaav = (sigmax + sigmay) / 2.0
+        stream_score_valid = True
+        cohort_present = 0
+        if self.capture_mode == 'Stream':
+            stream_score_valid = False
+            if self.stream_catalog is not None and self.stream_cohort_ids:
+                # A missing fit is explicitly excluded, never replaced by an
+                # arbitrary different star. Use per-star reference ratios to
+                # limit composition bias if a few locked stars temporarily fail.
+                present = {sid:stream_star_sigmas[sid]
+                           for sid in self.stream_cohort_ids if sid in stream_star_sigmas}
+                cohort_present = len(present)
+                required = max(8,int(np.ceil(len(self.stream_cohort_ids)*self.stream_score_min_fraction)))
+                if cohort_present>=required:
+                    score = self.stream_catalog.normalized_score(present)
+                    if score is not None and np.isfinite(score):
+                        sigmaav = float(score)
+                        stream_score_valid = True
+            if not stream_score_valid:
+                sigmaav = None
 
         status = {
             "state": "Valid focus measurement.",
@@ -1303,18 +1767,48 @@ class FocusThread(QtCore.QThread):
             "focuser_position": focuser_position,
             "testing_position": self.current_testing_position,
             "best_position": self.current_best_position,
+            "attempted_candidates": len(candidate_points),
+            "fit_rejections": fit_rejections,
+            "candidate_rejections": selection_rejections,
+            "fit_diagnostics": fit_records,
+            "field_counts": region_counts,
+            "region_psf_scores_px": field_scores,
+            "selected_field_counts": selected_region_counts,
+            "matched_stars": len(locked_star_sigmas) if self.af_tracking_active
+                             else len(stream_star_sigmas),
+            "stream_cohort_size": len(self.stream_cohort_ids or []),
+            "stream_cohort_present": cohort_present,
+            "stream_quality_summary": self.stream_quality_summary if self.capture_mode=='Stream' else {},
+            "reference_count": len(self.af_catalog.stars) if self.af_tracking_active and self.af_catalog
+                               else (len(self.stream_catalog.stars) if self.capture_mode == 'Stream' and self.stream_catalog else 0),
         }
 
+        if self.capture_mode == 'Stream' and not stream_score_valid:
+            status['state'] = ('Screening 20-frame stable star cohort' if self.stream_catalog is not None and self.stream_cohort_ids is None else 'Too few reliable cohort stars this frame')
         self.updateStatus.emit(status)
-        self.updatePlot.emit(
-            float(sigmax),
-            float(sigmay),
-            float(sigmaav),
-            focuser_position
-        )
+        if sigmaav is not None:
+            self.updatePlot.emit(
+                float(sigmax),float(sigmay),float(sigmaav),focuser_position
+            )
 
         if self.af_tracking_active:
             status["locked_star_sigmas"] = locked_star_sigmas
+        if self.capture_mode == 'Stream':
+            self._logStreamFrame({
+                'frame':self.stream_frame_index,'utc_epoch':time.time(),
+                'focuser_position':focuser_position,
+                'matched_stars':len(stream_star_sigmas),
+                'accepted_psfs':len(fits),'detected_peaks':num_objects,
+                'psf_score_px':sigmaav,
+                'field_counts_json':json.dumps(region_counts),
+                'region_scores_json':json.dumps(field_scores),
+                'rejections_json':json.dumps(fit_rejections),
+                'fit_details_json':json.dumps(fit_records),
+                'star_widths_json':json.dumps({str(k):v for k,v in stream_star_sigmas.items()}),
+                'reference_stars_json':json.dumps(self.stream_catalog.stars if self.stream_catalog else []),
+                'stable_cohort_ids_json':json.dumps(self.stream_cohort_ids or []),
+                'star_quality_json':json.dumps(self.stream_quality_summary),
+                'cohort_present':cohort_present if 'cohort_present' in locals() else 0})
         return status
     
 
@@ -1359,242 +1853,109 @@ class FocusThread(QtCore.QThread):
 
         return g.ravel()
 
-    def fitPSF(self, imarray, avepixel_mean, x2, y2):
+    def fitPSF(self, imarray, avepixel_mean, x2, y2, return_diagnostics=False):
+        """Fit isolated candidate PSFs, recording a reason for every rejection.
 
-        # The following variables are in the config file
+        Retains the existing 2D Gaussian backend and six-array API for callers
+        that do not request diagnostics. No camera/focuser operations here.
+        """
         bin_factor = max(1, int(max(self.bin_x, self.bin_y)))
-
-        # Keep approximately the same sensor/sky footprint at different binning.
-        segment_radius = max(
-            8,
-            int(round(self.segment_radius / bin_factor))
-        )
-
-        # A real sharp star becomes narrower in binned-pixel units.
+        segment_radius = max(8, int(round(self.segment_radius / bin_factor)))
         min_valid_sigma = max(0.30, 0.70 / bin_factor)
-        roundness_threshold = self.roundness_threshold
-        max_feature_ratio = self.max_feature_ratio
-        
-        #segment_radius = 25
-        #roundness_threshold = 0.5
-        #max_feature_ratio = 0.8
-
-        x_fitted = []
-        y_fitted = []
-        amplitude_fitted = []
-        intensity_fitted = []
-        sigma_y_fitted = []
-        sigma_x_fitted = []
-
-
-
-        # Loop over all stars
-        for star in zip(list(y2), list(x2)):
-
-            y, x = (float(np.asarray(v).item()) for v in star)
-
-            y_min = y - segment_radius
-            y_max = y + segment_radius
-            x_min = x - segment_radius
-            x_max = x + segment_radius
-
-            if y_min < 0:
-                y_min = np.array([0])
-            if y_max > np.shape(imarray)[0]:
-                y_max = np.array(np.shape(imarray)[0])
-            if x_min < 0:
-                x_min = np.array([0])
-                # print(x_min)
-            if x_max > np.shape(imarray)[1]:
-                x_max = np.shape(imarray)[1]
-
-            # # Check for NaN
-            # if np.any(np.isnan([x_min, x_max, y_min, y_max])):
-            #   continue
-            
-            x_min = int(x_min)
-            x_max = int(x_max)
-            y_min = int(y_min)
-            y_max = int(y_max)
-
-            # Extract an image segment around each star
-            star_seg = imarray[y_min:y_max,x_min:x_max]
-
-            if star_seg.size == 0 or not np.isfinite(star_seg).any():
+        accepted = [[], [], [], [], [], []]
+        reports = []
+        h, w = imarray.shape
+        for yy, xx in zip(np.asarray(y2).flatten(), np.asarray(x2).flatten()):
+            x, y = float(xx),float(yy)
+            diagnostic = {'x':round(x,2), 'y':round(y,2), 'reason':'pending'}
+            def fail(why, **extra):
+                diagnostic.update(reason=why, **extra)
+                reports.append(diagnostic)
+            if not np.isfinite([x,y]).all():
+                fail('invalid_candidate')
                 continue
-
-            # Do not fit stars with a saturated core.
-            sensor_saturation = RCD_SATURATION
-
-            if np.nanmax(star_seg) >= 0.98 * sensor_saturation:
+            # Reject incomplete PSF windows instead of fitting clipped wings.
+            x0, x1 = int(x)-segment_radius, int(x)+segment_radius+1
+            y0, y1 = int(y)-segment_radius, int(y)+segment_radius+1
+            if x0<0 or y0<0 or x1>w or y1>h:
+                fail('edge')
                 continue
-
-            local_background = float(np.nanmedian(star_seg))
-
-            peak_y, peak_x = np.unravel_index(
-                np.nanargmax(star_seg),
-                star_seg.shape
-            )
-
-            initial_amplitude = float(
-                np.nanmax(star_seg) - local_background
-            )
-
-            if initial_amplitude <= 0:
+            patch = np.asarray(imarray[y0:y1,x0:x1],dtype=float)
+            if patch.size < 16 or not np.isfinite(patch).all():
+                fail('invalid_pixels')
                 continue
-
-            initial_sigma = max(0.8, 1.2 / bin_factor)
-
-            initial_guess = (
-                initial_amplitude,
-                float(peak_y),
-                float(peak_x),
-                initial_sigma,
-                initial_sigma,
-                0.0,
-                local_background
-            )
-
-            # Create x and y indices
-            y_ind, x_ind = np.indices(star_seg.shape)
-
-            # Estimate saturation level from image type
-            saturation = np.full(
-                y_ind.shape,
-                sensor_saturation,
-                dtype=np.float32
-            )
-
-            lower_bounds = (
-                0.0,                         # amplitude
-                0.0,                         # centre y
-                0.0,                         # centre x
-                0.20,                        # sigma y
-                0.20,                        # sigma x
-                -np.pi / 2.0,                # rotation
-                -np.inf,                     # background
-            )
-
-            upper_bounds = (
-                np.inf,
-                float(star_seg.shape[0] - 1),
-                float(star_seg.shape[1] - 1),
-                8.0,
-                8.0,
-                np.pi / 2.0,
-                np.inf,
-            )
-
+            if float(np.max(patch)) >= RCD_SATURATION*0.98:
+                fail('saturated')
+                continue
+            # Estimate noise in the *outer annulus*, so the star itself does
+            # not artificially raise the threshold used to judge its SNR.
+            yi,xi = np.indices(patch.shape)
+            py,px = int(round(y))-y0,int(round(x))-x0
+            r = np.hypot(yi-py,xi-px)
+            sky = patch[(r>=5) & (r<=segment_radius-1)]
+            if sky.size<20: sky=patch.flatten()
+            bg = float(np.median(sky))
+            noise = float(1.4826*np.median(np.abs(sky-bg)))
+            if noise<=0: noise = float(np.std(sky))
+            if noise<=0 or not np.isfinite(noise):
+                fail('noise_unavailable')
+                continue
+            peak_idx = np.unravel_index(np.argmax(patch),patch.shape)
+            peak = float(patch[peak_idx])
+            peak_snr = (peak-bg)/noise
+            diagnostic['peak_snr'] = round(peak_snr,2)
+            if not np.isfinite(peak_snr) or peak_snr < 8:
+                fail('low_snr')
+                continue
+            guess = (max(peak-bg,1.),float(peak_idx[0]),float(peak_idx[1]),
+                     max(.8,1.2/bin_factor),max(.8,1.2/bin_factor),0.,bg)
+            saturation = np.full(patch.shape,RCD_SATURATION,dtype=np.float32)
+            lower=(0.,0.,0.,.20,.20,-np.pi/2,-np.inf)
+            upper=(np.inf,float(patch.shape[0]-1),float(patch.shape[1]-1),
+                   8.,8.,np.pi/2,np.inf)
             try:
-                popt, pcov = opt.curve_fit(
-                    self.twoDGaussian,
-                    (y_ind, x_ind, saturation),
-                    star_seg.ravel(),
-                    p0=initial_guess,
-                    bounds=(lower_bounds, upper_bounds),
-                    maxfev=1000
-                )
-            except (RuntimeError, ValueError):
+                popt,_ = opt.curve_fit(
+                    self.twoDGaussian,(yi,xi,saturation),patch.ravel(),
+                    p0=guess,bounds=(lower,upper),maxfev=1000)
+            except (RuntimeError,ValueError,FloatingPointError,OverflowError,TypeError):
+                fail('fit_failed')
                 continue
-
-            # Unpack fitted gaussian parameters
-            amplitude, yo, xo, sigma_y, sigma_x, theta, offset = popt
-
-            # Reject invalid or suspicious fit values.
-            if not np.isfinite([amplitude, xo, yo, sigma_x, sigma_y, offset]).all():
+            amp,yo,xo,sy,sx,theta,offset = [float(v) for v in popt]
+            if not np.isfinite(popt).all() or amp<=0:
+                fail('invalid_fit')
                 continue
-
-            # Reject negative or tiny amplitudes.
-            if amplitude <= 0:
+            if min(sx,sy)<min_valid_sigma or max(sx,sy)>8.:
+                fail('width_out_of_range',sigma_x=round(sx,2),sigma_y=round(sy,2))
                 continue
-
-            if sigma_x < min_valid_sigma or sigma_y < min_valid_sigma:
+            if np.hypot((x0+xo)-x,(y0+yo)-y)>4.0:
+                fail('fit_shifted_to_neighbor')
                 continue
-
-            # Reject very broad artifacts.
-            if sigma_x > 8.0 or sigma_y > 8.0:
+            roundness = min(sy/sx,sx/sy)
+            if roundness < self.roundness_threshold:
+                fail('elongated',axis_ratio=round(roundness,2))
                 continue
-
-            # Estimate local background/noise from this star segment.
-            finite_seg = star_seg[np.isfinite(star_seg)]
-
-            if finite_seg.size < 10:
+            if 4*sx*sy/segment_radius**2>self.max_feature_ratio:
+                fail('too_extended')
                 continue
-
-            local_median = np.median(finite_seg)
-            local_mad = np.median(np.abs(finite_seg - local_median))
-            local_sigma = 1.4826 * local_mad
-
-            if local_sigma <= 0:
-                local_sigma = np.std(finite_seg)
-
-            if local_sigma <= 0:
+            # Crop the fitted PSF to ±3 sigma, with exclusive upper bounds.
+            cy0=max(0,int(np.floor(yo-3*sy)))
+            cy1=min(patch.shape[0],int(np.ceil(yo+3*sy))+1)
+            cx0=max(0,int(np.floor(xo-3*sx)))
+            cx1=min(patch.shape[1],int(np.ceil(xo+3*sx))+1)
+            if cy1<=cy0 or cx1<=cx0:
+                fail('empty_flux_aperture')
                 continue
-
-            # Peak SNR estimate for this candidate.
-            # This is not formal photometric SNR; it is a practical rejection test.
-            peak_value = np.nanmax(star_seg)
-            peak_snr = (peak_value - local_median) / local_sigma
-
-            if peak_snr < 8.0:
+            intensity = float(np.sum(patch[cy0:cy1,cx0:cx1]-offset))
+            if not np.isfinite(intensity) or intensity<=0:
+                fail('nonpositive_flux')
                 continue
-
-            # Filter hot pixels
-            if min(sigma_y/sigma_x, sigma_x/sigma_y) < roundness_threshold:
-                # Skip if pixel is hot
-                continue
-
-            # Reject if it's too large
-            if (4*sigma_x*sigma_y/segment_radius**2 > max_feature_ratio):
-                continue
-
-            # Crop segment to 3 sigma around star
-            crop_y_min = int(yo - 3*sigma_y) + 1
-            if crop_y_min < 0:
-                crop_y_min = 0
-
-
-            crop_y_max = int(yo + 3*sigma_y) + 1
-            if crop_y_max >= star_seg.shape[0]: crop_y_max = star_seg.shape[0] - 1
-
-            crop_x_min = int(xo - 3*sigma_x) + 1
-            if crop_x_min < 0: crop_x_min = 0
-
-            crop_x_max = int(xo + 3*sigma_x) + 1
-            if crop_x_max >= star_seg.shape[1]: crop_x_max = star_seg.shape[1] -1
-
-            # Set fixed size if segment is too small
-            if (y_max - y_min) < 3:
-                crop_y_min = int(yo - 2)
-                crop_y_max = int(yo + 2)
-            if (x_max - x_min) < 3:
-                crop_x_min = int(xo - 2)
-                crop_x_max = int(xo + 2)
-
-            star_seg_crop = star_seg[crop_y_min:crop_y_max,crop_x_min:crop_x_max]
-
-            # Skip is shape is too small
-            if (star_seg_crop.shape[0] == 0) or (star_seg_crop.shape[1] == 0):
-                continue
-
-            bg_corrected = offset
-
-            # Subtract background
-            intensity = np.sum(star_seg_crop - bg_corrected)
-
-            # Skip if 0 intensity
-            if intensity <=0:
-                continue
-
-            # Add stars to the final list
-            x_fitted.append(x_min + xo)
-            y_fitted.append(y_min + yo)
-            amplitude_fitted.append(amplitude)
-            intensity_fitted.append(intensity)
-            sigma_y_fitted.append(sigma_y)
-            sigma_x_fitted.append(sigma_x)
-
-        return x_fitted, y_fitted, amplitude_fitted, intensity_fitted, sigma_y_fitted, sigma_x_fitted
+            for output, val in zip(accepted,(x0+xo,y0+yo,amp,intensity,sy,sx)):
+                output.append(float(val))
+            diagnostic.update(reason='accepted',sigma_x=round(sx,3),
+                              sigma_y=round(sy,3),axis_ratio=round(roundness,3))
+            reports.append(diagnostic)
+        result=tuple(accepted)
+        return (*result,reports) if return_diagnostics else result
 
 
 class Ui(QtWidgets.QMainWindow):
@@ -1612,7 +1973,7 @@ class Ui(QtWidgets.QMainWindow):
             raise FileNotFoundError(f"PyFocus.ui is required for interactive mode: {ui_path}")
         uic.loadUi(str(ui_path), self)
                 
-        self.title = "PyFocus Automated Focusing"
+        self.title = "PyFocus Automated Focusing v3.5.1"
 
         # Detach widgets loaded from PyFocus.ui before replacing the central widget.
         # Otherwise setCentralWidget() may delete the old central widget and its children.
@@ -1625,7 +1986,7 @@ class Ui(QtWidgets.QMainWindow):
 
 
         # Make the GUI large enough for manual focusing.
-        self.setWindowTitle("PyFocus Automated Focusing")
+        self.setWindowTitle("PyFocus Automated Focusing — v3.5.1")
 
         screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
 
@@ -1871,7 +2232,14 @@ class Ui(QtWidgets.QMainWindow):
         )
 
         image_view = self.focus_imagewidget.getView()
+        # Neutral outlines persist at catalog coordinates even if a fit fails.
+        self.reference_scatter = pg.ScatterPlotItem(
+            size=15, pen=pg.mkPen('#9aa4b2',width=1), brush=None, symbol='o')
+        self.rejected_scatter = pg.ScatterPlotItem(
+            size=10, pen=pg.mkPen('#ff6b6b',width=2), brush=None, symbol='x')
+        image_view.addItem(self.reference_scatter)
         image_view.addItem(self.candidate_scatter)
+        image_view.addItem(self.rejected_scatter)
         image_view.addItem(self.fitted_scatter)
 
         # Cursor statistics over the image view
@@ -2157,8 +2525,8 @@ class Ui(QtWidgets.QMainWindow):
 
         status_layout.addWidget(self.status_label)
         status_group.setLayout(status_layout)
-        status_group.setMinimumHeight(145)
-        status_group.setMaximumHeight(175)
+        status_group.setMinimumHeight(165)
+        status_group.setMaximumHeight(215)
         status_group.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed
@@ -2222,7 +2590,7 @@ class Ui(QtWidgets.QMainWindow):
 
         self.AFFramesPerPosition_spin = QtWidgets.QSpinBox()
         self.AFFramesPerPosition_spin.setRange(1, 10)
-        self.AFFramesPerPosition_spin.setValue(3)
+        self.AFFramesPerPosition_spin.setValue(7)
 
         self.AFSettleTime_spin = QtWidgets.QDoubleSpinBox()
         self.AFSettleTime_spin.setRange(0.0, 30.0)
@@ -2616,6 +2984,9 @@ class Ui(QtWidgets.QMainWindow):
         if previous_stage == "Coarse search" and str(stage) == "Fine refinement":
             guidance = ("Coarse scan complete; now showing FINE positions only. "
                         "Coarse data retained in run results.")
+        elif str(stage) == "Fine refinement — common-star scores":
+            guidance = ("Replotting fine curve using only the SAME stars at every "
+                        "position. Original measurements saved in diagnostics.")
         else:
             guidance = str(stage) + ": acquiring fixed-star normalized PSF measurements"
         self.focus_guidance_label.setText(guidance)
@@ -2704,6 +3075,8 @@ class Ui(QtWidgets.QMainWindow):
 
         self.candidate_scatter.setData([])
         self.fitted_scatter.setData([])
+        self.reference_scatter.setData([])
+        self.rejected_scatter.setData([])
 
         # Clear image display
         blank_image = np.zeros((100, 100), dtype=np.float32)
@@ -2960,9 +3333,20 @@ class Ui(QtWidgets.QMainWindow):
             f"Mean/Std: {status['mean']:.1f} / {status['std']:.1f} | "
             f"Min/Max: {status['min']:.0f} / {status['max']:.0f}\n"
             f"Peaks: {status['detected_peaks']} | "
+            f"Attempted: {status.get('attempted_candidates', 0)} | "
             f"Accepted PSFs: {status['valid_fits']}\n"
             f"{sigma_text}"
         )
+        rejections = status.get('fit_rejections') or {}
+        if rejections:
+            top = ', '.join(f'{k}={v}' for k,v in
+                            sorted(rejections.items(), key=lambda item:-item[1])[:4])
+            text += '\nRejected: ' + top
+        if status.get('reference_count'):
+            text += (f"\nLocked stars: {status.get('matched_stars', 0)}/"
+                     f"{status['reference_count']} (stable {status.get('stream_cohort_present', 0)}/{status.get('stream_cohort_size', 0)}) | field: "
+                     + ', '.join(f'{k}={v}' for k,v in
+                                 (status.get('field_counts') or {}).items() if v))
 
         self.status_label.setText(text)
 
@@ -3223,7 +3607,7 @@ class Ui(QtWidgets.QMainWindow):
             f"Global Min/Max={global_range_text}"
         )
     
-    def updateStarOverlay(self, candidate_points, fitted_points):
+    def updateStarOverlay(self, candidate_points, fitted_points, rejected_points, reference_points):
         """
         Update star markers on top of the displayed image.
 
@@ -3256,6 +3640,8 @@ class Ui(QtWidgets.QMainWindow):
 
         self.candidate_scatter.setData(make_spots(candidate_points, 9))
         self.fitted_scatter.setData(make_spots(fitted_points, 11))
+        self.rejected_scatter.setData(make_spots(rejected_points, 10))
+        self.reference_scatter.setData(make_spots(reference_points, 15))
 
     def updateFocusFrame(self, image):
         """
@@ -3487,7 +3873,7 @@ if __name__ == '__main__':
         help='Optional ACP safety cancellation flag: file existence cancels current run')
     arg_parser.add_argument('--step-size', type=int, default=50)
     arg_parser.add_argument('--steps-each-side', type=int, default=3)
-    arg_parser.add_argument('--frames-per-position', type=int, default=3)
+    arg_parser.add_argument('--frames-per-position', type=int, default=7)
     arg_parser.add_argument('--coarse-multiplier', type=int, default=3,
         help='Coarse scan step = multiplier * fine step; default 3')
     arg_parser.add_argument('--max-excursion', type=int, default=900,
