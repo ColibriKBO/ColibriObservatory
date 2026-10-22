@@ -188,3 +188,120 @@ def rescore_stable_cohort(rows, reference_stars, min_stars=8):
                            stable_cohort_star_ids=ids,
                            score_method='median per-star ratios for identical stars'))
     return scored,ids
+
+
+def compare_bidirectional_fine(forward_batches, reverse_batches, reference_stars,
+                               fine_step, min_stars=8):
+    """Rescore and compare two independent visits to the SAME fine positions.
+
+    Scores are based on one star cohort shared by both complete passes; no
+    replacement stars are introduced between visits. No hardware access.
+    The focus optimum is NOT accepted here. Caller must also check curvature,
+    focus response, and a separate final verification exposure.
+    """
+    if fine_step <= 0:
+        raise ValueError('Fine step must be positive')
+    def index_pass(rows, name):
+        items = list(rows)
+        by_pos = {int(r['position']):r for r in items if r is not None}
+        if len(by_pos) != len(items) or len(by_pos) < 5:
+            raise ValueError(f'{name} scan has missing or duplicate focus positions')
+        return by_pos
+    fwd = index_pass(forward_batches, 'Forward')
+    rev = index_pass(reverse_batches, 'Reverse')
+    if set(fwd) != set(rev):
+        raise ValueError('Forward and reverse scans must cover identical focus positions')
+    positions = sorted(fwd)
+    if any(b-a != fine_step for a,b in zip(positions, positions[1:])):
+        raise ValueError('Fine focus positions must be evenly spaced')
+    # Single cohort shared by every position AND both visits, not merely a
+    # cohort within each pass. A disappearing star must not skew the comparison.
+    matched_rows, star_ids = rescore_stable_cohort(
+        [fwd[p] for p in positions] + [rev[p] for p in positions],
+        reference_stars, min_stars=min_stars)
+    size = len(positions)
+    forward = [dict(r, stage='fine_forward') for r in matched_rows[:size]]
+    reverse = [dict(r, stage='fine_reverse') for r in matched_rows[size:]]
+    # Region curves are diagnostic, NOT alternative authorization to move the
+    # motor. Use the same common IDs for every region at every position.
+    # Current Colibri acquisitions are 2x2 binned 2048x2048.
+    from PyFocusStarSelection import field_region
+    regions = ('center','upper_left','upper_right','lower_left','lower_right')
+    regional_ids = {name:[sid for sid in star_ids
+                          if field_region(reference_stars[sid][0],
+                                          reference_stars[sid][1],2048,2048)==name]
+                    for name in regions}
+    reference_scale = float(np.median([s[2] for s in reference_stars]))
+    def region_scores(row):
+        widths = row['per_star_median_sigma_px']
+        return {name:(reference_scale*float(np.median([
+                widths[str(sid)]/reference_stars[sid][2] for sid in ids]))
+                if len(ids)>=2 else None)
+                for name,ids in regional_ids.items()}
+    for row in forward + reverse:
+        row['region_scores_px']=region_scores(row)
+    combined = []
+    for a,b in zip(forward,reverse):
+        # Retain a matched per-star median for downstream diagnostics. The score
+        # itself is the equal-weight average of two cohort scores, not a median
+        # of changing star subsets or a raw median across all star measurements.
+        widths = {str(sid):float((a['per_star_median_sigma_px'][str(sid)] +
+                                  b['per_star_median_sigma_px'][str(sid)])/2)
+                  for sid in star_ids}
+        score = (float(a['sigma_px'])+float(b['sigma_px']))/2
+        combined.append({
+            'position':a['position'], 'sigma_px':score,
+            'sigma_mad_px':max(float(a.get('sigma_mad_px',0)),
+                               float(b.get('sigma_mad_px',0))),
+            'median_matched_stars':float(len(star_ids)),
+            'stable_cohort_count':len(star_ids),
+            'stable_cohort_star_ids':star_ids,
+            'per_star_median_sigma_px':widths,
+            'stage':'fine_combined',
+            'forward_score_px':float(a['sigma_px']),
+            'reverse_score_px':float(b['sigma_px']),
+            'pass_difference_px':float(b['sigma_px']-a['sigma_px']),
+            'score_method':'equal-weight average of forward/reverse fixed-star-cohort scores',
+            'region_scores_px':{
+                region:(float((a['region_scores_px'][region] +
+                               b['region_scores_px'][region])/2)
+                        if a['region_scores_px'][region] is not None and
+                        b['region_scores_px'][region] is not None else None)
+                for region in regions},
+        })
+    fv = np.asarray([r['sigma_px'] for r in forward],float)
+    rv = np.asarray([r['sigma_px'] for r in reverse],float)
+    diffs = rv-fv
+    median_score = float(np.median(np.concatenate([fv,rv])))
+    typical_mad = float(np.median([max(float(a.get('sigma_mad_px',0)),
+                                        float(b.get('sigma_mad_px',0)))
+                                    for a,b in zip(forward,reverse)]))
+    median_offset = float(np.median(diffs))
+    offset_corrected_rms = float(np.sqrt(np.mean((diffs-median_offset)**2)))
+    best_fwd = int(positions[int(np.argmin(fv))])
+    best_rev = int(positions[int(np.argmin(rv))])
+    max_systematic = max(0.04*median_score, 2.0*typical_mad)
+    max_residual = max(0.03*median_score, 2.0*typical_mad)
+    # Prefer conservative rejection to an unstable focus solution. The two
+    # sweeps can disagree about scatter at one frame and still be diagnostic.
+    agreement = {
+        'forward_best_position':best_fwd,
+        'reverse_best_position':best_rev,
+        'best_separation_steps':int(abs(best_fwd-best_rev)//fine_step),
+        'median_reverse_minus_forward_px':median_offset,
+        'offset_corrected_rms_px':offset_corrected_rms,
+        'median_frame_mad_px':typical_mad,
+        'max_offset_px':max_systematic,
+        'max_residual_px':max_residual,
+        'same_best_region':bool(abs(best_fwd-best_rev)<=fine_step),
+        'offset_ok':bool(abs(median_offset)<=max_systematic),
+        'shape_ok':bool(offset_corrected_rms<=max_residual),
+        'shared_star_count':len(star_ids),
+        'positions_compared':len(positions),
+        'region_star_counts':{k:len(v) for k,v in regional_ids.items()},
+        'approach_direction':'increasing final motor approach on BOTH passes',
+        'pass_order':'forward ascending, reverse descending',
+    }
+    agreement['passed'] = bool(agreement['same_best_region'] and
+                               agreement['offset_ok'] and agreement['shape_ok'])
+    return combined,forward,reverse,star_ids,agreement

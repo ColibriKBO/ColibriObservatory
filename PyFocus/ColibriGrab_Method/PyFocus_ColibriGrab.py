@@ -24,8 +24,10 @@ import pythoncom
 from ColibriGrabCapture import (ColibriGrabCapture, read_rcd_high_gain,
                                 RCD_SATURATION, GrabCancelled)
 from PyFocusLogic import (StarCatalog, choose_bracketed_best, fitted_focus_vertex,
-                               rescore_stable_cohort, matched_cohort_score)
+                               rescore_stable_cohort, matched_cohort_score, compare_bidirectional_fine)
 from PyFocusStarSelection import spatial_candidate_order, field_counts, field_region, reliable_star_cohort
+from ASTAPHFD import measure_rcd, summarize_batch, select_focus, DEFAULT_ASTAP
+
 
 #from alpaca.telescope import *
 #from alpaca.camera import *
@@ -942,12 +944,34 @@ class FocusThread(QtCore.QThread):
             with csv_path.open('w', newline='', encoding='utf-8') as fh:
                 writer = csv.writer(fh)
                 writer.writerow(['stage','focuser_position','normalized_width_px',
-                                 'frame_mad_px','matched_stars','stable_cohort_stars'])
-                for stage, values in (('coarse', coarse),('fine', fine)):
+                                 'frame_mad_px','matched_stars','stable_cohort_stars',
+                                 'forward_score_px','reverse_score_px','pass_difference_px',
+                                 'center_px','upper_left_px','upper_right_px',
+                                 'lower_left_px','lower_right_px'])
+                stages = [('coarse', coarse)]
+                if result.get('fine_forward_positions'):
+                    stages.append(('fine_forward',result['fine_forward_positions']))
+                else:
+                    stages.append(('fine_forward',[
+                        r for r in result.get('positions',[]) if r.get('stage') in
+                        ('fine','fine extended')]))
+                if result.get('fine_reverse_positions'):
+                    stages.append(('fine_reverse',result['fine_reverse_positions']))
+                else:
+                    stages.append(('fine_reverse',[
+                        r for r in result.get('positions',[]) if r.get('stage')=='fine reverse']))
+                if result.get('fine_forward_positions') and result.get('fine_reverse_positions'):
+                    stages.append(('fine_combined', fine))
+                for stage, values in stages:
                     for r in sorted(values,key=lambda t:int(t['position'])):
                         writer.writerow([stage,r['position'],r.get('sigma_px'),
                                          r.get('sigma_mad_px'),r.get('median_matched_stars'),
-                                         r.get('stable_cohort_count','')])
+                                         r.get('stable_cohort_count',''),
+                                         r.get('forward_score_px',''),r.get('reverse_score_px',''),
+                                         r.get('pass_difference_px',''),
+                                         *[(r.get('region_scores_px') or {}).get(region, '')
+                                           for region in ('center','upper_left','upper_right',
+                                                          'lower_left','lower_right')]])
             result['diagnostics_json'] = str(json_path)
             result['diagnostics_csv'] = str(csv_path)
             print('Autofocus diagnostics saved: ' + str(json_path))
@@ -956,13 +980,159 @@ class FocusThread(QtCore.QThread):
             # Failed disk logging must never cause new focuser movements.
             print('WARNING: Could not save autofocus diagnostics: ' + str(exc))
 
+    def runAutofocusASTAP(self):
+        """Supervised ASTAP HFD autofocus, preserving existing hardware safeguards."""
+        self.current_best_position = None
+        self.current_testing_position = None
+        self.af_tracking_active = True
+        start = None
+        outcome = {'success': False, 'backend': 'ASTAP HFD', 'positions': []}
+        last = None
+        try:
+            self._checkAutofocusActive()
+            if self.focuser_controller is None:
+                self.focuser_controller = ASCOMFocuserController(self.focuser_driver_id)
+            focuser = self.focuser_controller
+            focuser.connect()
+            start = int(focuser.position)
+            last = start
+            self.current_focuser_position = start
+            self.updateAutofocusStart.emit(start)
+            self.updateFocuserPosition.emit(start)
+            fine = int(self.af_step_size)
+            coarse = fine * int(self.af_coarse_multiplier)
+            side = int(self.af_steps_each_side)
+            frames = int(self.af_frames_per_position)
+            excursion = int(self.af_max_excursion)
+            maxstep = int(focuser.focuser.MaxStep)
+            approach = max(coarse, int(self.af_backlash_steps))
+            if fine <= 0 or side < 2 or frames < 5 or coarse <= fine:
+                raise ValueError('ASTAP requires positive steps, >=2 steps each side, >=5 frames')
+            if excursion < side * coarse + approach:
+                raise ValueError(f'Max travel must include {side*coarse} scan steps plus '
+                                 f'{approach} approach allowance: need >= {side*coarse+approach}')
+            low = start - excursion + approach
+            high = start + excursion
+            if low < approach or high > maxstep:
+                raise ValueError('ASTAP scan or backlash preload exceeds physical focuser limits')
+            positions = sorted(start + j*coarse for j in range(-side,side+1))
+            if positions[0] < low or positions[-1] > high:
+                raise ValueError('Coarse scan exceeds max travel including approach preload')
+            if not Path(DEFAULT_ASTAP).is_file():
+                raise FileNotFoundError('ASTAP not found at ' + DEFAULT_ASTAP)
+            grabber = self._getGrabber()
+            def sample(pos, stage):
+                nonlocal last
+                self._checkAutofocusActive()
+                if not low <= pos <= high:
+                    raise AutofocusNotConverged(f'{stage} position {pos} exceeds safe travel')
+                self.updateStatus.emit(self.makeAFStatus(f'ASTAP {stage}: focus {pos}'))
+                last = self._moveFocusForScan(pos, last, approach, maxstep, focuser)
+                paths = self._captureBatch(frames)
+                batch = grabber.batch_number
+                # Keep the live RCD view working during ASTAP autofocus.
+                # Only the GUI display is affected; HFD measurements are unchanged.
+                if paths:
+                    try:
+                        self.updateFocusFrame.emit(read_rcd_high_gain(paths[0]))
+                    except Exception as display_exc:
+                        print(f"WARNING: RCD display failed: {display_exc}", flush=True)
+                measures = []
+                for n, path in enumerate(paths,1):
+                    self._checkAutofocusActive()
+                    self.updateStatus.emit(self.makeAFStatus(f'ASTAP {stage}: {pos}, frame {n}/{frames}'))
+                    try:
+                        measures.append(measure_rcd(path, batch, pos, n,
+                                         keep_running=self._isAutofocusActive))
+                    except Exception as exc:
+                        if not self._isAutofocusActive():
+                            raise AutofocusCancelled('ASTAP interrupted by cancellation') from exc
+                        measures.append({'rcd': str(path), 'error': str(exc)})
+                summary = summarize_batch(measures, max(5,int(np.ceil(frames*0.70))))
+                row = dict(summary, position=int(pos), stage=stage)
+                outcome['positions'].append(row)
+                self.updateAutofocusPlot.emit(int(pos), float(row['hfd_px']))
+                print(f'ASTAP {stage} {pos}: HFD={row["hfd_px"]:.3f}, '
+                      f'MAD={row["hfd_mad_px"]:.3f}, stars={row["median_stars"]:.0f}', flush=True)
+                return row
+            self.updateAutofocusStage.emit('ASTAP coarse HFD')
+            coarse_rows = [sample(p,'coarse') for p in positions]
+            coarse_best = min(coarse_rows, key=lambda r:r['hfd_px'])['position']
+            if coarse_best in (positions[0], positions[-1]):
+                raise AutofocusNotConverged('ASTAP coarse minimum at edge; no safe extrapolation')
+            self.updateAutofocusStage.emit('ASTAP fine HFD')
+            fine_positions = [coarse_best+j*fine for j in range(-side,side+1)]
+            fine_rows = [sample(p,'fine') for p in fine_positions]
+            try:
+                solution = select_focus(fine_rows, fine)
+            except ValueError as exc:
+                raise AutofocusNotConverged(str(exc)) from exc
+            target = solution['position']
+            if not low <= target <= high:
+                raise AutofocusNotConverged('ASTAP selected position outside allowed range')
+            outcome['solution'] = solution
+            self.updateAutofocusStage.emit('ASTAP independent verification')
+            verify = sample(target,'verification')
+            outcome['verification'] = verify
+            # ASTAP HFD has 0.01 px quantization. Do not apply Gaussian sigma tolerances.
+            best_hfd = solution['best_sampled_hfd_px']
+            allowance = max(0.15, 0.08*best_hfd,
+                            3*(verify['hfd_mad_px'] + min(r['hfd_mad_px'] for r in fine_rows)))
+            outcome['verification_allowance_px'] = float(allowance)
+            if verify['hfd_px'] > best_hfd + allowance:
+                raise AutofocusVerificationFailed(
+                    f'ASTAP HFD verification worse than sampled best: '
+                    f'{verify["hfd_px"]:.2f} vs {best_hfd:.2f} (+{allowance:.2f} allowed)')
+            self.current_best_position = target
+            self.updateBestFocus.emit(target, verify['hfd_px'])
+            outcome['success'] = True
+            outcome['best_position'] = target
+            outcome['best_hfd_px'] = verify['hfd_px']
+            self.updateStatus.emit(self.makeAFStatus(
+                f'ASTAP autofocus verified at {target}: HFD {verify["hfd_px"]:.2f} px'))
+        except BaseException as exc:
+            outcome['error'] = str(exc)
+            print('ASTAP autofocus failed: ' + str(exc), flush=True)
+            self.updateStatus.emit(self.makeAFStatus('ASTAP autofocus failed: ' + str(exc)))
+            # Fail closed: restore start, as original autofocus does. Never override abort
+            # by continuing an unsafe move. Restoration is bounded by ASCOM MaxStep.
+            if start is not None and self.focuser_controller is not None:
+                try:
+                    self.focuser_controller.move_to(start, keep_running_callback=lambda: not self.shutdown_requested)
+                    self.current_focuser_position = int(self.focuser_controller.position)
+                    self.updateFocuserPosition.emit(self.current_focuser_position)
+                    outcome['restored_start'] = True
+                except Exception as restore_exc:
+                    outcome['restore_error'] = str(restore_exc)
+                    print('WARNING: Failed to restore starting focus: ' + str(restore_exc))
+        finally:
+            self.current_testing_position = None
+            self.af_tracking_active = False
+            try:
+                root = self._getGrabber().output_root / self._getGrabber().run_id
+                root.mkdir(parents=True, exist_ok=True)
+                (root / 'astap_autofocus_diagnostics.json').write_text(
+                    json.dumps(outcome, indent=2), encoding='utf-8')
+                with (root / 'astap_hfd_curve.csv').open('w', newline='', encoding='utf-8') as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(['stage','position','hfd_px','hfd_mad_px','valid_frames','median_stars'])
+                    for r in outcome['positions']:
+                        writer.writerow([r['stage'],r['position'],r['hfd_px'],r['hfd_mad_px'],
+                                         r['valid_frames'],r['median_stars']])
+            except Exception as save_exc:
+                print('WARNING: ASTAP diagnostics save failed: ' + str(save_exc))
+            self.autofocusResult.emit(outcome)
+
     def runAutofocus(self):
+        return self.runAutofocusASTAP()
+
+    def runAutofocusLegacy(self):
         """Bounded coarse search and fine refinement using fixed reference stars.
 
         If the initial focus is so poor that no stars can be fitted anywhere in
         the bounded range, abort safely. This is not a blind full-travel finder.
         """
-        print("Starting v3.5.1 spatial-star/fit-diagnostic autofocus sweep.")
+        print("Starting v3.6 bidirectional fixed-cohort autofocus sweep.")
         self.current_testing_position = None
         self.current_best_position = None
         self.af_catalog = None
@@ -975,6 +1145,10 @@ class FocusThread(QtCore.QThread):
         coarse_repeatability = None
         fine_cohort_ids = []
         fine_rows = []
+        forward_rows = []
+        reverse_rows = []
+        reverse_results = {}
+        fine_comparison = None
         approach_steps = None
         try:
             self._checkAutofocusActive()
@@ -1183,6 +1357,37 @@ class FocusThread(QtCore.QThread):
                     fine_positions.append(next_pos)
                 added_fine_positions += 1
 
+            # Complete a SECOND independent fine sweep in reverse position
+            # order. Do not reuse/cache the first-pass batches. The existing
+            # approach-from-below motion is deliberately unchanged on BOTH
+            # visits, so differences probe temporal changes rather than an
+            # uncontrolled change in mechanical backlash direction.
+            self.updateAutofocusStage.emit("Fine refinement — reverse pass")
+            for p in reversed(fine_positions):
+                measure_at(p, reverse_results, "fine reverse")
+            if any(reverse_results.get(p) is None for p in fine_positions):
+                raise AutofocusNotConverged(
+                    "Reverse fine pass has too few valid matched-star images")
+            try:
+                fine_rows, forward_rows, reverse_rows, fine_cohort_ids, fine_comparison = (
+                    compare_bidirectional_fine(
+                        [fine_results[p] for p in fine_positions],
+                        [reverse_results[p] for p in fine_positions],
+                        self.af_catalog.stars, fine_step, min_stars=8))
+            except ValueError as error:
+                raise AutofocusNotConverged(
+                    "Two-pass fine scan cannot compare matching stars: " + str(error))
+            best_row = min(fine_rows, key=lambda r:r['sigma_px'])
+            sample_best = int(best_row['position'])
+            print("Bidirectional fine scan: forward best={}, reverse best={}, "
+                  "shared stars={}, median offset={:+.4f}, residual RMS={:.4f}; {}".format(
+                      fine_comparison['forward_best_position'],
+                      fine_comparison['reverse_best_position'],
+                      len(fine_cohort_ids),
+                      fine_comparison['median_reverse_minus_forward_px'],
+                      fine_comparison['offset_corrected_rms_px'],
+                      'AGREE' if fine_comparison['passed'] else 'DISAGREE'))
+
             # Replot the final stable-cohort scores. The interim curve was a
             # quick per-image score, not identical-star aggregate measurements.
             self.updateAutofocusStage.emit("Fine refinement — common-star scores")
@@ -1238,6 +1443,12 @@ class FocusThread(QtCore.QThread):
                     f"Focus score drifted at unchanged position {sample_best}: "
                     f"difference={repeatability['absolute_change_px']:.4f}, "
                     f"allowed={repeatability['allowed_change_px']:.4f}")
+            if not fine_comparison['passed']:
+                failed = [name for name in ('same_best_region','offset_ok','shape_ok')
+                          if not fine_comparison[name]]
+                raise AutofocusNotConverged(
+                    "Forward/reverse fine passes disagree (" + ', '.join(failed) +
+                    "); no reliable focus solution")
             response_diagnostics = self._validateFocusResponse(
                 fine_positions, fine_rows, sample_best, best_score)
             fitted_vertex = fitted_focus_vertex(fine_positions,
@@ -1284,6 +1495,9 @@ class FocusThread(QtCore.QThread):
                 "verification": verification,
                 "coarse_positions": [r for r in results if r['stage'].startswith('coarse')],
                 "fine_positions": fine_rows,
+                "fine_forward_positions": forward_rows,
+                "fine_reverse_positions": reverse_rows,
+                "fine_pass_comparison": fine_comparison,
                 "positions": results,
                 "rejected_batches":self.af_rejected_batches,
                 "reference_star_count":len(self.af_catalog.stars),
@@ -1296,7 +1510,7 @@ class FocusThread(QtCore.QThread):
                 "fine_extensions": added_fine_positions,
                 "repeatability": repeatability,
                 "coarse_repeatability": coarse_repeatability,
-                "diagnostic_version": "v3.5.1",
+                "diagnostic_version": "v3.6",
                 "approach_direction":"increasing_position",
                 "approach_steps": approach_steps,
                 "camera_backend":"ColibriGrab",
@@ -1335,11 +1549,14 @@ class FocusThread(QtCore.QThread):
                       "rejected_batches":self.af_rejected_batches,
                       "repeatability":repeatability,
                       "coarse_repeatability":coarse_repeatability,
-                      "diagnostic_version":"v3.5.1",
+                      "diagnostic_version":"v3.6",
                       "reference_stars": ([{"id":i,"x":q[0],"y":q[1],"sigma_px":q[2]}
                                           for i,q in enumerate(self.af_catalog.stars)]
                                           if self.af_catalog is not None else []),
                       "fine_positions":fine_rows,
+                      "fine_forward_positions": forward_rows,
+                      "fine_reverse_positions": reverse_rows,
+                      "fine_pass_comparison": fine_comparison,
                       "stable_fine_star_ids":fine_cohort_ids,
                       "camera_backend":"ColibriGrab"}
             self._saveAutofocusDiagnostics(result, fine_rows)
@@ -1973,7 +2190,7 @@ class Ui(QtWidgets.QMainWindow):
             raise FileNotFoundError(f"PyFocus.ui is required for interactive mode: {ui_path}")
         uic.loadUi(str(ui_path), self)
                 
-        self.title = "PyFocus Automated Focusing v3.5.1"
+        self.title = "PyFocus Automated Focusing v3.6"
 
         # Detach widgets loaded from PyFocus.ui before replacing the central widget.
         # Otherwise setCentralWidget() may delete the old central widget and its children.
@@ -1986,7 +2203,7 @@ class Ui(QtWidgets.QMainWindow):
 
 
         # Make the GUI large enough for manual focusing.
-        self.setWindowTitle("PyFocus Automated Focusing — v3.5.1")
+        self.setWindowTitle("PyFocus Automated Focusing — v3.6")
 
         screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
 
@@ -2314,7 +2531,24 @@ class Ui(QtWidgets.QMainWindow):
         self.AutofocusPage = QtWidgets.QWidget()
         af_layout = QtWidgets.QVBoxLayout(self.AutofocusPage)
         af_layout.setContentsMargins(0, 0, 0, 0)
-        af_layout.addWidget(self.AFPlot)
+        # Each autofocus phase gets its own retained graph.
+        self.AFStageTabs = QtWidgets.QTabWidget()
+        self.af_stage_plots = {}
+        self.af_stage_curves = {}
+        self.af_stage_best_lines = {}
+        self.af_stage_data = {}
+        for stage_key, title in (("coarse", "Coarse"), ("fine", "Fine"),
+                                 ("verification", "Verification")):
+            plot = self.AFPlot if stage_key == "coarse" else pg.PlotWidget()
+            plot.setBackground("k")
+            plot.showGrid(x=True, y=True, alpha=0.3)
+            plot.setLabel("left", "Median ASTAP HFD", units="px", color="#FFFFFF")
+            plot.setLabel("bottom", "Focuser position", color="#FFFFFF")
+            self.af_stage_plots[stage_key] = plot
+            self.af_stage_data[stage_key] = []
+            self.AFStageTabs.addTab(plot, title)
+        af_layout.addWidget(self.AFStageTabs)
+        self._af_stage_key = "coarse"
 
         self.PlotStack.addWidget(self.LiveTrendPage)
         self.PlotStack.addWidget(self.AutofocusPage)
@@ -2494,7 +2728,7 @@ class Ui(QtWidgets.QMainWindow):
             symbol='o',
             symbolSize=7,
             symbolBrush='c',
-            name='Median average sigma'
+            name='Median ASTAP HFD'
         )
 
         self.best_focus_line = pg.InfiniteLine(
@@ -2505,6 +2739,18 @@ class Ui(QtWidgets.QMainWindow):
 
         self.AFPlot.addItem(self.best_focus_line)
         self.best_focus_line.hide()
+        self.af_stage_curves["coarse"] = self.af_curve_line
+        self.af_stage_best_lines["coarse"] = self.best_focus_line
+        for key in ("fine", "verification"):
+            plot = self.af_stage_plots[key]
+            self.af_stage_curves[key] = plot.plot(
+                [], [], pen=pg.mkPen(color="c", width=2),
+                symbol="o", symbolSize=7, symbolBrush="c")
+            line = pg.InfiniteLine(angle=90, movable=False,
+                pen=pg.mkPen(color="m", width=2, style=QtCore.Qt.DashLine))
+            plot.addItem(line)
+            line.hide()
+            self.af_stage_best_lines[key] = line
 
         # ---------------- Right column: status / metrics ----------------
         status_group = QtWidgets.QGroupBox("Current Focus Metrics")
@@ -2849,9 +3095,12 @@ class Ui(QtWidgets.QMainWindow):
 
         self.AFPositions = []
         self.AFScores = []
-
-        self.af_curve_line.setData([], [])
-        self.best_focus_line.hide()
+        for key in self.af_stage_data:
+            self.af_stage_data[key].clear()
+            self.af_stage_curves[key].setData([], [])
+            self.af_stage_best_lines[key].hide()
+        self._af_stage_key = "coarse"
+        self.AFStageTabs.setCurrentIndex(0)
 
         self.focus_curve_by_position = {}
 
@@ -2952,6 +3201,8 @@ class Ui(QtWidgets.QMainWindow):
 
     def onAutofocusResult(self, result):
         """Keep a final, explicit result visible after worker stops."""
+        for key in ("coarse", "fine", "verification"):
+            self._saveAutofocusStagePlot(key)
         if bool(result.get("success")):
             position = result.get("best_position")
             self._af_result_state = f"VERIFIED FOCUS @ {position}"
@@ -2970,78 +3221,78 @@ class Ui(QtWidgets.QMainWindow):
             # The smallest sample is not a verified best focus after failure.
         self.refreshAutofocusSummary()
 
+    def _saveAutofocusStagePlot(self, key):
+        """Export completed phase without changing acquisition or focus selection."""
+        if not self.af_stage_data.get(key):
+            return
+        try:
+            from pyqtgraph.exporters import ImageExporter
+            worker = getattr(self, "thread", None)
+            if worker is None or worker.grabber is None:
+                return
+            grabber = worker.grabber
+            root = Path(grabber.output_root) / grabber.run_id
+            root.mkdir(parents=True, exist_ok=True)
+            plot = self.af_stage_plots[key]
+            exporter = ImageExporter(plot.plotItem)
+            exporter.parameters()["width"] = 1600
+            exporter.export(str(root / f"astap_{key}_focus_curve.png"))
+            print(f"Saved ASTAP {key} focus plot in {root}")
+        except Exception as exc:
+            print(f"WARNING: Could not export {key} plot: {exc}")
+
     def updateAutofocusStage(self, stage):
-        """Display one focus-search phase at a time; preserve data in JSON."""
-        previous_stage = getattr(self, "_active_af_stage", "Waiting")
-        self._active_af_stage = str(stage)
-        self._af_best_sampled = None  # new phase, do not mix coarse and fine minima
-        self.refreshAutofocusSummary()
-        self.AFPositions = []
-        self.AFScores = []
-        self.af_curve_line.setData([], [])
-        self.best_focus_line.hide()
-        self.AFPlot.getPlotItem().setTitle(str(stage))
-        if previous_stage == "Coarse search" and str(stage) == "Fine refinement":
-            guidance = ("Coarse scan complete; now showing FINE positions only. "
-                        "Coarse data retained in run results.")
-        elif str(stage) == "Fine refinement — common-star scores":
-            guidance = ("Replotting fine curve using only the SAME stars at every "
-                        "position. Original measurements saved in diagnostics.")
+        """Switch to new phase without erasing previous phase graphs."""
+        stage = str(stage)
+        previous = self._af_stage_key
+        if "verification" in stage.lower():
+            key = "verification"
+        elif "fine" in stage.lower():
+            key = "fine"
         else:
-            guidance = str(stage) + ": acquiring fixed-star normalized PSF measurements"
-        self.focus_guidance_label.setText(guidance)
+            key = "coarse"
+        if key != previous:
+            self._saveAutofocusStagePlot(previous)
+        self._af_stage_key = key
+        self._active_af_stage = stage
+        self._af_best_sampled = None
+        self.AFStageTabs.setCurrentWidget(self.af_stage_plots[key])
+        self.af_stage_plots[key].getPlotItem().setTitle(stage)
+        self.focus_guidance_label.setText(f"{stage}: acquiring ASTAP HFD measurements")
+        self.refreshAutofocusSummary()
 
     def updateAutofocusPlot(self, focuser_position, median_sigma):
-        self.AFPositions.append(int(focuser_position))
-        self.AFScores.append(float(median_sigma))
-        best_index = int(np.argmin(self.AFScores))
-        self._af_best_sampled = (self.AFPositions[best_index], self.AFScores[best_index])
+        key = self._af_stage_key
+        samples = self.af_stage_data[key]
+        samples.append((int(focuser_position), float(median_sigma)))
+        ordered = sorted(samples)
+        positions = [p for p, _ in ordered]
+        scores = [v for _, v in ordered]
+        plot = self.af_stage_plots[key]
+        self.af_stage_curves[key].setData(positions, scores)
+        best_i = int(np.argmin(scores))
+        self._af_best_sampled = (positions[best_i], scores[best_i])
         self.refreshAutofocusSummary()
         self.focus_guidance_label.setText(
-            f"{getattr(self, '_active_af_stage', 'Autofocus')}: "
-            f"latest {float(median_sigma):.3f} px @ {int(focuser_position)} | "
-            f"best sampled {self.AFScores[best_index]:.3f} px @ "
-            f"{self.AFPositions[best_index]} | fixed-star normalized width"
-        )
-
-        # Sort by focuser position so the curve is visually sane.
-        ordered = sorted(zip(self.AFPositions, self.AFScores), key=lambda item: item[0])
-
-        positions = [item[0] for item in ordered]
-        scores = [item[1] for item in ordered]
-
-        self.af_curve_line.setData(positions, scores)
-
+            f"{self._active_af_stage}: latest {float(median_sigma):.3f} px "
+            f"@ {int(focuser_position)} | best sampled {scores[best_i]:.3f} px "
+            f"@ {positions[best_i]} | ASTAP HFD")
         if len(positions) >= 2:
-            xmin = min(positions)
-            xmax = max(positions)
-            xpad = max(1, 0.05 * (xmax - xmin))
-
-            self.AFPlot.setXRange(
-                xmin - xpad,
-                xmax + xpad,
-                padding=0
-            )
-
-        if len(scores) > 0:
-            ymin = min(scores)
-            ymax = max(scores)
-
-            if ymax > ymin:
-                ypad = 0.1 * (ymax - ymin)
-            else:
-                ypad = max(0.1, abs(ymin) * 0.05)
-
-            self.AFPlot.setYRange(
-                ymin - ypad,
-                ymax + ypad,
-                padding=0
-            )
-
+            span = max(1, max(positions) - min(positions))
+            plot.setXRange(min(positions)-0.05*span,
+                           max(positions)+0.05*span, padding=0)
+        lo, hi = min(scores), max(scores)
+        pad = max(0.05, 0.1*(hi-lo))
+        plot.setYRange(lo-pad, hi+pad, padding=0)
+        self.af_stage_best_lines[key].setPos(positions[best_i])
+        self.af_stage_best_lines[key].show()
 
     def updateBestFocusMarker(self, best_position, best_score):
-        self.best_focus_line.setPos(int(best_position))
-        self.best_focus_line.show()
+        # Verified position belongs to the verification graph, if available.
+        key = "verification" if self.af_stage_data.get("verification") else self._af_stage_key
+        line = self.af_stage_best_lines[key]
+        line.setPos(int(best_position))
+        line.show()
 
     def createPersistentWorker(self):
         settings = self.getFocusSettings()
