@@ -980,6 +980,46 @@ class FocusThread(QtCore.QThread):
             # Failed disk logging must never cause new focuser movements.
             print('WARNING: Could not save autofocus diagnostics: ' + str(exc))
 
+    def _saveASTAPHeadlessPlots(self, root, outcome):
+        """Write diagnostic PNGs without QWidget, hardware calls, or GUI state."""
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        groups = (
+            ("coarse", "Coarse scan"),
+            ("fine", "Fine scan"),
+            ("verification", "Independent verification"),
+        )
+        for stage, title in groups:
+            rows = sorted(
+                (r for r in outcome.get("positions", [])
+                 if r.get("stage") == stage and r.get("hfd_px") is not None),
+                key=lambda r: int(r["position"]),
+            )
+            if not rows:
+                continue
+            x = [int(r["position"]) for r in rows]
+            y = [float(r["hfd_px"]) for r in rows]
+            errors = [float(r.get("hfd_mad_px") or 0) for r in rows]
+            fig = Figure(figsize=(9, 5.5), dpi=150)
+            FigureCanvasAgg(fig)
+            ax = fig.add_subplot(111)
+            ax.errorbar(x, y, yerr=errors, fmt="o-", capsize=4, linewidth=1.5)
+            ax.set(xlabel="Focuser position (steps)", ylabel="Median HFD (pixels)",
+                   title=f"ASTAP {title} (error bars: frame MAD)")
+            ax.grid(True, alpha=0.25)
+            if stage == "verification" and outcome.get("best_position") is not None:
+                best = int(outcome["best_position"])
+                ax.axvline(best, linestyle="--", linewidth=1.2,
+                           label=f"Selected focus: {best}")
+                ax.legend()
+            fig.tight_layout()
+            destination = root / f"astap_{stage}_focus_curve.png"
+            fig.savefig(str(destination))
+            print(f"Saved ASTAP {stage} focus plot: {destination}", flush=True)
+
     def runAutofocusASTAP(self):
         """Supervised ASTAP HFD autofocus, preserving existing hardware safeguards."""
         self.current_best_position = None
@@ -1067,21 +1107,82 @@ class FocusThread(QtCore.QThread):
                 solution = select_focus(fine_rows, fine)
             except ValueError as exc:
                 raise AutofocusNotConverged(str(exc)) from exc
-            target = solution['position']
+            target = int(solution['position'])
             if not low <= target <= high:
                 raise AutofocusNotConverged('ASTAP selected position outside allowed range')
             outcome['solution'] = solution
-            self.updateAutofocusStage.emit('ASTAP independent verification')
-            verify = sample(target,'verification')
+
+            # Compare fresh independent batches, not the old fine-scan readings.
+            # A close starting position is included to avoid losing an already
+            # good focus to a noisy, shallow quadratic fit.
+            sampled = int(solution['best_sampled_position'])
+            candidates = [target, sampled]
+            if abs(start - sampled) <= 2 * fine and low <= start <= high:
+                candidates.append(start)
+            candidates = list(dict.fromkeys(candidates))
+            print(f'ASTAP final comparison candidates: {candidates}', flush=True)
+            self.updateAutofocusStage.emit('ASTAP independent comparison')
+            comparisons = []
+            for candidate in candidates:
+                row = sample(candidate, 'verification')
+                comparisons.append(row)
+                print(f'ASTAP fresh comparison {candidate}: HFD={row["hfd_px"]:.4f} '
+                      f'+/- MAD {row["hfd_mad_px"]:.4f}', flush=True)
+            outcome['comparison_batches'] = comparisons
+            by_pos = {int(r['position']): r for r in comparisons}
+            # Select a challenger only when the improvement exceeds a modest
+            # noise floor. Near-ties keep the original starting focus when it
+            # was measured, otherwise retain the fitted candidate.
+            incumbent = start if start in by_pos else target
+            selected = by_pos[incumbent]
+            for row in sorted(comparisons, key=lambda r: r['hfd_px']):
+                improvement = float(selected['hfd_px'] - row['hfd_px'])
+                required = max(0.05, float(selected['hfd_mad_px'] + row['hfd_mad_px']))
+                if improvement > required:
+                    selected = row
+            target = int(selected['position'])
+            # Record the strongest challenger to the final selection. This is
+            # display/diagnostic information, not a change to the decision rule.
+            alternatives = [r for r in comparisons if int(r['position']) != target]
+            strongest = min(alternatives, key=lambda r: float(r['hfd_px'])) if alternatives else None
+            incumbent_row = by_pos.get(start) if start in by_pos else by_pos.get(int(solution['position']))
+            incumbent_position = int(incumbent_row['position'])
+            incumbent_hfd = float(incumbent_row['hfd_px'])
+            best_challenger = min((r for r in comparisons if int(r['position']) != incumbent_position),
+                                  key=lambda r: float(r['hfd_px']), default=None)
+            initial_improvement = (incumbent_hfd - float(best_challenger['hfd_px'])
+                                   if best_challenger is not None else None)
+            initial_required = (max(0.05, float(incumbent_row['hfd_mad_px']) +
+                                    float(best_challenger['hfd_mad_px']))
+                                if best_challenger is not None else None)
+            outcome['comparison_selection'] = {
+                'position': target,
+                'rule': 'fresh lowest HFD with > max(0.05 px, sum of MADs) improvement',
+                'starting_position_considered': start in by_pos,
+                'incumbent_position': incumbent_position,
+                'incumbent_hfd_px': incumbent_hfd,
+                'best_challenger_position': (int(best_challenger['position']) if best_challenger else None),
+                'best_challenger_hfd_px': (float(best_challenger['hfd_px']) if best_challenger else None),
+                'challenger_improvement_px': initial_improvement,
+                'required_improvement_px': initial_required,
+                'challenger_passed_threshold': (bool(initial_improvement > initial_required)
+                                                 if initial_required is not None else None),
+            }
+            print(f'ASTAP selected from fresh comparisons: {target} '
+                  f'(HFD={selected["hfd_px"]:.4f})', flush=True)
+            # Move back to the chosen focus if it was not measured last.
+            if int(focuser.position) != target:
+                last = self._moveFocusForScan(target, last, approach, maxstep, focuser)
+            # Preserve the original conservative verification safeguard.
+            verify = selected
             outcome['verification'] = verify
-            # ASTAP HFD has 0.01 px quantization. Do not apply Gaussian sigma tolerances.
             best_hfd = solution['best_sampled_hfd_px']
-            allowance = max(0.15, 0.08*best_hfd,
-                            3*(verify['hfd_mad_px'] + min(r['hfd_mad_px'] for r in fine_rows)))
+            allowance = max(0.15, 0.08 * best_hfd,
+                            3 * (verify['hfd_mad_px'] + min(r['hfd_mad_px'] for r in fine_rows)))
             outcome['verification_allowance_px'] = float(allowance)
             if verify['hfd_px'] > best_hfd + allowance:
                 raise AutofocusVerificationFailed(
-                    f'ASTAP HFD verification worse than sampled best: '
+                    f'ASTAP final comparison HFD worse than sampled best: '
                     f'{verify["hfd_px"]:.2f} vs {best_hfd:.2f} (+{allowance:.2f} allowed)')
             self.current_best_position = target
             self.updateBestFocus.emit(target, verify['hfd_px'])
@@ -1121,6 +1222,13 @@ class FocusThread(QtCore.QThread):
                                          r['valid_frames'],r['median_stars']])
             except Exception as save_exc:
                 print('WARNING: ASTAP diagnostics save failed: ' + str(save_exc))
+            try:
+                if self.grabber is not None:
+                    root = Path(self.grabber.output_root) / self.grabber.run_id
+                    root.mkdir(parents=True, exist_ok=True)
+                    self._saveASTAPHeadlessPlots(root, outcome)
+            except Exception as plot_exc:
+                print('WARNING: ASTAP PNG plot export failed: ' + str(plot_exc), flush=True)
             self.autofocusResult.emit(outcome)
 
     def runAutofocus(self):
@@ -2203,7 +2311,7 @@ class Ui(QtWidgets.QMainWindow):
 
 
         # Make the GUI large enough for manual focusing.
-        self.setWindowTitle("PyFocus Automated Focusing — v3.6")
+        self.setWindowTitle("Colibri Focus - v1.0")
 
         screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
 
@@ -2537,6 +2645,8 @@ class Ui(QtWidgets.QMainWindow):
         self.af_stage_curves = {}
         self.af_stage_best_lines = {}
         self.af_stage_data = {}
+        self.af_verification_overlay_items = []
+        self.af_verification_legend = None
         for stage_key, title in (("coarse", "Coarse"), ("fine", "Fine"),
                                  ("verification", "Verification")):
             plot = self.AFPlot if stage_key == "coarse" else pg.PlotWidget()
@@ -3095,6 +3205,11 @@ class Ui(QtWidgets.QMainWindow):
 
         self.AFPositions = []
         self.AFScores = []
+        for item in self.af_verification_overlay_items:
+            self.af_stage_plots["verification"].removeItem(item)
+        self.af_verification_overlay_items.clear()
+        if self.af_verification_legend is not None:
+            self.af_verification_legend.clear()
         for key in self.af_stage_data:
             self.af_stage_data[key].clear()
             self.af_stage_curves[key].setData([], [])
@@ -3201,11 +3316,16 @@ class Ui(QtWidgets.QMainWindow):
 
     def onAutofocusResult(self, result):
         """Keep a final, explicit result visible after worker stops."""
+        self._drawIndependentVerification(result)
         for key in ("coarse", "fine", "verification"):
             self._saveAutofocusStagePlot(key)
         if bool(result.get("success")):
             position = result.get("best_position")
-            self._af_result_state = f"VERIFIED FOCUS @ {position}"
+            selection = result.get("comparison_selection") or {}
+            if position is not None and position == result.get("comparison_selection", {}).get("incumbent_position") and selection.get("challenger_passed_threshold") is False:
+                self._af_result_state = f"VERIFIED @ {position} (retained: improvement below noise threshold)"
+            else:
+                self._af_result_state = f"VERIFIED FOCUS @ {position}"
             if position is not None:
                 self.updateFocuserPositionLabel(position)
         else:
@@ -3220,6 +3340,110 @@ class Ui(QtWidgets.QMainWindow):
                 self._af_result_state = f"FAILED; {reason}"
             # The smallest sample is not a verified best focus after failure.
         self.refreshAutofocusSummary()
+
+    def _drawIndependentVerification(self, result):
+        """Show independent HFD comparisons and explain the actual decision.
+
+        The gray line is the PREVIOUS fine scan, not independent verification.
+        This visualization never changes focuser control or selection.
+        """
+        rows = result.get("comparison_batches") or []
+        if not rows:
+            return
+        plot = self.af_stage_plots["verification"]
+        for item in self.af_verification_overlay_items:
+            plot.removeItem(item)
+        self.af_verification_overlay_items.clear()
+        if self.af_verification_legend is None:
+            self.af_verification_legend = pg.LegendItem(offset=(8, 8))
+            self.af_verification_legend.setParentItem(plot.getPlotItem().vb)
+            self.af_verification_legend.anchor((1, 0), (1, 0), offset=(-12, 12))
+        else:
+            self.af_verification_legend.clear()
+
+        fine_rows = sorted((r for r in result.get("positions", [])
+                            if r.get("stage") == "fine"),
+                           key=lambda r: int(r["position"]))
+        if fine_rows:
+            context = plot.plot(
+                [int(r["position"]) for r in fine_rows],
+                [float(r["hfd_px"]) for r in fine_rows],
+                pen=pg.mkPen((110, 135, 150, 155), width=1.5),
+                symbol="o", symbolSize=4,
+                symbolBrush=pg.mkBrush(110, 135, 150, 125), symbolPen=None)
+            self.af_verification_overlay_items.append(context)
+            self.af_verification_legend.addItem(context, "Gray: earlier fine scan (context only)")
+
+        solution = result.get("solution") or {}
+        start = self._af_start_position
+        fitted = solution.get("position")
+        sampled = solution.get("best_sampled_position")
+        selected = result.get("best_position")
+        colors = ["#ffa657", "#61dafb", "#b6f36b"]
+        for index, row in enumerate(rows):
+            pos = int(row["position"])
+            hfd = float(row["hfd_px"])
+            mad = max(0., float(row.get("hfd_mad_px", 0.)))
+            roles = []
+            if fitted is not None and pos == int(fitted):
+                roles.append("quadratic fit")
+            if sampled is not None and pos == int(sampled):
+                roles.append("fine minimum")
+            if start is not None and pos == int(start):
+                roles.append("start")
+            role = "/".join(roles) or "candidate"
+            if selected is not None and pos == int(selected):
+                role += " [SELECTED]"
+            color = colors[index % len(colors)]
+            point = plot.plot([pos], [hfd], pen=None, symbol="o", symbolSize=12,
+                              symbolBrush=pg.mkBrush(color),
+                              symbolPen=pg.mkPen("w", width=1.2))
+            bar = pg.ErrorBarItem(x=np.array([pos]), y=np.array([hfd]),
+                                  top=np.array([mad]), bottom=np.array([mad]),
+                                  beam=24, pen=pg.mkPen(color, width=2))
+            plot.addItem(bar)
+            self.af_verification_overlay_items.extend((point, bar))
+            self.af_verification_legend.addItem(
+                point, f"{pos} {role}: {hfd:.3f} +/- {mad:.3f} px")
+
+        ordered = sorted((int(r["position"]), float(r["hfd_px"])) for r in rows)
+        self.af_stage_data["verification"] = ordered
+        self.af_stage_curves["verification"].setData([], [])
+        line = self.af_stage_best_lines["verification"]
+        if selected is not None:
+            line.setPos(int(selected))
+            line.show()
+        else:
+            line.hide()
+        all_positions = [int(r["position"]) for r in rows + fine_rows]
+        all_scores = [float(r["hfd_px"]) for r in rows + fine_rows]
+        all_scores += [float(r["hfd_px"]) + float(r.get("hfd_mad_px", 0)) for r in rows]
+        span = max(150, max(all_positions) - min(all_positions))
+        plot.setXRange(min(all_positions) - .08 * span,
+                       max(all_positions) + .08 * span, padding=0)
+        spread = max(.1, max(all_scores) - min(all_scores))
+        plot.setYRange(min(all_scores) - .12 * spread,
+                       max(all_scores) + .2 * spread, padding=0)
+        plot.getPlotItem().setTitle("Independent comparison (colored points +/- MAD)")
+        self.AFStageTabs.setCurrentWidget(plot)
+
+        decision = result.get("comparison_selection") or {}
+        challenger = decision.get("best_challenger_position")
+        improvement = decision.get("challenger_improvement_px")
+        required = decision.get("required_improvement_px")
+        incumbent = decision.get("incumbent_position")
+        if (challenger is not None and improvement is not None and required is not None
+                and selected is not None):
+            if int(selected) == int(incumbent) and improvement <= required:
+                reason = (f"RETAINED {selected}: {challenger} was only {improvement:.3f} px "
+                          f"sharper; need > {required:.3f} px to beat measurement scatter. "
+                          "Lower HFD alone does not guarantee a meaningful improvement.")
+            else:
+                reason = (f"SELECTED {selected}: independent comparison; strongest initial "
+                          f"challenger improvement {improvement:.3f} px "
+                          f"(threshold {required:.3f} px).")
+            self.focus_guidance_label.setText(reason)
+            self.focus_guidance_label.setToolTip(reason)
 
     def _saveAutofocusStagePlot(self, key):
         """Export completed phase without changing acquisition or focus selection."""
@@ -3245,7 +3469,7 @@ class Ui(QtWidgets.QMainWindow):
         """Switch to new phase without erasing previous phase graphs."""
         stage = str(stage)
         previous = self._af_stage_key
-        if "verification" in stage.lower():
+        if "verification" in stage.lower() or "comparison" in stage.lower():
             key = "verification"
         elif "fine" in stage.lower():
             key = "fine"
@@ -4099,7 +4323,7 @@ def headless_autofocus(args):
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_text(json.dumps(result,indent=2),encoding="utf-8")
         tmp.replace(p)
-    print("AUTOFOCUS_RESULT",json.dumps(result),flush=True)
+    print("AUTOFOCUS_RESULT", json.dumps({k: result.get(k) for k in ("success", "backend", "best_position", "best_hfd_px", "error") if k in result}), flush=True)
     return 0 if result.get("success",False) else 1
 
 if __name__ == '__main__':
