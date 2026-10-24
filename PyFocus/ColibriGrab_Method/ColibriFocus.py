@@ -54,6 +54,12 @@ class AutofocusVerificationFailed(Exception):
     """Focus was selected, but an independent final image check failed."""
 
 
+# Observatory software interlocks: do not widen without hardware review.
+FOCUSER_SAFE_MIN = 20000
+FOCUSER_SAFE_MAX = 100000
+RECOVERY_STEP = 2000
+RECOVERY_MAX_SAMPLES = 30
+
 class ASCOMFocuserController:
     def __init__(self, driver_id=None):
         self.driver_id = driver_id
@@ -162,8 +168,9 @@ class ASCOMFocuserController:
 
         target_position = int(target_position)
         max_step = int(self.focuser.MaxStep)
-        if not 0 <= target_position <= max_step:
-            raise ValueError(f"Target {target_position} outside focuser limits 0..{max_step}")
+        if not max(0, FOCUSER_SAFE_MIN) <= target_position <= min(max_step, FOCUSER_SAFE_MAX):
+            raise ValueError(f"REFUSED focuser move to {target_position}: safe limits "
+                             f"{max(0, FOCUSER_SAFE_MIN)}..{min(max_step, FOCUSER_SAFE_MAX)}")
 
         if keep_running_callback is not None and not keep_running_callback():
             raise AutofocusCancelled("Cancelled before focuser move")
@@ -277,6 +284,11 @@ class FocusThread(QtCore.QThread):
         self.focuser_driver_id = settings.get("focuser_driver_id", None)
         self.af_coarse_multiplier = int(settings.get("af_coarse_multiplier", 3))
         self.af_max_excursion = int(settings.get("af_max_excursion", 900))
+        self.recovery_direction = settings.get("recovery_direction", "low-high")
+        self.recovery_spacing = int(settings.get("recovery_spacing", RECOVERY_STEP))
+        self.recovery_refinement = settings.get("recovery_refinement", "automatic")
+        self.af_mode = settings.get("af_mode", "coarse")
+        self.af_quadratic = bool(settings.get("af_quadratic", False))
         self.af_catalog = None
         self.af_tracking_active = False
         # Stream mode now locks the *same* sources across frames. This is a
@@ -616,6 +628,11 @@ class FocusThread(QtCore.QThread):
             self.af_verify_tolerance = float(settings.get("af_verify_tolerance", self.af_verify_tolerance))
             self.af_coarse_multiplier = int(settings.get("af_coarse_multiplier", self.af_coarse_multiplier))
             self.af_max_excursion = int(settings.get("af_max_excursion", self.af_max_excursion))
+            self.recovery_direction = settings.get("recovery_direction", self.recovery_direction)
+            self.recovery_spacing = int(settings.get("recovery_spacing", self.recovery_spacing))
+            self.recovery_refinement = settings.get("recovery_refinement", self.recovery_refinement)
+            self.af_mode = settings.get("af_mode", self.af_mode)
+            self.af_quadratic = bool(settings.get("af_quadratic", self.af_quadratic))
             new_exe = settings.get("colibrigrab_exe", self.colibrigrab_exe)
             new_root = settings.get("grab_output_root", self.grab_output_root)
             new_temp = int(settings.get("grab_temperature", self.grab_temperature))
@@ -665,7 +682,7 @@ class FocusThread(QtCore.QThread):
         allowance, not a measured backlash calibration.
         """
         preload = int(target) - int(travel)
-        if preload < 0 or target > max_step:
+        if preload < FOCUSER_SAFE_MIN or target > min(max_step, FOCUSER_SAFE_MAX):
             raise ValueError(
                 f"Cannot approach {target} from below by {travel} steps "
                 f"within focuser range 0..{max_step}"
@@ -774,7 +791,7 @@ class FocusThread(QtCore.QThread):
     def _moveFocusForScan(self, target, last_position, approach_steps, max_step, focuser):
         """Always approach a measured point from below; limit travel in caller."""
         self._checkAutofocusActive()
-        if target < 0 or target > max_step:
+        if target < FOCUSER_SAFE_MIN or target > min(max_step, FOCUSER_SAFE_MAX):
             raise AutofocusNotConverged(f"Focuser target {target} out of travel 0..{max_step}")
         if target == last_position:
             # Initial reference requires no movement, and no redundant slew
@@ -1026,7 +1043,7 @@ class FocusThread(QtCore.QThread):
         self.current_testing_position = None
         self.af_tracking_active = True
         start = None
-        outcome = {'success': False, 'backend': 'ASTAP HFD', 'positions': []}
+        outcome = {'success': False, 'backend': 'ASTAP HFD', 'positions': [], 'autofocus_mode': self.af_mode, 'quadratic_enabled': bool(self.af_mode == 'fine' and self.af_quadratic)}
         last = None
         try:
             self._checkAutofocusActive()
@@ -1045,19 +1062,29 @@ class FocusThread(QtCore.QThread):
             frames = int(self.af_frames_per_position)
             excursion = int(self.af_max_excursion)
             maxstep = int(focuser.focuser.MaxStep)
+            if not FOCUSER_SAFE_MIN <= start <= min(FOCUSER_SAFE_MAX, maxstep):
+                raise ValueError(f"Starting position {start} outside safe range {FOCUSER_SAFE_MIN}..{min(FOCUSER_SAFE_MAX, maxstep)}")
             approach = max(coarse, int(self.af_backlash_steps))
             if fine <= 0 or side < 2 or frames < 5 or coarse <= fine:
                 raise ValueError('ASTAP requires positive steps, >=2 steps each side, >=5 frames')
-            if excursion < side * coarse + approach:
+            if self.af_mode != 'recovery' and excursion < side * coarse + approach:
                 raise ValueError(f'Max travel must include {side*coarse} scan steps plus '
                                  f'{approach} approach allowance: need >= {side*coarse+approach}')
-            low = start - excursion + approach
-            high = start + excursion
-            if low < approach or high > maxstep:
-                raise ValueError('ASTAP scan or backlash preload exceeds physical focuser limits')
-            positions = sorted(start + j*coarse for j in range(-side,side+1))
-            if positions[0] < low or positions[-1] > high:
-                raise ValueError('Coarse scan exceeds max travel including approach preload')
+            low = max(FOCUSER_SAFE_MIN + approach, start - excursion + approach)
+            high = min(FOCUSER_SAFE_MAX, maxstep, start + excursion)
+            if self.af_mode != 'recovery':
+                positions = sorted(start + j*coarse for j in range(-side,side+1))
+                if positions[0] < low or positions[-1] > high:
+                    raise ValueError('Coarse scan exceeds safe travel including approach preload')
+            else:
+                # Blind recovery explores the full permitted interval; no HFD at
+                # the starting position is required. Sample budget is bounded.
+                low = FOCUSER_SAFE_MIN + approach
+                high = min(FOCUSER_SAFE_MAX, maxstep)
+                if low >= high:
+                    raise ValueError('No safe recovery travel after backlash allowance')
+                positions = []  # Populated after the wide search.
+            print(f'ASTAP safe focuser range: {FOCUSER_SAFE_MIN}..{min(FOCUSER_SAFE_MAX, maxstep)}', flush=True)
             if not Path(DEFAULT_ASTAP).is_file():
                 raise FileNotFoundError('ASTAP not found at ' + DEFAULT_ASTAP)
             grabber = self._getGrabber()
@@ -1088,25 +1115,226 @@ class FocusThread(QtCore.QThread):
                         if not self._isAutofocusActive():
                             raise AutofocusCancelled('ASTAP interrupted by cancellation') from exc
                         measures.append({'rcd': str(path), 'error': str(exc)})
-                summary = summarize_batch(measures, max(5,int(np.ceil(frames*0.70))))
+                minimum_valid = max(5, int(np.ceil(frames * 0.70)))
+                valid_frames = [m for m in measures if 'hfd_px' in m]
+                if len(valid_frames) < minimum_valid:
+                    row = dict(position=int(pos), stage=stage, hfd_px=None,
+                               hfd_mad_px=None, valid_frames=len(valid_frames),
+                               median_stars=None, frames=measures,
+                               error=(f'Only {len(valid_frames)} valid ASTAP frames; '
+                                      f'need {minimum_valid}'))
+                    outcome['positions'].append(row)
+                    print(f'WARNING: ASTAP {stage} {pos}: {row["error"]}; '
+                          'skipping this position and continuing', flush=True)
+                    self.updateStatus.emit(self.makeAFStatus(
+                        f'ASTAP {stage} {pos}: no reliable HFD; continuing'))
+                    return None
+                summary = summarize_batch(measures, minimum_valid)
                 row = dict(summary, position=int(pos), stage=stage)
                 outcome['positions'].append(row)
                 self.updateAutofocusPlot.emit(int(pos), float(row['hfd_px']))
                 print(f'ASTAP {stage} {pos}: HFD={row["hfd_px"]:.3f}, '
                       f'MAD={row["hfd_mad_px"]:.3f}, stars={row["median_stars"]:.0f}', flush=True)
                 return row
+            if self.af_mode == 'recovery':
+                self.updateAutofocusStage.emit('ASTAP blind recovery')
+                # Search the entire safe interval, including its endpoints when
+                # physically reachable. A negative-direction approach requires
+                # room for backlash preload at the low boundary.
+                spacing = int(self.recovery_spacing)
+                if spacing not in (1000, 2000, 3000):
+                    raise ValueError('Recovery spacing must be 1000, 2000 or 3000')
+                if self.recovery_direction not in ('low-high', 'high-low', 'nearest'):
+                    raise ValueError('Invalid recovery direction')
+                if self.recovery_refinement not in ('automatic', 'coarse'):
+                    raise ValueError('Invalid recovery refinement')
+                grid = list(range(low, high + 1, spacing))
+                if grid[-1] != high:
+                    grid.append(high)
+                if self.recovery_direction == 'high-low':
+                    grid.reverse()
+                elif self.recovery_direction == 'nearest':
+                    # Expanding radius from current position; no assumption
+                    # that the optimum is on either side of the starting point.
+                    grid.sort(key=lambda p: (abs(p - start), p))
+                print(f'ASTAP recovery: {len(grid)} positions, spacing={spacing}, '
+                      f'direction={self.recovery_direction}, safe={low}..{high}', flush=True)
+                wide_rows = []
+                visited = set()
+                for p in grid:
+                    row = sample(p, 'recovery')
+                    visited.add(p)
+                    if row is not None:
+                        wide_rows.append(row)
+                # If the first pass missed a narrow detectable-focus basin,
+                # make a single denser pass at 500-step spacing. This is still
+                # bounded, finite, and within the same safety limits.
+                if len(wide_rows) < 3:
+                    print('ASTAP recovery: insufficient usable samples; trying 500-step fallback', flush=True)
+                    fallback = list(range(low, high + 1, 500))
+                    if fallback[-1] != high:
+                        fallback.append(high)
+                    if self.recovery_direction == 'high-low':
+                        fallback.reverse()
+                    elif self.recovery_direction == 'nearest':
+                        fallback.sort(key=lambda p: (abs(p - start), p))
+                    for p in fallback:
+                        if p in visited:
+                            continue
+                        row = sample(p, 'recovery')
+                        visited.add(p)
+                        if row is not None:
+                            wide_rows.append(row)
+                outcome['recovery_valid_positions'] = len(wide_rows)
+                if len(wide_rows) < 3:
+                    raise AutofocusNotConverged('Recovery: fewer than 3 valid HFD positions after dense fallback')
+                wide_best = min(wide_rows, key=lambda r: r['hfd_px'])
+                wide_pos = int(wide_best['position'])
+                left_wide = [r for r in wide_rows if r['position'] < wide_pos]
+                right_wide = [r for r in wide_rows if r['position'] > wide_pos]
+                if not left_wide or not right_wide:
+                    raise AutofocusNotConverged('Recovery: minimum not bracketed by valid measurements on both sides')
+                wide_noise = max(0.10, 2.0 * float(wide_best['hfd_mad_px']))
+                if (max(r['hfd_px'] for r in left_wide) - wide_best['hfd_px'] < wide_noise or
+                        max(r['hfd_px'] for r in right_wide) - wide_best['hfd_px'] < wide_noise):
+                    raise AutofocusNotConverged('Recovery: no convincing HFD rise on both sides')
+                refine_step = max(coarse, spacing // 4)
+                refine_grid = list(range(max(low, wide_pos - spacing),
+                                         min(high, wide_pos + spacing) + 1,
+                                         refine_step))
+                refine_rows = [r for p in refine_grid if (r := sample(p, 'recovery-refine')) is not None]
+                pool = wide_rows + refine_rows
+                refined = min(pool, key=lambda r: r['hfd_px'])
+                center = int(refined['position'])
+                positions = [center + j * coarse for j in range(-side, side + 1)]
+                if positions[0] - approach < FOCUSER_SAFE_MIN or positions[-1] > high:
+                    raise AutofocusNotConverged('Recovery: coarse scan cannot fit inside safe limits')
+                low = positions[0] - approach
+                high = min(FOCUSER_SAFE_MAX, maxstep, positions[-1] + side * fine + approach)
+                print(f'ASTAP recovery: coarse scan centered near {center}', flush=True)
             self.updateAutofocusStage.emit('ASTAP coarse HFD')
-            coarse_rows = [sample(p,'coarse') for p in positions]
+            coarse_rows = [r for p in positions if (r := sample(p, 'coarse')) is not None]
+            outcome['invalid_coarse_positions'] = len(positions) - len(coarse_rows)
+            if len(coarse_rows) < 5:
+                raise AutofocusNotConverged(
+                    f'Only {len(coarse_rows)} valid coarse positions; need at least five')
             coarse_best = min(coarse_rows, key=lambda r:r['hfd_px'])['position']
-            if coarse_best in (positions[0], positions[-1]):
-                raise AutofocusNotConverged('ASTAP coarse minimum at edge; no safe extrapolation')
+            # An invalid sample is UNKNOWN, never a large HFD. Require actual
+            # measured points on both sides before refining this minimum.
+            left = [r for r in coarse_rows if r['position'] < coarse_best]
+            right = [r for r in coarse_rows if r['position'] > coarse_best]
+            if len(left) < 2 or len(right) < 2:
+                raise AutofocusNotConverged(
+                    f'Coarse minimum {coarse_best} is not bracketed by two valid '
+                    f'positions per side ({len(left)} left, {len(right)} right)')
+            best_coarse = next(r for r in coarse_rows if r['position'] == coarse_best)
+            noise = max(0.10, 2 * float(best_coarse['hfd_mad_px']))
+            if (max(r['hfd_px'] for r in left) - best_coarse['hfd_px'] < noise or
+                    max(r['hfd_px'] for r in right) - best_coarse['hfd_px'] < noise):
+                raise AutofocusNotConverged('Coarse minimum lacks a measurable rise on both sides')
+            if self.af_mode not in ('coarse', 'fine', 'recovery'):
+                raise ValueError(f'Unknown autofocus mode: {self.af_mode}')
+            if self.af_mode == 'coarse' or (self.af_mode == 'recovery' and self.recovery_refinement == 'coarse'):
+                # No quadratic fit: verify the measured coarse minimum against
+                # its immediately adjacent coarse positions with fresh batches.
+                by_coarse = {int(r['position']): r for r in coarse_rows}
+                candidate_positions = [coarse_best - coarse, coarse_best, coarse_best + coarse]
+                if any(p not in by_coarse for p in candidate_positions):
+                    raise AutofocusNotConverged(
+                        'Coarse minimum lacks valid immediately adjacent measurements')
+                self.updateAutofocusStage.emit('ASTAP independent comparison')
+                comparisons = []
+                for candidate in candidate_positions:
+                    row = sample(candidate, 'verification')
+                    if row is None:
+                        raise AutofocusVerificationFailed(
+                            f'Coarse verification at {candidate} has insufficient valid stars')
+                    comparisons.append(row)
+                outcome['comparison_batches'] = comparisons
+                by_pos = {int(r['position']): r for r in comparisons}
+                # Require an actual fresh minimum at the coarse candidate;
+                # if a neighbor is materially sharper, don't accept a bad bracket.
+                incumbent = by_pos[coarse_best]
+                for neighbor_pos in (coarse_best - coarse, coarse_best + coarse):
+                    neighbor = by_pos[neighbor_pos]
+                    improvement = float(incumbent['hfd_px'] - neighbor['hfd_px'])
+                    required = max(0.05, float(incumbent['hfd_mad_px'] + neighbor['hfd_mad_px']))
+                    if improvement > required:
+                        raise AutofocusVerificationFailed(
+                            f'Coarse minimum {coarse_best} was not repeatable: '
+                            f'neighbor {neighbor_pos} improved HFD by {improvement:.3f} px '
+                            f'(threshold {required:.3f} px)')
+                # Guard against changing conditions: original vs fresh score.
+                allowance = max(0.15, 0.08 * float(best_coarse['hfd_px']),
+                                3 * (float(best_coarse['hfd_mad_px']) +
+                                     float(incumbent['hfd_mad_px'])))
+                outcome['verification_allowance_px'] = float(allowance)
+                if float(incumbent['hfd_px']) > float(best_coarse['hfd_px']) + allowance:
+                    raise AutofocusVerificationFailed(
+                        f'Coarse focus changed by more than verification allowance '
+                        f'({incumbent["hfd_px"]:.3f} vs {best_coarse["hfd_px"]:.3f} px)')
+                if int(focuser.position) != coarse_best:
+                    last = self._moveFocusForScan(coarse_best, last, approach, maxstep, focuser)
+                outcome['solution'] = {'position': int(coarse_best),
+                                       'best_sampled_position': int(coarse_best),
+                                       'best_sampled_hfd_px': float(best_coarse['hfd_px']),
+                                       'method': 'best measured coarse HFD; no quadratic fit'}
+                outcome['verification'] = incumbent
+                outcome['best_position'] = int(coarse_best)
+                outcome['best_hfd_px'] = float(incumbent['hfd_px'])
+                self.current_best_position = int(coarse_best)
+                self.updateBestFocus.emit(int(coarse_best), float(incumbent['hfd_px']))
+                outcome['success'] = True
+                self.updateStatus.emit(self.makeAFStatus(
+                    f'ASTAP coarse-only autofocus verified at {coarse_best}: '
+                    f'HFD {incumbent["hfd_px"]:.2f} px'))
+                return
             self.updateAutofocusStage.emit('ASTAP fine HFD')
             fine_positions = [coarse_best+j*fine for j in range(-side,side+1)]
-            fine_rows = [sample(p,'fine') for p in fine_positions]
-            try:
-                solution = select_focus(fine_rows, fine)
-            except ValueError as exc:
-                raise AutofocusNotConverged(str(exc)) from exc
+            fine_rows = [r for p in fine_positions if (r := sample(p, 'fine')) is not None]
+            outcome['invalid_fine_positions'] = len(fine_positions) - len(fine_rows)
+            # Quadratic interpolation is optional. Without it, choose an actually
+            # measured fine position, never an extrapolated encoder coordinate.
+            # Both methods require measured points on either side of the minimum.
+            segments = []
+            for row in sorted(fine_rows, key=lambda r: r['position']):
+                if not segments or row['position'] - segments[-1][-1]['position'] != fine:
+                    segments.append([row])
+                else:
+                    segments[-1].append(row)
+            solutions = []
+            for segment in segments:
+                if len(segment) < 5:
+                    continue
+                if self.af_quadratic:
+                    try:
+                        candidate = select_focus(segment, fine)
+                        solutions.append(candidate)
+                    except ValueError:
+                        continue
+                else:
+                    best_index = min(range(len(segment)), key=lambda i: segment[i]['hfd_px'])
+                    if best_index < 2 or best_index > len(segment) - 3:
+                        continue
+                    best_row = segment[best_index]
+                    # Require an observable rise in HFD on each side, as in coarse.
+                    left = segment[:best_index]
+                    right = segment[best_index+1:]
+                    noise = max(0.10, 2 * float(best_row['hfd_mad_px']))
+                    if (max(r['hfd_px'] for r in left) - best_row['hfd_px'] < noise or
+                            max(r['hfd_px'] for r in right) - best_row['hfd_px'] < noise):
+                        continue
+                    solutions.append({
+                        'position': int(best_row['position']),
+                        'best_sampled_position': int(best_row['position']),
+                        'best_sampled_hfd_px': float(best_row['hfd_px']),
+                        'method': 'best measured fine HFD (no quadratic interpolation)',
+                    })
+            if not solutions:
+                raise AutofocusNotConverged(
+                    f'Fine scan has {len(fine_rows)}/{len(fine_positions)} valid '
+                    'positions but no trustworthy contiguous, bracketed minimum')
+            solution = min(solutions, key=lambda candidate: candidate['best_sampled_hfd_px'])
             target = int(solution['position'])
             if not low <= target <= high:
                 raise AutofocusNotConverged('ASTAP selected position outside allowed range')
@@ -1125,6 +1353,9 @@ class FocusThread(QtCore.QThread):
             comparisons = []
             for candidate in candidates:
                 row = sample(candidate, 'verification')
+                if row is None:
+                    raise AutofocusVerificationFailed(
+                        f'Independent verification at {candidate} has insufficient valid stars')
                 comparisons.append(row)
                 print(f'ASTAP fresh comparison {candidate}: HFD={row["hfd_px"]:.4f} '
                       f'+/- MAD {row["hfd_mad_px"]:.4f}', flush=True)
@@ -1202,11 +1433,49 @@ class FocusThread(QtCore.QThread):
                     self.focuser_controller.move_to(start, keep_running_callback=lambda: not self.shutdown_requested)
                     self.current_focuser_position = int(self.focuser_controller.position)
                     self.updateFocuserPosition.emit(self.current_focuser_position)
-                    outcome['restored_start'] = True
+                    outcome['restored_start'] = (abs(self.current_focuser_position - start) <= 2)
                 except Exception as restore_exc:
                     outcome['restore_error'] = str(restore_exc)
                     print('WARNING: Failed to restore starting focus: ' + str(restore_exc))
         finally:
+            # The coarse scan already measures the initial encoder position.
+            # Reuse that baseline; no extra camera batch or focuser movement.
+            if start is not None:
+                outcome['initial_position'] = int(start)
+                initial_rows = [r for r in outcome['positions']
+                                if r.get('stage') == 'coarse'
+                                and r.get('position') == start
+                                and r.get('hfd_px') is not None]
+                if initial_rows:
+                    baseline = initial_rows[0]
+                    outcome['initial_hfd_px'] = float(baseline['hfd_px'])
+                    outcome['initial_hfd_mad_px'] = float(baseline['hfd_mad_px'])
+                if outcome.get('success') and outcome.get('best_position') is not None:
+                    final_pos = int(outcome['best_position'])
+                    outcome['focus_delta_steps'] = final_pos - int(start)
+                    outcome['same_start_position'] = final_pos == int(start)
+                    if initial_rows and outcome.get('best_hfd_px') is not None:
+                        final_hfd = float(outcome['best_hfd_px'])
+                        initial_hfd = float(initial_rows[0]['hfd_px'])
+                        verify_row = outcome.get('verification') or {}
+                        final_mad = float(verify_row.get('hfd_mad_px') or 0)
+                        threshold = max(0.05, float(initial_rows[0]['hfd_mad_px']) + final_mad)
+                        gain = initial_hfd - final_hfd
+                        outcome['hfd_improvement_px'] = float(gain)
+                        outcome['hfd_improvement_threshold_px'] = float(threshold)
+                        outcome['material_improvement'] = bool(gain > threshold)
+                        # These batches were captured at different times, so this
+                        # is a measurement comparison, not proof of improved optics.
+                        if final_pos == int(start):
+                            outcome['focus_assessment'] = 'START_POSITION_RETAINED'
+                        elif gain > threshold:
+                            outcome['focus_assessment'] = 'MEASURED_IMPROVEMENT'
+                        elif gain < -threshold:
+                            outcome['focus_assessment'] = 'MEASURED_WORSENING'
+                        else:
+                            outcome['focus_assessment'] = 'NO_CLEAR_HFD_IMPROVEMENT'
+                    else:
+                        outcome['focus_assessment'] = 'BASELINE_UNAVAILABLE'
             self.current_testing_position = None
             self.af_tracking_active = False
             try:
@@ -1218,8 +1487,8 @@ class FocusThread(QtCore.QThread):
                     writer = csv.writer(fh)
                     writer.writerow(['stage','position','hfd_px','hfd_mad_px','valid_frames','median_stars'])
                     for r in outcome['positions']:
-                        writer.writerow([r['stage'],r['position'],r['hfd_px'],r['hfd_mad_px'],
-                                         r['valid_frames'],r['median_stars']])
+                        writer.writerow([r['stage'],r['position'],r.get('hfd_px'),r.get('hfd_mad_px'),
+                                         r.get('valid_frames', 0),r.get('median_stars')])
             except Exception as save_exc:
                 print('WARNING: ASTAP diagnostics save failed: ' + str(save_exc))
             try:
@@ -2894,9 +3163,9 @@ class Ui(QtWidgets.QMainWindow):
         self.settings_group = QtWidgets.QGroupBox("Capture Settings")
         settings_group = self.settings_group
         settings_layout = QtWidgets.QGridLayout()
-        settings_layout.setContentsMargins(10, 10, 10, 10)
+        settings_layout.setContentsMargins(8, 7, 8, 7)
         settings_layout.setHorizontalSpacing(14)
-        settings_layout.setVerticalSpacing(10)
+        settings_layout.setVerticalSpacing(6)
 
         settings_layout.setColumnStretch(0, 0)
         settings_layout.setColumnStretch(1, 3)
@@ -2909,7 +3178,7 @@ class Ui(QtWidgets.QMainWindow):
             return label
 
         self.CaptureMode_combo = QtWidgets.QComboBox()
-        self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus"])
+        self.CaptureMode_combo.addItems(["Single Image", "Stream", "Autofocus", "Blind Recovery"])
         self.CaptureMode_combo.currentTextChanged.connect(self.onCaptureModeChanged)
 
         self.Gain_note_label = QtWidgets.QLabel("ColibriGrab high gain (12-bit)")
@@ -2936,6 +3205,41 @@ class Ui(QtWidgets.QMainWindow):
 
         settings_layout.addWidget(make_settings_label("Image zoom:"), 2, 0)
         settings_layout.addWidget(self.Zoom_slider, 2, 1, 1, 3)
+        self.AFMode_combo = QtWidgets.QComboBox()
+        self.AFMode_combo.addItem('Coarse only', 'coarse')
+        self.AFMode_combo.addItem('Coarse + fine', 'fine')
+        self.AFMode_combo.setToolTip('Coarse: local scan; Fine: local scan plus refinement; Blind recovery: wide bounded search then coarse verification')
+        self.AFMode_label = QtWidgets.QLabel('Autofocus method:')
+        self.AFRecovery_info = QtWidgets.QLabel('Wide scan: 3,000 steps | Safe range: 20,000–100,000')
+        self.AFRecovery_info.setStyleSheet('color: #d7dee8; font-size: 10pt;')
+        self.AFRecovery_info.setToolTip('Blind scan over the safe range, then 750-step refinement and a local coarse scan. Local AF controls below configure the coarse refinement.')
+        self.RecoveryDirection_label = QtWidgets.QLabel('Search direction:')
+        self.RecoveryDirection_combo = QtWidgets.QComboBox()
+        self.RecoveryDirection_combo.addItem('20,000 toward 100,000', 'low-high')
+        self.RecoveryDirection_combo.addItem('100,000 toward 20,000', 'high-low')
+        self.RecoveryDirection_combo.addItem('Outward from current position', 'nearest')
+        self.RecoverySpacing_label = QtWidgets.QLabel('Search thoroughness:')
+        self.RecoverySpacing_combo = QtWidgets.QComboBox()
+        self.RecoverySpacing_combo.addItem('Balanced (2,000 steps)', 2000)
+        self.RecoverySpacing_combo.addItem('Fast (3,000 steps)', 3000)
+        self.RecoverySpacing_combo.addItem('Thorough (1,000 steps)', 1000)
+        self.RecoveryRefine_label = QtWidgets.QLabel('Final refinement:')
+        self.RecoveryRefine_combo = QtWidgets.QComboBox()
+        self.RecoveryRefine_combo.addItem('Automatic (recommended)', 'automatic')
+        self.RecoveryRefine_combo.addItem('Coarse only', 'coarse')
+        self.RecoverySummary_label = QtWidgets.QLabel('Hard limits: 20,000–100,000 steps. All movements are safety-checked.')
+        self.RecoverySummary_label.setStyleSheet('color: #d7dee8; font-size: 10pt;')
+        self.RecoverySummary_label.setWordWrap(True)
+        self.AFQuadratic_checkbox = QtWidgets.QCheckBox('Use quadratic interpolation')
+        self.AFQuadratic_checkbox.setChecked(False)
+        self.AFQuadratic_checkbox.setStyleSheet('''
+            QCheckBox { color: #d7dee8; spacing: 8px; font-size: 11pt; }
+            QCheckBox:disabled { color: #91a2b9; }
+            QCheckBox::indicator { width: 15px; height: 15px; }
+        ''')
+        self.AFQuadratic_checkbox.setToolTip(
+            'Fine mode only: fit a quadratic focus minimum between measured fine positions. '
+            'Unchecked selects the best measured fine position.')
         self.AFStep_spin = QtWidgets.QSpinBox()
         self.AFStep_spin.setRange(1, 10000)
         self.AFStep_spin.setValue(50)
@@ -2968,23 +3272,42 @@ class Ui(QtWidgets.QMainWindow):
         self.AFFramesPerPosition_label = QtWidgets.QLabel("AF frames/position:")
         self.AFSettleTime_label = QtWidgets.QLabel("AF settle time (s):")
 
-        settings_layout.addWidget(self.AFStep_label, 3, 0)
-        settings_layout.addWidget(self.AFStep_spin, 3, 1)
+        # Put the method selector BEFORE the scan settings, not in a clipped
+        # final row below them. Give the group enough vertical space to show it.
+        settings_layout.addWidget(self.AFMode_label, 3, 0)
+        settings_layout.addWidget(self.AFMode_combo, 3, 1, 1, 3)
+        settings_layout.addWidget(self.AFRecovery_info, 3, 0, 1, 4)
+        settings_layout.addWidget(self.AFQuadratic_checkbox, 4, 1, 1, 3)
+        settings_layout.addWidget(self.AFStep_label, 5, 0)
+        settings_layout.addWidget(self.AFStep_spin, 5, 1)
+        settings_layout.addWidget(self.AFStepsEachSide_label, 5, 2)
+        settings_layout.addWidget(self.AFStepsEachSide_spin, 5, 3)
+        settings_layout.addWidget(self.AFFramesPerPosition_label, 6, 0)
+        settings_layout.addWidget(self.AFFramesPerPosition_spin, 6, 1)
+        settings_layout.addWidget(self.AFSettleTime_label, 6, 2)
+        settings_layout.addWidget(self.AFSettleTime_spin, 6, 3)
+        settings_layout.addWidget(self.AFCoarseMultiplier_label, 7, 0)
+        settings_layout.addWidget(self.AFCoarseMultiplier_spin, 7, 1)
+        settings_layout.addWidget(self.AFMaxExcursion_label, 7, 2)
+        settings_layout.addWidget(self.AFMaxExcursion_spin, 7, 3)
 
-        settings_layout.addWidget(self.AFStepsEachSide_label, 3, 2)
-        settings_layout.addWidget(self.AFStepsEachSide_spin, 3, 3)
-
-        settings_layout.addWidget(self.AFFramesPerPosition_label, 4, 0)
-        settings_layout.addWidget(self.AFFramesPerPosition_spin, 4, 1)
-
-        settings_layout.addWidget(self.AFSettleTime_label, 4, 2)
-        settings_layout.addWidget(self.AFSettleTime_spin, 4, 3)
-        settings_layout.addWidget(self.AFCoarseMultiplier_label, 5, 0)
-        settings_layout.addWidget(self.AFCoarseMultiplier_spin, 5, 1)
-        settings_layout.addWidget(self.AFMaxExcursion_label, 5, 2)
-        settings_layout.addWidget(self.AFMaxExcursion_spin, 5, 3)
-
+        settings_layout.addWidget(self.RecoveryDirection_label, 8, 0)
+        settings_layout.addWidget(self.RecoveryDirection_combo, 8, 1, 1, 3)
+        settings_layout.addWidget(self.RecoverySpacing_label, 9, 0)
+        settings_layout.addWidget(self.RecoverySpacing_combo, 9, 1, 1, 3)
+        settings_layout.addWidget(self.RecoveryRefine_label, 10, 0)
+        settings_layout.addWidget(self.RecoveryRefine_combo, 10, 1, 1, 3)
+        settings_layout.addWidget(self.RecoverySummary_label, 11, 0, 1, 4)
+        self.recovery_controls = [self.RecoveryDirection_label, self.RecoveryDirection_combo,
+            self.RecoverySpacing_label, self.RecoverySpacing_combo,
+            self.RecoveryRefine_label, self.RecoveryRefine_combo, self.RecoverySummary_label]
+        for combo in (self.RecoveryDirection_combo, self.RecoverySpacing_combo, self.RecoveryRefine_combo):
+            combo.currentIndexChanged.connect(self.updateWorkerSettings)
         self.autofocus_controls = [
+            self.AFMode_label,
+            self.AFMode_combo,
+            self.AFRecovery_info,
+            self.AFQuadratic_checkbox,
             self.AFStep_label,
             self.AFStep_spin,
             self.AFStepsEachSide_label,
@@ -3021,16 +3344,20 @@ class Ui(QtWidgets.QMainWindow):
         self.AFSettleTime_spin.valueChanged.connect(
             self.updateWorkerSettings
         )
+        self.AFMode_combo.currentIndexChanged.connect(self.updateQuadraticAvailability)
+        self.AFMode_combo.currentIndexChanged.connect(self.updateWorkerSettings)
+        self.AFQuadratic_checkbox.toggled.connect(self.updateWorkerSettings)
         self.AFCoarseMultiplier_spin.valueChanged.connect(self.updateWorkerSettings)
         self.AFMaxExcursion_spin.valueChanged.connect(self.updateWorkerSettings)
 
         self.plot_update_stride = 2
 
         self.updateAutofocusControls(self.CaptureMode_combo.currentText())
+        self.updateQuadraticAvailability()
         
         settings_group.setLayout(settings_layout)
-        settings_group.setMinimumHeight(150)
-        settings_group.setMaximumHeight(235)
+        settings_group.setMinimumHeight(272)
+        settings_group.setMaximumHeight(310)
         settings_group.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed
@@ -3074,7 +3401,7 @@ class Ui(QtWidgets.QMainWindow):
         self.FocusRefresh_button = QtWidgets.QPushButton("Refresh")
 
         self.FocusTarget_spin = QtWidgets.QSpinBox()
-        self.FocusTarget_spin.setRange(0, 1000000)
+        self.FocusTarget_spin.setRange(FOCUSER_SAFE_MIN, FOCUSER_SAFE_MAX)
         self.FocusTarget_spin.setValue(50500)
         self.FocusTarget_spin.setSingleStep(50)
 
@@ -3101,9 +3428,14 @@ class Ui(QtWidgets.QMainWindow):
         focuser_layout.addWidget(self.FocusGo_button, 2, 2)
         focuser_layout.addWidget(self.FocusRefresh_button, 2, 3)
 
+        self.FocusSafeRange_label = QtWidgets.QLabel(
+            f"Safe focuser range: {FOCUSER_SAFE_MIN:,}–{FOCUSER_SAFE_MAX:,} steps (enforced)")
+        self.FocusSafeRange_label.setStyleSheet('color: #a9bed7; font-size: 9pt;')
+        focuser_layout.addWidget(self.FocusSafeRange_label, 3, 0, 1, 4)
+
         focuser_group.setLayout(focuser_layout)
-        focuser_group.setMinimumHeight(145)
-        focuser_group.setMaximumHeight(175)
+        focuser_group.setMinimumHeight(164)
+        focuser_group.setMaximumHeight(195)
         focuser_group.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed
@@ -3149,7 +3481,7 @@ class Ui(QtWidgets.QMainWindow):
         max_display_size = 100 + zoom * 50
 
         return {
-            "capture_mode": self.CaptureMode_combo.currentText(),
+            "capture_mode": ("Autofocus" if self.CaptureMode_combo.currentText() == "Blind Recovery" else self.CaptureMode_combo.currentText()),
             "exposure": self.Exposure_spinbox.value(),
             "bin_x": binning,
             "bin_y": binning,
@@ -3162,12 +3494,18 @@ class Ui(QtWidgets.QMainWindow):
             "grab_timeout": 120.0,
             "kill_flipilot": True,
             "light_frame": True,
-            "af_step_size": self.AFStep_spin.value(),
-            "af_steps_each_side": self.AFStepsEachSide_spin.value(),
+            "recovery_direction": self.RecoveryDirection_combo.currentData(),
+            "recovery_spacing": self.RecoverySpacing_combo.currentData(),
+            "recovery_refinement": self.RecoveryRefine_combo.currentData(),
+            "af_step_size": (50 if self.CaptureMode_combo.currentText() == "Blind Recovery" else self.AFStep_spin.value()),
+            "af_steps_each_side": (3 if self.CaptureMode_combo.currentText() == "Blind Recovery" else self.AFStepsEachSide_spin.value()),
             "af_frames_per_position": self.AFFramesPerPosition_spin.value(),
             "af_settle_time": self.AFSettleTime_spin.value(),
-            "af_coarse_multiplier": self.AFCoarseMultiplier_spin.value(),
+            "af_coarse_multiplier": (3 if self.CaptureMode_combo.currentText() == "Blind Recovery" else self.AFCoarseMultiplier_spin.value()),
             "af_max_excursion": self.AFMaxExcursion_spin.value(),
+            "af_mode": ("recovery" if self.CaptureMode_combo.currentText() == "Blind Recovery" else self.AFMode_combo.currentData()),
+            "af_quadratic": bool(self.AFMode_combo.currentData() == 'fine' and
+                                 self.AFQuadratic_checkbox.isChecked()),
             "focuser_driver_id": DEFAULT_FOCUSER_DRIVER_ID,
         }
     
@@ -3386,7 +3724,7 @@ class Ui(QtWidgets.QMainWindow):
             mad = max(0., float(row.get("hfd_mad_px", 0.)))
             roles = []
             if fitted is not None and pos == int(fitted):
-                roles.append("quadratic fit")
+                roles.append("quadratic fit" if result.get('quadratic_enabled') else "fine candidate")
             if sampled is not None and pos == int(sampled):
                 roles.append("fine minimum")
             if start is not None and pos == int(start):
@@ -3690,7 +4028,7 @@ class Ui(QtWidgets.QMainWindow):
             )
 
         # Also update the Focus Curve if we know the focuser position.
-        if focuser_position is not None and self.CaptureMode_combo.currentText() != "Autofocus":
+        if focuser_position is not None and self.CaptureMode_combo.currentText() not in ("Autofocus", "Blind Recovery"):
             self.updateFocusCurvePoint(
                 int(focuser_position),
                 float(average)
@@ -3734,7 +4072,7 @@ class Ui(QtWidgets.QMainWindow):
 
         
 
-        if self.CaptureMode_combo.currentText() == "Autofocus":
+        if self.CaptureMode_combo.currentText() in ("Autofocus", "Blind Recovery"):
             # The live rolling median mixes frames from DIFFERENT focus
             # positions. Only the stage-specific matched-star curve is
             # meaningful for autofocus selection.
@@ -3746,6 +4084,11 @@ class Ui(QtWidgets.QMainWindow):
             f"{verdict}   |   {change_text}"
         )
 
+    def updateQuadraticAvailability(self, *args):
+        self.AFQuadratic_checkbox.setEnabled(
+            self.CaptureMode_combo.currentText() == 'Autofocus' and
+            self.AFMode_combo.currentData() == 'fine')
+
     def updateAutofocusControls(self, mode):
         """
         Show autofocus-only settings only when Autofocus mode is selected.
@@ -3754,21 +4097,44 @@ class Ui(QtWidgets.QMainWindow):
         vertical room.
         """
 
-        autofocus_enabled = (mode == "Autofocus")
+        autofocus_enabled = mode in ("Autofocus", "Blind Recovery")
+        recovery_enabled = mode == "Blind Recovery"
         if hasattr(self, "af_position_summary_label"):
             self.af_position_summary_label.setVisible(autofocus_enabled)
 
         for widget in self.autofocus_controls:
             widget.setVisible(autofocus_enabled)
             widget.setEnabled(autofocus_enabled)
+        # Recovery has its own top-level capture mode and fixed wide-search
+        # bounds; do not display unrelated local excursion/method controls.
+        for widget in (self.AFMode_label, self.AFMode_combo,
+                       self.AFMaxExcursion_label, self.AFMaxExcursion_spin,
+                       self.AFQuadratic_checkbox):
+            widget.setVisible(autofocus_enabled and not recovery_enabled)
+        self.AFRecovery_info.setVisible(False)
+        for widget in self.recovery_controls:
+            widget.setVisible(recovery_enabled)
+        for widget in (self.AFStep_label, self.AFStep_spin, self.AFStepsEachSide_label,
+                       self.AFStepsEachSide_spin, self.AFCoarseMultiplier_label,
+                       self.AFCoarseMultiplier_spin):
+            widget.setVisible(autofocus_enabled and not recovery_enabled)
+        if recovery_enabled:
+            self.AFStep_label.setText('Refine AF step size:')
+            self.AFStepsEachSide_label.setText('Refine steps each side:')
+            self.AFCoarseMultiplier_label.setText('Refine coarse multiplier:')
+        else:
+            self.AFStep_label.setText('AF step size:')
+            self.AFStepsEachSide_label.setText('AF steps each side:')
+            self.AFCoarseMultiplier_label.setText('Coarse step multiplier:')
+        self.updateQuadraticAvailability()
 
         if hasattr(self, "settings_group"):
             if autofocus_enabled:
-                self.settings_group.setMinimumHeight(205)
-                self.settings_group.setMaximumHeight(255)
+                self.settings_group.setMinimumHeight(360 if recovery_enabled else 272)
+                self.settings_group.setMaximumHeight(450 if recovery_enabled else 310)
             else:
-                self.settings_group.setMinimumHeight(150)
-                self.settings_group.setMaximumHeight(185)
+                self.settings_group.setMinimumHeight(185)
+                self.settings_group.setMaximumHeight(255)
     
     def updateStatus(self, status):
         sigma_x = status.get("sigma_x")
@@ -3839,6 +4205,14 @@ class Ui(QtWidgets.QMainWindow):
         if self.thread is None:
             return
 
+        current = getattr(self, '_af_focuser_now', None)
+        if current is None:
+            print('WARNING: Cannot jog focuser until its position is known.')
+            return
+        requested = int(current) + int(delta)
+        if not FOCUSER_SAFE_MIN <= requested <= FOCUSER_SAFE_MAX:
+            print(f'WARNING: Refused GUI jog to {requested}: safe range {FOCUSER_SAFE_MIN}..{FOCUSER_SAFE_MAX}')
+            return
         print(f"GUI requested focuser jog: {delta:+d}")
         self.thread.requestFocusJog(int(delta))
 
@@ -3887,7 +4261,7 @@ class Ui(QtWidgets.QMainWindow):
             return
 
         if self.Start_button.isChecked():
-            if self.CaptureMode_combo.currentText() == "Autofocus":
+            if self.CaptureMode_combo.currentText() in ("Autofocus", "Blind Recovery"):
                 self.clearMeasurementPlotsOnly()
                 self._af_start_position = None
                 self._af_best_sampled = None
@@ -4294,6 +4668,11 @@ def headless_autofocus(args):
         "af_verify_tolerance": args.verify_tolerance,
         "af_coarse_multiplier": args.coarse_multiplier,
         "af_max_excursion": args.max_excursion,
+        "recovery_direction": args.recovery_direction,
+        "recovery_spacing": args.recovery_spacing,
+        "recovery_refinement": args.recovery_refinement,
+        "af_mode": args.autofocus_mode,
+        "af_quadratic": args.quadratic,
     }
     if args.stop_file and Path(args.stop_file).exists():
         print(f"ERROR: Stop file already exists: {args.stop_file}")
@@ -4323,7 +4702,11 @@ def headless_autofocus(args):
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_text(json.dumps(result,indent=2),encoding="utf-8")
         tmp.replace(p)
-    print("AUTOFOCUS_RESULT", json.dumps({k: result.get(k) for k in ("success", "backend", "best_position", "best_hfd_px", "error") if k in result}), flush=True)
+    print("AUTOFOCUS_RESULT", json.dumps({k: result.get(k) for k in (
+        "success", "backend", "initial_position", "initial_hfd_px",
+        "best_position", "best_hfd_px", "focus_delta_steps", "hfd_improvement_px",
+        "hfd_improvement_threshold_px", "material_improvement", "focus_assessment",
+        "error") if k in result}), flush=True)
     return 0 if result.get("success",False) else 1
 
 if __name__ == '__main__':
@@ -4346,6 +4729,13 @@ if __name__ == '__main__':
         help='Disable RunColibri-style FLIPilot termination during grab')
     arg_parser.add_argument('--stop-file',
         help='Optional ACP safety cancellation flag: file existence cancels current run')
+    arg_parser.add_argument('--recovery-direction', choices=['low-high', 'high-low', 'nearest'], default='low-high')
+    arg_parser.add_argument('--recovery-spacing', type=int, choices=[1000, 2000, 3000], default=2000)
+    arg_parser.add_argument('--recovery-refinement', choices=['automatic', 'coarse'], default='automatic')
+    arg_parser.add_argument('--autofocus-mode', choices=['coarse', 'fine', 'recovery'], default='coarse',
+        help='coarse: local coarse scan; fine: local coarse+fine; recovery: bounded blind search then coarse verification')
+    arg_parser.add_argument('--quadratic', action='store_true',
+        help='Fine mode only: enable quadratic interpolation (otherwise use measured fine minimum)')
     arg_parser.add_argument('--step-size', type=int, default=50)
     arg_parser.add_argument('--steps-each-side', type=int, default=3)
     arg_parser.add_argument('--frames-per-position', type=int, default=7)
@@ -4364,6 +4754,8 @@ if __name__ == '__main__':
     arg_parser.add_argument('--output-json',help='Write atomic JSON result for RunColibri')
     args = arg_parser.parse_args()
     if args.autofocus:
+        if args.quadratic and args.autofocus_mode != 'fine':
+            arg_parser.error('--quadratic requires --autofocus-mode fine')
         sys.exit(headless_autofocus(args))
     elif args.interactive:
         main()
