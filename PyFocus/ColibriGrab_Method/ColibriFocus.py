@@ -55,7 +55,7 @@ class AutofocusVerificationFailed(Exception):
 
 
 # Observatory software interlocks: do not widen without hardware review.
-FOCUSER_SAFE_MIN = 20000
+FOCUSER_SAFE_MIN = 40000
 FOCUSER_SAFE_MAX = 100000
 RECOVERY_STEP = 2000
 RECOVERY_MAX_SAMPLES = 30
@@ -1161,11 +1161,37 @@ class FocusThread(QtCore.QThread):
                       f'direction={self.recovery_direction}, safe={low}..{high}', flush=True)
                 wide_rows = []
                 visited = set()
+                # Only stop after a confirmed contiguous focus region, followed
+                # by three consecutive unusable samples. Before confirmation,
+                # invalid measurements NEVER trigger early termination.
+                # The nearest-first order is not monotonic, so its gaps cannot
+                # establish that a focus region has been passed.
+                early_stop_enabled = self.recovery_direction in ('low-high', 'high-low')
+                contiguous_valid = 0
+                region_confirmed = False
+                invalid_after_region = 0
+                early_stopped = False
                 for p in grid:
                     row = sample(p, 'recovery')
                     visited.add(p)
                     if row is not None:
                         wide_rows.append(row)
+                        contiguous_valid += 1
+                        invalid_after_region = 0
+                        if early_stop_enabled and not region_confirmed and contiguous_valid >= 3:
+                            region_confirmed = True
+                            print('ASTAP recovery: focus region confirmed (3 consecutive valid positions)', flush=True)
+                    else:
+                        if region_confirmed:
+                            invalid_after_region += 1
+                            print(f'ASTAP recovery: focus-region loss {invalid_after_region}/3', flush=True)
+                            if invalid_after_region >= 3:
+                                early_stopped = True
+                                print('ASTAP recovery: early stop after 3 consecutive invalid positions; refining best HFD', flush=True)
+                                break
+                        else:
+                            contiguous_valid = 0
+                outcome['recovery_early_stopped'] = early_stopped
                 # If the first pass missed a narrow detectable-focus basin,
                 # make a single denser pass at 500-step spacing. This is still
                 # bounded, finite, and within the same safety limits.
@@ -3210,13 +3236,13 @@ class Ui(QtWidgets.QMainWindow):
         self.AFMode_combo.addItem('Coarse + fine', 'fine')
         self.AFMode_combo.setToolTip('Coarse: local scan; Fine: local scan plus refinement; Blind recovery: wide bounded search then coarse verification')
         self.AFMode_label = QtWidgets.QLabel('Autofocus method:')
-        self.AFRecovery_info = QtWidgets.QLabel('Wide scan: 3,000 steps | Safe range: 20,000–100,000')
+        self.AFRecovery_info = QtWidgets.QLabel('Wide scan: 3,000 steps | Safe range: 40,000–100,000')
         self.AFRecovery_info.setStyleSheet('color: #d7dee8; font-size: 10pt;')
         self.AFRecovery_info.setToolTip('Blind scan over the safe range, then 750-step refinement and a local coarse scan. Local AF controls below configure the coarse refinement.')
         self.RecoveryDirection_label = QtWidgets.QLabel('Search direction:')
         self.RecoveryDirection_combo = QtWidgets.QComboBox()
-        self.RecoveryDirection_combo.addItem('20,000 toward 100,000', 'low-high')
-        self.RecoveryDirection_combo.addItem('100,000 toward 20,000', 'high-low')
+        self.RecoveryDirection_combo.addItem('40,000 toward 100,000', 'low-high')
+        self.RecoveryDirection_combo.addItem('100,000 toward 40,000', 'high-low')
         self.RecoveryDirection_combo.addItem('Outward from current position', 'nearest')
         self.RecoverySpacing_label = QtWidgets.QLabel('Search thoroughness:')
         self.RecoverySpacing_combo = QtWidgets.QComboBox()
@@ -3227,7 +3253,7 @@ class Ui(QtWidgets.QMainWindow):
         self.RecoveryRefine_combo = QtWidgets.QComboBox()
         self.RecoveryRefine_combo.addItem('Automatic (recommended)', 'automatic')
         self.RecoveryRefine_combo.addItem('Coarse only', 'coarse')
-        self.RecoverySummary_label = QtWidgets.QLabel('Hard limits: 20,000–100,000 steps. All movements are safety-checked.')
+        self.RecoverySummary_label = QtWidgets.QLabel('Hard limits: 40,000–100,000 steps. All movements are safety-checked.')
         self.RecoverySummary_label.setStyleSheet('color: #d7dee8; font-size: 10pt;')
         self.RecoverySummary_label.setWordWrap(True)
         self.AFQuadratic_checkbox = QtWidgets.QCheckBox('Use quadratic interpolation')
