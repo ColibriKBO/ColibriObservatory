@@ -1252,36 +1252,57 @@ class FocusThread(QtCore.QThread):
                       f'direction={self.recovery_direction}, safe={low}..{high}', flush=True)
                 wide_rows = []
                 visited = set()
-                # Only stop after a confirmed contiguous focus region, followed
-                # by three consecutive unusable samples. Before confirmation,
-                # invalid measurements NEVER trigger early termination.
-                # The nearest-first order is not monotonic, so its gaps cannot
-                # establish that a focus region has been passed.
+                # Directional recovery: a single reliable HFD is enough to
+                # establish a candidate focus region. Once found, stop the
+                # wide search after three consecutive unusable OR materially
+                # worse positions. Nearest-first is nonmonotonic and cannot
+                # use this directional stopping rule.
                 early_stop_enabled = self.recovery_direction in ('low-high', 'high-low')
-                contiguous_valid = 0
-                region_confirmed = False
-                invalid_after_region = 0
+                best_wide_hfd = None
+                best_wide_position = None
+                worse_or_invalid_streak = 0
                 early_stopped = False
                 for p in grid:
                     row = sample(p, 'recovery')
                     visited.add(p)
                     if row is not None:
                         wide_rows.append(row)
-                        contiguous_valid += 1
-                        invalid_after_region = 0
-                        if early_stop_enabled and not region_confirmed and contiguous_valid >= 3:
-                            region_confirmed = True
-                            print('ASTAP recovery: focus region confirmed (3 consecutive valid positions)', flush=True)
+                    if not early_stop_enabled:
+                        continue
+                    if row is not None:
+                        hfd = float(row['hfd_px'])
+                        if best_wide_hfd is None or hfd < best_wide_hfd:
+                            best_wide_hfd = hfd
+                            best_wide_position = int(p)
+                            worse_or_invalid_streak = 0
+                            print(f'ASTAP recovery: best HFD {hfd:.3f} at {p}; '
+                                  'directional early-stop monitoring active', flush=True)
+                            continue
+                    if best_wide_hfd is None:
+                        # No measurable focus candidate yet: keep searching.
+                        continue
+                    if row is None:
+                        worse_or_invalid_streak += 1
+                        reason = 'unusable HFD'
                     else:
-                        if region_confirmed:
-                            invalid_after_region += 1
-                            print(f'ASTAP recovery: focus-region loss {invalid_after_region}/3', flush=True)
-                            if invalid_after_region >= 3:
-                                early_stopped = True
-                                print('ASTAP recovery: early stop after 3 consecutive invalid positions; refining best HFD', flush=True)
-                                break
+                        # Ignore seeing-scale fluctuations near the minimum.
+                        # Only meaningful degradation counts toward stopping.
+                        threshold = max(0.10, 0.05 * best_wide_hfd,
+                                        2.0 * float(row.get('hfd_mad_px') or 0.0))
+                        if float(row['hfd_px']) > best_wide_hfd + threshold:
+                            worse_or_invalid_streak += 1
+                            reason = f'worse HFD {float(row["hfd_px"]):.3f}'
                         else:
-                            contiguous_valid = 0
+                            worse_or_invalid_streak = 0
+                            continue
+                    print(f'ASTAP recovery: {reason} at {p}; '
+                          f'deterioration {worse_or_invalid_streak}/3 '
+                          f'(best {best_wide_hfd:.3f} at {best_wide_position})', flush=True)
+                    if worse_or_invalid_streak >= 3:
+                        early_stopped = True
+                        print('ASTAP recovery: early stop after 3 consecutive '
+                              'worse/unusable positions; refining best HFD', flush=True)
+                        break
                 outcome['recovery_early_stopped'] = early_stopped
                 # ONE bounded adaptive bracketing phase. The wide scan finds a
                 # measurable region; this phase fills only the information gaps
