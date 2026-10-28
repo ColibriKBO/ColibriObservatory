@@ -26,6 +26,7 @@ def read_astap_star_csv(csv_path, min_stars=15, min_snr=30):
         if not {'x', 'y', 'hfd', 'snr', 'flux'}.issubset(reader.fieldnames):
             raise ValueError(f'Unexpected ASTAP CSV columns {reader.fieldnames}: {csv_path}')
         hfds = []
+        hfd_star_xy = []
         for row in reader:
             try:
                 hfd = float(row['hfd'])
@@ -39,10 +40,12 @@ def read_astap_star_csv(csv_path, min_stars=15, min_snr=30):
                     and 0.5 <= hfd <= 100.0 and snr >= min_snr
                     and flux > 0 and 0 <= x < 2048 and 0 <= y < 2048):
                 hfds.append(hfd)
+                hfd_star_xy.append([x, y])
     if len(hfds) < min_stars:
         raise ValueError(f'Only {len(hfds)} valid ASTAP stars (need {min_stars}): {csv_path}')
     return {'hfd_px': float(np.median(hfds)), 'stars': len(hfds),
-            'star_hfd_mad_px': float(np.median(np.abs(np.asarray(hfds) - np.median(hfds))))}
+            'star_hfd_mad_px': float(np.median(np.abs(np.asarray(hfds) - np.median(hfds)))),
+            'hfd_star_xy': hfd_star_xy}
 
 
 def measure_rcd(rcd_path, batch, position, frame, astap_exe=DEFAULT_ASTAP,

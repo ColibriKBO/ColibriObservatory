@@ -1200,8 +1200,18 @@ class FocusThread(QtCore.QThread):
                     except Exception as display_exc:
                         print(f'WARNING: RCD viewer frame {n} at {pos}: {display_exc}', flush=True)
                     try:
-                        measures.append(measure_rcd(path, batch, pos, n,
-                                         keep_running=self._isAutofocusActive))
+                        measurement = measure_rcd(path, batch, pos, n,
+                                                  keep_running=self._isAutofocusActive)
+                        measures.append(measurement)
+                        # Show EVERY accepted ASTAP CSV star used in this frame's
+                        # median HFD. No cap, spatial ranking, or second detector.
+                        contributors = measurement['hfd_star_xy']
+                        if len(contributors) != measurement['stars']:
+                            raise RuntimeError('ASTAP overlay/star-count mismatch')
+                        self.updateStarOverlay.emit([], contributors, [], [])
+                        print(f'ASTAP {stage} {pos} frame {n}: '
+                              f'circled {len(contributors)} / {measurement["stars"]} HFD stars',
+                              flush=True)
                     except Exception as exc:
                         if not self._isAutofocusActive():
                             raise AutofocusCancelled('ASTAP interrupted by cancellation') from exc
