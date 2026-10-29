@@ -27,24 +27,24 @@ var fso, f1, ts;
 // ===== USER INPUT FROM OCCULT WATCHER =====
 //  ** Replace these with the Occult Watcher (OW) target occulting star coordinates, NOT the asteroid/occulter's coordinates. **
 
-var TARGET_NAME = "Trolius"; // Conventionally named after the occulting body
+var TARGET_NAME = "Takaoakihiro"; // Conventionally named after the occulting body
 
 // Event timing notes only:
-var EVENT_UTC = "2026-10-24 08:07:10 UTC";
-var EVENT_UTC_COMPACT = "20261024T080710UT";
+var EVENT_UTC = "2026-10-29 06:40:19 UTC";
+var EVENT_UTC_COMPACT = "20261029T064019UT";
 
 var LogFile = "D:\\Logs\\ACP\\" + Util.FormatVar(Util.SysUTCDate, "yyyymmdd_HhNnSs") + "-OccultationPointing.log";
 
 // ** RA in j2000 hours/min/sec from OW: **
-var TARGET_RA_H = 5;
-var TARGET_RA_M = 42;
-var TARGET_RA_S = 17.5436;
+var TARGET_RA_H = 2;
+var TARGET_RA_M = 24;
+var TARGET_RA_S = 23.7684;
 
 // ** Dec in j2000 deg/arcmin/arcsec from OW: **
-var TARGET_DEC_SIGN = 1;
-var TARGET_DEC_D = 43;
-var TARGET_DEC_M = 17;
-var TARGET_DEC_S = 15.747;
+var TARGET_DEC_SIGN = -1;
+var TARGET_DEC_D = 7;
+var TARGET_DEC_M = 2;
+var TARGET_DEC_S = 10.23612;
 
 // Higher level camera settings are handled in the ColibriGrab or in via the command func that calls it below. 
 var exposureMs = 25;
