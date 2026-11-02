@@ -24,10 +24,10 @@ function main() {
 
     // Acquisition settings
     var exposureMs = 25;
-    var temperature = -10;
+    var temperature = 0;
 
     // Buffered acquisition settings
-    var ramSlots = 192;
+    var ramSlots = 245;
     var writerThreads = 3;
 
     // Current date
