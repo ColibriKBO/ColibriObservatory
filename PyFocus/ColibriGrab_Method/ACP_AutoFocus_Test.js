@@ -4,11 +4,56 @@
 // a suitable star field, and no other camera/focuser software taking exposures.
 // Uses PyFocus's EXISTING --autofocus headless entry point.
 
-// ---------------- EDIT THESE FOR BLUEBIRD ----------------
-var PROJECT_DIR = "C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriObservatory\\PyFocus\\ColibriGrab_Method";
-var PYTHON_EXE = "C:\\Users\\BlueBird\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"; // CHANGE to `where python` result for the working (base) environment
+﻿// ============================================================
+// AUTOMATIC COMPUTER-SPECIFIC PATH DETECTION
+// Works on Greenbird, Redbird, and Bluebird.
+// ============================================================
+
+var shell = new ActiveXObject("WScript.Shell");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+
+var USER_HOME = shell.ExpandEnvironmentStrings("%USERPROFILE%");
+var LOCAL_APPDATA = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%");
+
+// Find the installed Python interpreter automatically.
+function findPython() {
+    var root = LOCAL_APPDATA + "\\Programs\\Python";
+
+    if (!fso.FolderExists(root)) {
+        throw new Error("Python installation directory not found: " + root);
+    }
+
+    var candidates = [];
+    var folders = new Enumerator(fso.GetFolder(root).SubFolders);
+
+    for (; !folders.atEnd(); folders.moveNext()) {
+        var exe = folders.item().Path + "\\python.exe";
+
+        if (fso.FileExists(exe)) {
+            candidates.push(exe);
+        }
+    }
+
+    if (candidates.length !== 1) {
+        throw new Error(
+            "Expected one Python installation; found " +
+            candidates.length + ": " + candidates.join(", ")
+        );
+    }
+
+    return candidates[0];
+}
+
+var PROJECT_DIR =
+    USER_HOME + "\\Documents\\GitHub\\ColibriObservatory\\PyFocus\\ColibriGrab_Method";
+
+var PYTHON_EXE = findPython();
+
 var PYFOCUS_FILE = "ColibriFocus.py";
-var COLIBRIGRAB_EXE = "C:\\Users\\BlueBird\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
+var COLIBRIGRAB_EXE =
+    USER_HOME + "\\Documents\\GitHub\\ColibriGrab\\ColibriGrab\\ColibriGrab.exe";
+
 var OUTPUT_ROOT = "D:\\PyFocus";
 var LOG_ROOT = "D:\\PyFocus\\ACP_Test_Logs";
 var FOCUSER_DRIVER = "SeletekFocuser.Focuser";
