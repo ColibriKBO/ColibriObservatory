@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 import win32com.client
+import winreg
 import pythoncom
 from ColibriGrabCapture import (ColibriGrabCapture, read_rcd_high_gain,
                                 RCD_SATURATION, GrabCancelled)
@@ -58,7 +59,25 @@ class AutofocusVerificationFailed(Exception):
 # Conservative first-run defaults. Edit via GUI or the per-driver JSON profile.
 FOCUSER_SAFE_MIN = 40000
 FOCUSER_SAFE_MAX = 100000
+FOCUSER_EDGE_MARGIN = 1000
 FOCUSER_LIMITS_FILE = Path(__file__).with_name('ColibriFocus_focuser_limits.json')
+
+def read_seletek_limits():
+    registry_path = (
+        r"Software\Lunatico\Seletek"
+        r"\SeletekFocuser.Focuser\TCP:Default"
+    )
+
+    with winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER, registry_path
+    ) as key:
+        minimum = int(winreg.QueryValueEx(key, "MinStep")[0])
+        maximum = int(winreg.QueryValueEx(key, "MaxStep")[0])
+
+    if not 0 <= minimum < maximum:
+        raise ValueError("Invalid Seletek focuser limits")
+
+    return minimum, maximum
 
 def load_focuser_limits(driver_id, config_path=None):
     """Return saved operator-approved travel limits; never infer a minimum from ASCOM."""
@@ -154,7 +173,20 @@ class ASCOMFocuserController:
                     "PyFocus currently requires an absolute-position focuser."
                 )
             max_step = int(self.focuser.MaxStep)
-            approved_min, approved_max, source = load_focuser_limits(self.driver_id, self.limits_file)
+            controller_min, controller_max = read_seletek_limits()
+
+            if controller_max != max_step:
+                raise RuntimeError(
+                    f"Seletek registry maximum ({controller_max}) "
+                    f"does not match ASCOM MaxStep ({max_step})"
+                )
+
+            approved_min = controller_min + FOCUSER_EDGE_MARGIN
+            approved_max = controller_max - FOCUSER_EDGE_MARGIN
+            source = "Seletek registry with 1000-step safety margins"
+
+            if approved_min >= approved_max:
+                raise RuntimeError("Seletek safe travel range is invalid")
             if self.limit_min is not None or self.limit_max is not None:
                 if self.limit_min is None or self.limit_max is None:
                     raise ValueError('Both custom minimum and maximum are required')
@@ -1237,6 +1269,36 @@ class FocusThread(QtCore.QThread):
                 print(f'ASTAP {stage} {pos}: HFD={row["hfd_px"]:.3f}, '
                       f'MAD={row["hfd_mad_px"]:.3f}, stars={row["median_stars"]:.0f}', flush=True)
                 return row
+            
+            def scan_until_two_invalid(requested_positions, stage):
+                # Stop after two consecutive invalid positions,
+                # but only after obtaining a valid HFD measurement.
+                good_rows, tried_positions = [], []
+                have_valid = False
+                consecutive_invalid = 0
+
+                for p in requested_positions:
+                    row = sample(p, stage)
+                    tried_positions.append(p)
+
+                    if row is not None:
+                        good_rows.append(row)
+                        have_valid = True
+                        consecutive_invalid = 0
+
+                    elif have_valid:
+                        consecutive_invalid += 1
+
+                        if consecutive_invalid >= 2:
+                            print(
+                                f'ASTAP {stage}: two consecutive invalid HFD '
+                                f'positions after valid readings; ending scan at {p}',
+                                flush=True
+                            )
+                            break
+
+                return good_rows, tried_positions, consecutive_invalid
+            
             if self.af_mode == 'recovery':
                 self.updateAutofocusStage.emit('ASTAP blind recovery')
                 # Search the entire safe interval, including its endpoints when
@@ -1401,8 +1463,8 @@ class FocusThread(QtCore.QThread):
                 high = min(focuser.safe_max, positions[-1] + side * fine + approach)
                 print(f'ASTAP recovery: bracketed near {center}; switching directly to coarse/fine', flush=True)
             self.updateAutofocusStage.emit('ASTAP coarse HFD')
-            coarse_rows = [r for p in positions if (r := sample(p, 'coarse')) is not None]
-            outcome['invalid_coarse_positions'] = len(positions) - len(coarse_rows)
+            coarse_rows, coarse_tried, _ = scan_until_two_invalid(positions, 'coarse')
+            outcome['invalid_coarse_positions'] = len(coarse_tried) - len(coarse_rows)
             if len(coarse_rows) < 5:
                 raise AutofocusNotConverged(
                     f'Only {len(coarse_rows)} valid coarse positions; need at least five')
@@ -1478,18 +1540,29 @@ class FocusThread(QtCore.QThread):
                     f'HFD {incumbent["hfd_px"]:.2f} px'))
                 return
             self.updateAutofocusStage.emit('ASTAP fine HFD')
-            fine_positions = [coarse_best+j*fine for j in range(-side,side+1)]
-            fine_rows = [r for p in fine_positions if (r := sample(p, 'fine')) is not None]
+            fine_requested = [coarse_best+j*fine for j in range(-side,side+1)]
+            fine_rows, fine_positions, fine_invalid_tail = scan_until_two_invalid(fine_requested, 'fine')
+            fine_stopped_increasing = len(fine_positions) < len(fine_requested)
             # If the apparent minimum is too close to a scan edge, extend the
             # fine scan in that direction before rejecting its bracket.
             # Bounded to four extra samples and the same safety/preload limits.
             extensions = 0
+            extension_invalid_streak = fine_invalid_tail
+            previous_extension_direction = 1
+            
             while fine_rows and extensions < 4:
                 ordered = sorted(fine_rows, key=lambda r: r['position'])
                 best_idx = min(range(len(ordered)), key=lambda i: ordered[i]['hfd_px'])
                 if best_idx >= 2 and best_idx <= len(ordered) - 3:
                     break
                 direction = -1 if best_idx < 2 else 1
+                if direction > 0 and fine_stopped_increasing:
+                    break
+
+                if direction != previous_extension_direction:
+                    extension_invalid_streak = 0
+                    previous_extension_direction = direction
+                    
                 edge = min(fine_positions) if direction < 0 else max(fine_positions)
                 next_pos = edge + direction * fine
                 if not low <= next_pos <= high:
@@ -1498,8 +1571,21 @@ class FocusThread(QtCore.QThread):
                 extensions += 1
                 print(f'ASTAP fine scan extending toward edge minimum: {next_pos}', flush=True)
                 extra = sample(next_pos, 'fine')
+
                 if extra is not None:
                     fine_rows.append(extra)
+                    extension_invalid_streak = 0
+                else:
+                    extension_invalid_streak += 1
+
+                    if extension_invalid_streak >= 2:
+                        print(
+                            'ASTAP fine extension: two consecutive invalid '
+                            'positions; stopping extension',
+                            flush=True
+                        )
+                        break
+                    
             outcome['fine_extension_positions'] = extensions
             outcome['invalid_fine_positions'] = len(fine_positions) - len(fine_rows)
             # Quadratic interpolation is optional. Without it, choose an actually
@@ -1774,7 +1860,88 @@ class FocusThread(QtCore.QThread):
                     self._saveASTAPHeadlessPlots(root, outcome)
             except Exception as plot_exc:
                 print('WARNING: ASTAP PNG plot export failed: ' + str(plot_exc), flush=True)
+            
+            except Exception as plot_exc:
+                print('WARNING: ASTAP PNG plot export failed: ' + str(plot_exc), flush=True)
+
+            # --------------------------------------------------------
+            # AUTOFOCUS RCD CLEANUP
+            # Delete raw images only after successful verification.
+            # Preserve diagnostics, CSV files, PNG plots, and failed
+            # run images for troubleshooting.
+            # --------------------------------------------------------
+            try:
+                if outcome.get('success') and self.grabber is not None:
+                    output_root = Path(self.grabber.output_root).resolve()
+                    run_dir = (output_root / self.grabber.run_id).resolve()
+
+                    # Never delete outside the current autofocus run.
+                    if run_dir.parent != output_root:
+                        print(
+                            'WARNING: RCD cleanup skipped: '
+                            'unexpected autofocus run directory',
+                            flush=True
+                        )
+
+                    elif not (
+                        (run_dir / 'run_info.json').is_file()
+                        and (run_dir / 'astap_autofocus_diagnostics.json').is_file()
+                        and (run_dir / 'astap_hfd_curve.csv').is_file()
+                    ):
+                        print(
+                            'WARNING: RCD cleanup skipped: '
+                            'required autofocus diagnostics are missing',
+                            flush=True
+                        )
+
+                    else:
+                        deleted_count = 0
+                        deleted_bytes = 0
+                        failed_count = 0
+
+                        for path in run_dir.rglob('*'):
+                            if not path.is_file():
+                                continue
+                            if path.suffix.lower() != '.rcd':
+                                continue
+
+                            try:
+                                size = path.stat().st_size
+                                path.unlink()
+                                deleted_count += 1
+                                deleted_bytes += size
+
+                            except OSError as exc:
+                                failed_count += 1
+                                print(
+                                    f'WARNING: Could not delete {path}: {exc}',
+                                    flush=True
+                                )
+
+                        print(
+                            f'AUTOFOCUS RCD CLEANUP: '
+                            f'deleted {deleted_count} files, '
+                            f'freed {deleted_bytes / (1024**3):.2f} GiB; '
+                            f'failures={failed_count}',
+                            flush=True
+                        )
+
+                else:
+                    print(
+                        'AUTOFOCUS RCD CLEANUP: '
+                        'images retained because autofocus did not succeed',
+                        flush=True
+                    )
+
+            except Exception as cleanup_exc:
+                print(
+                    f'WARNING: Autofocus RCD cleanup failed: '
+                    f'{cleanup_exc}',
+                    flush=True
+                )
+
             self.autofocusResult.emit(outcome)
+
 
     def runAutofocus(self):
         return self.runAutofocusASTAP()
@@ -3699,7 +3866,14 @@ class Ui(QtWidgets.QMainWindow):
         self.FocusRefresh_button = QtWidgets.QPushButton("Refresh")
 
         self.FocusTarget_spin = QtWidgets.QSpinBox()
-        self._gui_limit_min, self._gui_limit_max, _ = load_focuser_limits(DEFAULT_FOCUSER_DRIVER_ID)
+        controller_min, controller_max = read_seletek_limits()
+
+        self._gui_limit_min = controller_min + FOCUSER_EDGE_MARGIN
+        self._gui_limit_max = controller_max - FOCUSER_EDGE_MARGIN
+
+        if self._gui_limit_min >= self._gui_limit_max:
+            raise ValueError('Seletek safe focuser range is invalid')
+
         self.FocusTarget_spin.setRange(self._gui_limit_min, self._gui_limit_max)
         self.FocusTarget_spin.setValue(50500)
         self.FocusTarget_spin.setSingleStep(50)
@@ -3737,8 +3911,13 @@ class Ui(QtWidgets.QMainWindow):
         self.FocusLimitMax_spin = QtWidgets.QSpinBox()
         self.FocusLimitMax_spin.setRange(0, 10000000)
         self.FocusLimitMax_spin.setValue(self._gui_limit_max)
-        self.FocusLimitsSave_button = QtWidgets.QPushButton('Save limits')
-        self.FocusLimitsSave_button.clicked.connect(self.saveFocuserLimitsFromGUI)
+        self.FocusLimitsSave_button = QtWidgets.QPushButton(
+            'Limits controlled by Seletek'
+        )
+
+        self.FocusLimitMin_spin.setEnabled(False)
+        self.FocusLimitMax_spin.setEnabled(False)
+        self.FocusLimitsSave_button.setEnabled(False)
         focuser_layout.addWidget(QtWidgets.QLabel('Min:'), 4, 0)
         focuser_layout.addWidget(self.FocusLimitMin_spin, 4, 1)
         focuser_layout.addWidget(QtWidgets.QLabel('Max:'), 4, 2)

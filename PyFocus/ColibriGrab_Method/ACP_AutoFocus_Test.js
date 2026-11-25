@@ -24,8 +24,8 @@ var SETTLE_TIME = 2.0;
 var GRAB_TIMEOUT_SECONDS = 120;
 
 var POLL_SECONDS = 2;
-var HEARTBEAT_SECONDS = 30;
-var TIMEOUT_MINUTES = 60; // whole-run watchdog; adjust after measuring real runtime
+var HEARTBEAT_SECONDS = 90;
+var TIMEOUT_MINUTES = 10; // whole-run watchdog; adjust after measuring real runtime
 var CANCEL_GRACE_MINUTES = 5; // allow PyFocus to restore focus after stop flag
 
 // ============================================================
@@ -39,10 +39,10 @@ var CANCEL_GRACE_MINUTES = 5; // allow PyFocus to restore focus after stop flag
 //   "fine"   = Local coarse scan followed by fine refinement.
 //              Recommended for more precise focusing.
 // BLIND FOCUS RECOVERY:
-//   "recovery" = Search across the safe focuser range
-//                (20,000–100,000 steps), then refine and verify.
-//                Recommended when severely out of focus.
-var AUTOFOCUS_MODE = "recovery";
+//   "recovery" = Search across the automatically determined
+//                Seletek focuser travel range, then refine
+//                and independently verify focus.
+var AUTOFOCUS_MODE = "fine";
 
 // QUADRATIC INTERPOLATION:
 //   true  = Enable quadratic interpolation during normal
@@ -53,17 +53,13 @@ var AUTOFOCUS_MODE = "recovery";
 // Ignored during "coarse" and "recovery" modes.
 var USE_QUADRATIC = false;
 
-// MANDATORY SAFETY FOCUS LIMITS:
-// No focuser position outside this range is permitted.
-// These must match the hard-coded Python movement limits.
-// ACP checks the configuration; Python enforces each move.
-var FOCUSER_SAFE_MIN = 20000;
-var FOCUSER_SAFE_MAX = 100000;
-
-
-// RECOVERY REFINEMENT:
-//   "automatic" = Coarse + fine refinement, then verification.
-//   "coarse"    = Coarse refinement only, then verification.
+// --FOR BLIND FOCUS RECOVERY ONLY--
+//     RECOVERY REFINEMENT:
+//      Determines how precisely focus is refined after the initial
+//      wide search identifies an approximate focus region.
+//          "automatic" = Coarse + fine refinement, then verification.
+//          "coarse"    = Coarse refinement only, then verification.
+// Ignored unless AUTOFOCUS_MODE = "recovery" is selected.
 var RECOVERY_REFINEMENT = "automatic";
 
 
@@ -98,6 +94,7 @@ var consoleLog = LOG_ROOT + "\\" + runName + ".log";
 var resultJson = LOG_ROOT + "\\" + runName + "_result.json";
 var stopFile = LOG_ROOT + "\\" + runName + ".stop";
 var lastLogSize = 0;
+var lastStage = "";
 
 function timestamp(d) {
     function two(n) { return (n < 10 ? "0" : "") + n; }
@@ -137,50 +134,189 @@ function readLogDelta() {
     try {
         content = readText(consoleLog);
     } catch (e) {
-        // Python may be writing to the log while ACP reads it.
-        // Skip this poll and try again.
         return;
     }
+
     if (content.length < lastLogSize) lastLogSize = 0;
+
     var delta = content.substring(lastLogSize);
     var lastNewline = delta.lastIndexOf("\n");
-    if (lastNewline < 0) return; // wait for complete line
-    var complete = delta.substring(0, lastNewline+1);
-    lastLogSize += complete.length;
-    var lines = complete.replace(/\r/g, "").split("\n");
-    for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
-        if (!line.length) continue;
+    if (lastNewline < 0) return;
 
-        // Avoid printing the enormous result JSON.
+    var complete = delta.substring(0, lastNewline + 1);
+    lastLogSize += complete.length;
+
+    var lines = complete.replace(/\r/g, "").split("\n");
+
+    function stageName(stage) {
+        switch (stage.toLowerCase()) {
+            case "coarse": return "COARSE SCAN";
+            case "fine": return "FINE SCAN";
+            case "recovery": return "BLIND RECOVERY";
+            case "recovery-bracket": return "RECOVERY BRACKETING";
+            case "recovery-refine": return "RECOVERY REFINEMENT";
+            case "verification": return "INDEPENDENT VERIFICATION";
+            default: return stage.toUpperCase();
+        }
+    }
+
+    function showStage(stage) {
+        if (stage !== lastStage) {
+            lastStage = stage;
+            say("--- " + stageName(stage) + " ---");
+        }
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].replace(/^\s+|\s+$/g, "");
+        if (!line) continue;
+
+        // Full result JSON stays in the separate Python log.
         if (line.indexOf("AUTOFOCUS_RESULT") >= 0) continue;
 
-        // Completed focus-position measurements.
-        if (/^ASTAP (coarse|fine|verification|recovery|recovery-refine) \d+: HFD=/i.test(line)) {
-            say(line, "INFO");
+        var m;
+
+        // Connected focuser and actual limits from Python.
+        m = /^Focuser connected:.*pos=(\d+)/i.exec(line);
+        if (m) {
+            say("Starting focuser position: " + m[1] + " steps");
             continue;
         }
 
-        // Important autofocus milestones.
-        // Show final focus decisions, verification results, recovery progress,
-        // and the mandatory focuser safety range.
-        // All other detailed Python output remains available in the .log file.
-        if (/^ASTAP (final comparison candidates|selected from fresh comparisons|autofocus verified|recovery:|safe focuser range:)/i.test(line)) {
-            say(line, "INFO");
+        m = /^Effective safe travel (\d+)\.\.(\d+)/i.exec(line);
+        if (m) {
+            say("Seletek permitted travel: " +
+                m[1] + " to " + m[2] + " steps");
             continue;
         }
 
-        // Errors and warnings.
-        if (/\b(ERROR|FAILED|Traceback|Exception)\b/i.test(line)) {
+        // Python also reports the range when ASTAP begins.
+        if (/^ASTAP safe focuser range:/i.test(line))
+            continue;
+
+        // Beginning of a scan stage.
+        m = /^ASTAP (coarse|fine|recovery|recovery-bracket|recovery-refine|verification): focus (\d+)/i.exec(line);
+        if (m) {
+            showStage(m[1]);
+            continue;
+        }
+
+        // Successful measurement at one focuser position.
+        m = /^ASTAP (coarse|fine|recovery|recovery-bracket|recovery-refine|verification) (\d+): HFD=([\d.eE+-]+), MAD=([\d.eE+-]+), stars=([\d.eE+-]+)/i.exec(line);
+        if (m) {
+            showStage(m[1]);
+
+            say(stageName(m[1]) +
+                " | Position " + m[2] +
+                " | HFD " + Number(m[3]).toFixed(3) + " px" +
+                " | " + Math.round(Number(m[5])) + " stars" +
+                " | Scatter " + Number(m[4]).toFixed(3) + " px");
+            continue;
+        }
+
+        // Invalid measurement at a position.
+        m = /^WARNING: ASTAP ([\w-]+) (\d+): (.+)/i.exec(line);
+        if (m) {
+            showStage(m[1]);
+
+            var reason = m[3].replace(
+                /;\s*skipping this position and continuing.*$/i, ""
+            );
+
+            say(stageName(m[1]) +
+                " | Position " + m[2] +
+                " | Rejected: " + reason, "WARNING");
+            continue;
+        }
+
+        // Normal coarse/fine early stopping.
+        m = /^ASTAP (coarse|fine): two consecutive invalid HFD positions/i.exec(line);
+        if (m) {
+            say(stageName(m[1]) +
+                ": stopped after two consecutive invalid positions.", "WARNING");
+            continue;
+        }
+
+        if (/^ASTAP fine extension: two consecutive invalid/i.test(line)) {
+            say("Fine scan extension stopped after two invalid positions.", "WARNING");
+            continue;
+        }
+
+        // Blind recovery retains its existing three-failure rule.
+        if (/^ASTAP recovery: early stop after 3 consecutive/i.test(line)) {
+            say("Blind recovery: stopped wide search after three " +
+                "consecutive worse or unusable measurements.");
+            continue;
+        }
+
+        // Other important recovery progress.
+        if (/^ASTAP recovery:/i.test(line)) {
+            showStage("recovery");
+            say(line.replace(/^ASTAP recovery:/i, "Recovery:"));
+            continue;
+        }
+
+        // Fine scan extension.
+        if (/^ASTAP fine scan extending/i.test(line)) {
+            say(line);
+            continue;
+        }
+
+        // Independent verification and candidate selection.
+        m = /^ASTAP final comparison candidates: (.+)/i.exec(line);
+        if (m) {
+            showStage("verification");
+            say("Rechecking candidate focus positions: " + m[1]);
+            continue;
+        }
+
+        m = /^ASTAP fresh comparison (\d+): HFD=([\d.]+)/i.exec(line);
+        if (m) {
+            showStage("verification");
+            say("Verification | Position " + m[1] +
+                " | HFD " + Number(m[2]).toFixed(3) + " px");
+            continue;
+        }
+
+        m = /^ASTAP selected from fresh comparisons: (.+)/i.exec(line);
+        if (m) {
+            say("Selected focus from independent comparison: " + m[1]);
+            continue;
+        }
+
+        if (/^ASTAP (coarse-only )?autofocus verified at/i.test(line)) {
+            say("Python reports verified focus. Checking final result...");
+            continue;
+        }
+
+        // Partial recovery is NOT successful autofocus.
+        if (/^ASTAP PARTIAL RECOVERY:/i.test(line)) {
+            say("Partial focus recovery only; verification not passed.",
+                "WARNING");
+            continue;
+        }
+
+        // Actual Python errors.
+        if (/^ASTAP autofocus failed:/i.test(line)) {
+            say(line, "ERROR");
+            continue;
+        }
+
+        if (/^ERROR\b|^Traceback/i.test(line)) {
             say("Python: " + line, "ERROR");
             continue;
         }
 
-        if (/\bWARNING\b/i.test(line)) {
+        if (/^WARNING\b/i.test(line)) {
             say("Python: " + line, "WARNING");
         }
+
+        // Ignore frame-by-frame progress, image paths,
+        // ColibriGrab commands, and routine focuser movement traces.
+        // They remain available in the full Python log.
     }
 }
+
 function assertFile(path, description) {
     if (!fso.FileExists(path)) throw new Error(description + " not found: " + path);
 }
@@ -199,11 +335,6 @@ function main() {
         AUTOFOCUS_MODE !== "fine" &&
         AUTOFOCUS_MODE !== "recovery") {
         throw new Error("Invalid AUTOFOCUS_MODE: " + AUTOFOCUS_MODE);
-    }
-
-    // Ensure mandatory safety limits have not been altered.
-    if (FOCUSER_SAFE_MIN !== 20000 || FOCUSER_SAFE_MAX !== 100000) {
-        throw new Error("Mandatory focuser safety limits have been changed.");
     }
 
     // Validate blind-recovery search direction.
@@ -232,8 +363,6 @@ function main() {
     say("Started UTC: " + iso(startedAt));
     say("Project: " + PROJECT_DIR);
     say("Focuser: " + FOCUSER_DRIVER);
-    say("Mandatory focuser range: " +
-        FOCUSER_SAFE_MIN + ".." + FOCUSER_SAFE_MAX);
 
     say("Autofocus mode: " +
         (AUTOFOCUS_MODE === "recovery" ? "Blind Recovery + Coarse" :
@@ -243,8 +372,6 @@ function main() {
         say("Recovery direction: " + RECOVERY_DIRECTION);
         say("Wide-search spacing: " + RECOVERY_SPACING + " steps");
         say("Final refinement: " + RECOVERY_REFINEMENT);
-        say("Safe focuser range: " +
-            FOCUSER_SAFE_MIN + ".." + FOCUSER_SAFE_MAX);
     }
     say("Quadratic interpolation: " + (AUTOFOCUS_MODE === "fine" && USE_QUADRATIC ? "ENABLED" : "DISABLED"));
     say("Exposure=" + EXPOSURE + " s; frames/position=" + FRAMES_PER_POSITION);
@@ -354,8 +481,9 @@ function main() {
     var hfdThreshold = /"hfd_improvement_threshold_px"\s*:\s*([0-9.]+)/i.exec(data);
     var assessment = /"focus_assessment"\s*:\s*"([^"]+)"/i.exec(data);
 
-    // First, ensure autofocus actually succeeded.
-    if (code !== 0 || !success || !pos || !hfd) {
+    var partialRecovery = /"partial_recovery"\s*:\s*true\b/i.test(data);
+
+    if (code !== 0 || !success || !pos || !hfd || partialRecovery) {
         say("Autofocus failed or verification unsuccessful.", "ERROR");
         if (err) say("Python error: " + err[1], "ERROR");
         throw new Error(
@@ -363,9 +491,10 @@ function main() {
         );
     }
 
-    say("Autofocus completed successfully.");
-    say("Best focus position: " + pos[1] + " steps");
-    say("Verified HFD: " + Number(hfd[1]).toFixed(3) + " px");
+    say("-----------------------------------------------------------");
+    say("SUCCESS - AUTOFOCUS INDEPENDENTLY VERIFIED");
+    say("Final focuser position: " + pos[1] + " steps");
+    say("Final stellar HFD: " + Number(hfd[1]).toFixed(3) + " pixels");
 
     // Starting focus measurements.
     if (initialPos) {
@@ -422,5 +551,6 @@ function main() {
     }
 
     say("TOTAL ACP TEST TIME: " + secsSince(startedAt).toFixed(1) + " s");
+    say("AUTOMATED FOCUS COMPLETE - observing may continue.");
     say("===========================================================");
 }
