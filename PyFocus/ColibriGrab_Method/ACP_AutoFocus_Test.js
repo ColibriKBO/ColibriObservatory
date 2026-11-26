@@ -4,7 +4,7 @@
 // a suitable star field, and no other camera/focuser software taking exposures.
 // Uses PyFocus's EXISTING --autofocus headless entry point.
 
-﻿// ============================================================
+// ============================================================
 // AUTOMATIC COMPUTER-SPECIFIC PATH DETECTION
 // Works on Greenbird, Redbird, and Bluebird.
 // ============================================================
