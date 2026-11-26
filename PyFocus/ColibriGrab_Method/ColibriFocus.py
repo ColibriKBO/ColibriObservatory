@@ -3364,12 +3364,19 @@ class Ui(QtWidgets.QMainWindow):
         # Titles describe the contents of each persistent tab, never the
         # most recently emitted worker status/phase.
         self.af_stage_titles = {
+            "recovery": "ASTAP Blind Recovery - Wide Search",
+            "recovery-bracket": "ASTAP Adaptive Recovery Bracket",
             "coarse": "ASTAP Coarse Focus Scan",
             "fine": "ASTAP Fine Focus Scan",
             "verification": "ASTAP Independent Verification",
         }
-        for stage_key, title in (("coarse", "Coarse"), ("fine", "Fine"),
-                                 ("verification", "Verification")):
+
+        for stage_key, title in (
+                ("recovery", "Discovery"),
+                ("recovery-bracket", "Bracket"),
+                ("coarse", "Coarse"),
+                ("fine", "Fine"),
+                ("verification", "Verification")):
             plot = self.AFPlot if stage_key == "coarse" else pg.PlotWidget()
             plot.setBackground("k")
             plot.getPlotItem().setTitle(self.af_stage_titles[stage_key])
@@ -3575,17 +3582,9 @@ class Ui(QtWidgets.QMainWindow):
         self.AFPlot.addItem(self.best_focus_line)
         self.best_focus_line.hide()
         self.af_stage_curves["coarse"] = self.af_curve_line
-        # Retain discovery and bracketing as separate labelled curves.
-        for phase, color, name in (("recovery", "#f6ad55", "1. Wide discovery"),
-                                   ("recovery-bracket", "#68d391", "2. Adaptive bracket"),
-                                   ("coarse", "#63b3ed", "3. Coarse refinement")):
-            self.af_recovery_data[phase] = []
-            self.af_recovery_series[phase] = self.AFPlot.plot(
-                [], [], pen=pg.mkPen(color=color, width=2),
-                symbol="o", symbolSize=7, symbolBrush=color, name=name)
-        self.af_curve_line.hide()
+    
         self.af_stage_best_lines["coarse"] = self.best_focus_line
-        for key in ("fine", "verification"):
+        for key in ("recovery", "recovery-bracket", "fine", "verification"):
             plot = self.af_stage_plots[key]
             self.af_stage_curves[key] = plot.plot(
                 [], [], pen=pg.mkPen(color="c", width=2),
@@ -3675,25 +3674,61 @@ class Ui(QtWidgets.QMainWindow):
         self.AFMode_combo.addItem('Coarse + fine', 'fine')
         self.AFMode_combo.setToolTip('Coarse: local scan; Fine: local scan plus refinement; Blind recovery: wide bounded search then coarse verification')
         self.AFMode_label = QtWidgets.QLabel('Autofocus method:')
-        self.AFRecovery_info = QtWidgets.QLabel('Wide scan: 3,000 steps | Safe range: 40,000–100,000')
-        self.AFRecovery_info.setStyleSheet('color: #d7dee8; font-size: 10pt;')
-        self.AFRecovery_info.setToolTip('Blind scan over the safe range, then 750-step refinement and a local coarse scan. Local AF controls below configure the coarse refinement.')
+        
+        # Read the local Seletek travel limits for this telescope.
+        controller_min, controller_max = read_seletek_limits()
+        self._gui_limit_min = controller_min + FOCUSER_EDGE_MARGIN
+        self._gui_limit_max = controller_max - FOCUSER_EDGE_MARGIN
+
+        if self._gui_limit_min >= self._gui_limit_max:
+            raise ValueError('Invalid Seletek safe focuser range')
+
+        range_text = f'{self._gui_limit_min:,}–{self._gui_limit_max:,}'
+
+        
+        self.AFRecovery_info = QtWidgets.QLabel(
+            f'Wide search across {range_text} steps'
+        )
+        self.AFRecovery_info.setStyleSheet(
+            'color: #d7dee8; font-size: 10pt;'
+        )
+        self.AFRecovery_info.setToolTip(
+            'Blind search across the permitted Seletek travel range, '
+            'followed by adaptive bracketing and local focus refinement.'
+        )
+
         self.RecoveryDirection_label = QtWidgets.QLabel('Search direction:')
         self.RecoveryDirection_combo = QtWidgets.QComboBox()
-        self.RecoveryDirection_combo.addItem('40,000 toward 100,000', 'low-high')
-        self.RecoveryDirection_combo.addItem('100,000 toward 40,000', 'high-low')
-        self.RecoveryDirection_combo.addItem('Outward from current position', 'nearest')
+        self.RecoveryDirection_combo.addItem(
+            f'Minimum ({self._gui_limit_min:,}) toward maximum ({self._gui_limit_max:,})',
+            'low-high'
+        )
+        self.RecoveryDirection_combo.addItem(
+            f'Maximum ({self._gui_limit_max:,}) toward minimum ({self._gui_limit_min:,})',
+            'high-low'
+        )
+        self.RecoveryDirection_combo.addItem(
+            'Outward from current position', 'nearest'
+        )
+
         self.RecoverySpacing_label = QtWidgets.QLabel('Search thoroughness:')
         self.RecoverySpacing_combo = QtWidgets.QComboBox()
         self.RecoverySpacing_combo.addItem('Balanced (2,000 steps)', 2000)
         self.RecoverySpacing_combo.addItem('Fast (3,000 steps)', 3000)
         self.RecoverySpacing_combo.addItem('Thorough (1,000 steps)', 1000)
+
         self.RecoveryRefine_label = QtWidgets.QLabel('Final refinement:')
         self.RecoveryRefine_combo = QtWidgets.QComboBox()
         self.RecoveryRefine_combo.addItem('Automatic (recommended)', 'automatic')
         self.RecoveryRefine_combo.addItem('Coarse only', 'coarse')
-        self.RecoverySummary_label = QtWidgets.QLabel('Hard limits: 40,000–100,000 steps. All movements are safety-checked.')
-        self.RecoverySummary_label.setStyleSheet('color: #d7dee8; font-size: 10pt;')
+
+        self.RecoverySummary_label = QtWidgets.QLabel(
+            f'Seletek safe travel: {range_text} steps '
+            '(1,000-step safety margins).'
+        )
+        self.RecoverySummary_label.setStyleSheet(
+            'color: #d7dee8; font-size: 10pt;'
+        )
         self.RecoverySummary_label.setWordWrap(True)
         self.AFQuadratic_checkbox = QtWidgets.QCheckBox('Use quadratic interpolation')
         self.AFQuadratic_checkbox.setChecked(False)
@@ -4046,11 +4081,21 @@ class Ui(QtWidgets.QMainWindow):
             self.af_stage_data[key].clear()
             self.af_stage_curves[key].setData([], [])
             self.af_stage_best_lines[key].hide()
-        self._af_stage_key = "coarse"
-        # Restore fixed per-tab titles when beginning a fresh autofocus run.
+            
+        start_key = (
+            "recovery"
+            if self.CaptureMode_combo.currentText() == "Blind Recovery"
+            else "coarse"
+        )
+
+        self._af_stage_key = start_key
+
         for stage_key, title in self.af_stage_titles.items():
             self.af_stage_plots[stage_key].getPlotItem().setTitle(title)
-        self.AFStageTabs.setCurrentIndex(0)
+
+        self.AFStageTabs.setCurrentWidget(
+            self.af_stage_plots[start_key]
+        )
 
         self.focus_curve_by_position = {}
 
@@ -4076,7 +4121,7 @@ class Ui(QtWidgets.QMainWindow):
         self._active_af_stage = "Waiting"
         self.refreshAutofocusSummary()
 
-        if mode == "Autofocus":
+        if mode in ("Autofocus", "Blind Recovery"):
             self.showAutofocusPlot()
         else:
             self.showLiveTrendPlot()
@@ -4152,7 +4197,7 @@ class Ui(QtWidgets.QMainWindow):
     def onAutofocusResult(self, result):
         """Keep a final, explicit result visible after worker stops."""
         self._drawIndependentVerification(result)
-        for key in ("coarse", "fine", "verification"):
+        for key in self.af_stage_plots:
             self._saveAutofocusStagePlot(key)
         if bool(result.get("success")):
             position = result.get("best_position")
@@ -4322,19 +4367,30 @@ class Ui(QtWidgets.QMainWindow):
         """Switch to new phase without erasing previous phase graphs."""
         stage = str(stage)
         previous = self._af_stage_key
-        if any(term in stage.lower() for term in ("verification", "comparison", "confirmation", "verify")):
+        
+        stage_lower = stage.lower()
+        if any(term in stage_lower for term in (
+                "verification", "comparison", "confirmation", "verify")):
             key = "verification"
-        elif "fine" in stage.lower():
+        elif "fine" in stage_lower:
             key = "fine"
+        elif "recovery bracket" in stage_lower:
+            key = "recovery-bracket"
+        elif "blind recovery" in stage_lower:
+            key = "recovery"
         else:
             key = "coarse"
-        if key != previous:
-            self._saveAutofocusStagePlot(previous)
+            
         self._af_stage_key = key
         self._active_af_stage = stage
         # Preserve the best-so-far across stage transitions.
 
+         # Bring the focus curves into view automatically.
+        self.showAutofocusPlot()
+
+        # Select the graph corresponding to the current autofocus stage.
         self.AFStageTabs.setCurrentWidget(self.af_stage_plots[key])
+        
         # Worker phase text belongs in the guidance/status line, not the
         # persistent graph title (which is specific to the selected tab).
         self.af_stage_plots[key].getPlotItem().setTitle(self.af_stage_titles[key])
@@ -4361,16 +4417,9 @@ class Ui(QtWidgets.QMainWindow):
         positions = [p for p, _ in ordered]
         scores = [v for _, v in ordered]
         plot = self.af_stage_plots[key]
-        if key == "coarse" and self._active_af_stage.startswith("ASTAP"):
-            phase = ("recovery-bracket" if "bracket" in self._active_af_stage else
-                     "recovery" if "blind recovery" in self._active_af_stage else "coarse")
-            self.af_recovery_data[phase].append((int(focuser_position), float(median_sigma)))
-            for series_key, curve in self.af_recovery_series.items():
-                data = sorted(self.af_recovery_data[series_key])
-                curve.setData([p for p, _ in data], [v for _, v in data])
-            self.af_stage_curves[key].setData([], [])
-        else:
-            self.af_stage_curves[key].setData(positions, scores)
+        # Plot only the measurements from the active phase.
+        self.af_stage_curves[key].setData(positions, scores)
+        
         best_i = int(np.argmin(scores))
         candidate = (positions[best_i], scores[best_i])
         if self._af_best_sampled is None or candidate[1] < self._af_best_sampled[1]:
