@@ -37,6 +37,13 @@ var SUP;
 var ForReading = 1;
 var ForAppending = 8;
 var finalFields = [];
+
+// false = existing behaviour: send J2000 numbers directly to the mount
+// true  = convert J2000 to current topocentric before mount commands
+var USE_TOPOCENTRIC_SLEWS = true;
+
+var USE_GAIA_TO_J2000 = false;
+
 String.prototype.trim = function()
 {
     return this.replace(/(^\s*)|(\s*$)/g, "");
@@ -98,11 +105,26 @@ function andRestart(){
     Console.PrintLine("Shutting down and restarting!");
     ts.WriteLine("Shutting down and restarting!");
     shutDown();
+
     while (Dome.ShutterStatus != 1 || Telescope.AtPark != true)
     {
-        Util.WaitForMilliseconds(5000)
-        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...")
+        Util.WaitForMilliseconds(5000);
+        Console.PrintLine("Waiting 5 seconds for shutter to close and telescope to park...");
     }
+
+    finalFields = [];
+    curTarget = null;
+    slewAttempt = 0;
+
+    firstRun = true;
+    isAfterSunset = false;
+    pierside = "E";
+
+    currentDate = getDate();
+
+    // Recalculate night-dependent values here if any code uses them before main()
+    sunset = twilightTimes(Util.SysJulianDate)[1];
+    sunrise = twilightTimes(Util.SysJulianDate + 1)[0];
 
     // if (Util.ScriptActive)
     // {
@@ -373,6 +395,58 @@ function connectScope()
     Console.PrintLine(" ")
 }
 
+///////////////////////////
+// Function to park dome.
+// Prefer ASCOM Park() if supported.
+// If not supported, fall back to homing the dome.
+///////////////////////////
+function domePark()
+{
+    Console.PrintLine("Parking dome...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Parking dome...");
+
+    try
+    {
+        if (Dome.CanPark)
+        {
+            Dome.Park();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtPark)
+            {
+                Console.PrintLine("*** Dome is parking...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parking...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is parked.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is parked.");
+        }
+        else
+        {
+            Console.PrintLine("Dome driver does not report CanPark. Homing dome instead.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Dome driver does not report CanPark. Homing dome instead.");
+
+            Dome.FindHome();
+            Util.WaitForMilliseconds(2000);
+
+            while (!Dome.AtHome)
+            {
+                Console.PrintLine("*** Homing dome...");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Homing dome...");
+                Util.WaitForMilliseconds(2000);
+            }
+
+            Console.PrintLine("--> Dome is homed.");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Dome is homed.");
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Dome park/home failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Dome park/home failed: " + (e.message || e.description || e));
+    }
+}
 
 ///////////////////////////
 // Function to close dome
@@ -689,21 +763,90 @@ function getMoon()
 
 function getRADEC()
 {
-    var ras, des;
-    if(Prefs.DoLocalTopo)                               // Get scope J2000 RA/Dec
+    var mountRa  = Number(Telescope.RightAscension);
+    var mountDec = Number(Telescope.Declination);
+    var equSystem = Number(Telescope.EquatorialSystem);
+
+    if (!isValidRaHoursDecDeg(mountRa, mountDec))
     {
-        SUP.LocalTopocentricToJ2000(Telescope.RightAscension, Telescope.Declnation);
-        ras = SUP.J2000RA;
-        des = SUP.J2000Dec;
+        throw new Error(
+            "Invalid current telescope coordinates: RA=" +
+            mountRa + " Dec=" + mountDec
+        );
     }
 
-    else
+    // ASCOM equJ2000 = 2.
+    // If the mount already reports J2000, no conversion is required.
+    if (equSystem == 2)
     {
-        ras = Telescope.RightAscension;
-        des = Telescope.Declination;
+        return {
+            ra: mountRa,
+            dec: mountDec
+        };
     }
 
-    return { ra: ras, dec: des };
+    // ASCOM equTopocentric = 1.
+    // This is the coordinate system used by our AP mounts.
+    if (equSystem != 1)
+    {
+        throw new Error(
+            "Unsupported telescope EquatorialSystem=" + equSystem
+        );
+    }
+
+    var transform = null;
+
+    try
+    {
+        transform = new ActiveXObject(
+            "ASCOM.Astrometry.Transform.Transform"
+        );
+
+        transform.SiteLatitude  = Telescope.SiteLatitude;
+        transform.SiteLongitude = Telescope.SiteLongitude;
+
+        try
+        {
+            transform.SiteElevation = Telescope.SiteElevation;
+        }
+        catch (e)
+        {
+            transform.SiteElevation = 0;
+        }
+
+        transform.JulianDateUTC = Util.SysJulianDate;
+        transform.Refraction = false;
+
+        // Telescope.RightAscension / Declination are topocentric
+        // because EquatorialSystem == 1.
+        transform.SetTopocentric(mountRa, mountDec);
+
+        var result = {
+            ra:  Number(transform.RAJ2000),
+            dec: Number(transform.DecJ2000)
+        };
+
+        if (!isValidRaHoursDecDeg(result.ra, result.dec))
+        {
+            throw new Error(
+                "Invalid J2000 conversion result: RA=" +
+                result.ra + " Dec=" + result.dec
+            );
+        }
+
+        return result;
+    }
+    finally
+    {
+        if (transform != null)
+        {
+            try
+            {
+                transform.Dispose();
+            }
+            catch (e) {}
+        }
+    }
 }
 
 ///////////////////////////////////////////
@@ -808,19 +951,62 @@ function gotoRADec(ra, dec)
     }
 
     if (Telescope.tracking)
-    {   
-        Console.PrintLine("Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-        ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to declination " + dec + " and right ascension " + ra.toFixed(4));
-
-        // Need to put a check in for 'incomplete' coordinates. Not sure what this means as it doesn't
-        // seem to be a problem with ACP, but a problem with the AP driver. Let's try either restarting
-        // script after error or just repeating this function on error return, if possible. Try/catch/finally
-        // statement.
+    {
+        var mountCoords;
 
         try
         {
-            Telescope.SlewToCoordinates(ra.toFixed(4), dec.toFixed(4));
+            mountCoords = getMountCoordinates(ra, dec);
         }
+        catch (conversionError)
+        {
+            Console.PrintLine(
+                "ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " ERROR: Coordinate conversion failed. Slew refused: " +
+                (conversionError.message || conversionError.description || conversionError)
+            );
+
+            return false;
+        }
+
+        Console.PrintLine("Slew coordinate mode: " + mountCoords.mode);
+        Console.PrintLine(
+            "J2000 request: RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        Console.PrintLine(
+            "Mount command: RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Slew coordinate mode: " + mountCoords.mode
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: J2000 request RA=" + ra.toFixed(8) +
+            "h Dec=" + dec.toFixed(8)
+        );
+        ts.WriteLine(
+            Util.SysUTCDate +
+            " INFO: Mount command RA=" + mountCoords.ra.toFixed(8) +
+            "h Dec=" + mountCoords.dec.toFixed(8)
+        );
+
+        try
+        {
+            Telescope.SlewToCoordinates(
+                mountCoords.ra,
+                mountCoords.dec
+            );
+        }
+        
         catch(e)
         {
             if (slewAttempt < 10)
@@ -845,6 +1031,97 @@ function gotoRADec(ra, dec)
     }
 
     return false;
+}
+
+function convertJ2000ToTopocentric(raJ2000, decJ2000)
+{
+    var transform = null;
+
+    try
+    {
+        transform = new ActiveXObject(
+            "ASCOM.Astrometry.Transform.Transform"
+        );
+
+        transform.SiteLatitude  = Telescope.SiteLatitude;
+        transform.SiteLongitude = Telescope.SiteLongitude;
+
+        try
+        {
+            transform.SiteElevation = Telescope.SiteElevation;
+        }
+        catch (e)
+        {
+            // Elevation is a minor contribution for distant stellar fields.
+            transform.SiteElevation = 0;
+        }
+
+        // Use the current UTC time.
+        transform.JulianDateUTC = Util.SysJulianDate;
+
+        // ASCOM topocentric coordinates normally exclude refraction.
+        transform.Refraction = false;
+
+        // Input RA is hours; Dec is degrees.
+        transform.SetJ2000(raJ2000, decJ2000);
+
+        var result = {
+            ra:  Number(transform.RATopocentric),
+            dec: Number(transform.DECTopocentric)
+        };
+
+        if (!isValidRaHoursDecDeg(result.ra, result.dec))
+        {
+            throw new Error(
+                "Invalid transformed coordinates: RA=" +
+                result.ra + " Dec=" + result.dec
+            );
+        }
+
+        return result;
+    }
+    finally
+    {
+        if (transform != null)
+        {
+            try
+            {
+                transform.Dispose();
+            }
+            catch (e) {}
+        }
+    }
+}
+
+function getMountCoordinates(raJ2000, decJ2000)
+{
+    // Preserve the current behaviour for the baseline test.
+    if (!USE_TOPOCENTRIC_SLEWS)
+    {
+        return {
+            ra: raJ2000,
+            dec: decJ2000,
+            mode: "DIRECT J2000"
+        };
+    }
+
+    // The conversion test is only appropriate when the driver reports
+    // that it expects topocentric coordinates.
+    if (Number(Telescope.EquatorialSystem) != 1)
+    {
+        throw new Error(
+            "Topocentric slew requested, but EquatorialSystem=" +
+            Telescope.EquatorialSystem
+        );
+    }
+
+    var topo = convertJ2000ToTopocentric(raJ2000, decJ2000);
+
+    return {
+        ra: topo.ra,
+        dec: topo.dec,
+        mode: "TOPOCENTRIC"
+    };
 }
 
 function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
@@ -876,16 +1153,32 @@ function execAstrometry(bestRaDeg, bestDecDeg, timeoutMs) {
 }
 
 function parseOffsets(text) {
-    // Find the last line that contains at least two floats
+    // Find the last line that contains at least two floats also added functionality in case scientific notation is detected it can now handle this
     var lines = text.replace(/\r/g, "").split("\n");
+    var numberPattern =
+        "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
+
+    var offsetPattern = new RegExp(
+        "^\\s*(" + numberPattern + ")\\s+(" + numberPattern + ")\\s*$"
+    );
+
     for (var i = lines.length - 1; i >= 0; i--) {
-        var nums = lines[i].match(/-?\d+(?:\.\d+)?/g);
-        if (nums && nums.length >= 2) {
-            var raOff = parseFloat(nums[0]);
-            var decOff = parseFloat(nums[1]);
-            if (!isNaN(raOff) && !isNaN(decOff)) return { ra: raOff, dec: decOff };
+        var match = lines[i].match(offsetPattern);
+        if (match)
+        {
+            var raOff  = parseFloat(match[1]);
+            var decOff = parseFloat(match[2]);
+
+            if (isFinite(raOff) && isFinite(decOff))
+            {
+                return {
+                    ra: raOff,
+                    dec: decOff
+                };
+            }
         }
     }
+
     return null;
 }
 
@@ -906,8 +1199,12 @@ function parseOffsets(text) {
 function getScheduleFromPython(sunsetJD, sunriseJD) {
     var sh = new ActiveXObject("WScript.Shell");
     var userProfile = sh.ExpandEnvironmentStrings("%USERPROFILE%");
-    var scriptPath = userProfile +
-        "\\Documents\\GitHub\\ColibriObservatory\\scheduler\\run_scheduler.py";
+    var repoBase    = userProfile + "\\Documents\\GitHub\\ColibriObservatory";
+    var scriptPath  = repoBase + "\\scheduler\\run_scheduler.py";
+
+    // Converts Gaia J2016.0 field centroids to J2000.0 (required by ACP mount).
+    // Lives alongside RunColibri.js in the ACPScripts folder.
+    var convertPath = repoBase + "\\ACPScripts\\gaia_to_j2000.py";
 
     var timeoutMs = 120000; // 2 minutes
 
@@ -933,7 +1230,32 @@ function getScheduleFromPython(sunsetJD, sunriseJD) {
 
     while (!p.StdOut.AtEndOfStream) out += p.StdOut.Read(1024);
 
-    return out;
+    // Test mode: use the raw coordinates supplied by the scheduler. 
+    if (!USE_GAIA_TO_J2000) { 
+        Console.PrintLine( "Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: RAW SCHEDULER / GAIA-ICRS" ); 
+        return out; 
+    }
+
+    // Existing behaviour: pass the scheduler output through 
+    // gaia_to_j2000.py before parsing the schedule.
+    Console.PrintLine( "Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
+    ts.WriteLine( Util.SysUTCDate + " INFO: Coordinate mode: GAIA-TO-J2000 CONVERSION ENABLED" );
+
+    // Precess all field coordinates from Gaia J2016.0 to J2000.0 via AstroPy.
+    // The converter reads the raw schedule block from stdin and writes the
+    // identical block with ra_deg/dec_deg replaced by J2000.0 values.
+    var conv = sh.Exec('cmd /c python -u "' + convertPath + '"');
+    conv.StdIn.Write(out);
+    conv.StdIn.Close();
+    var converted = "";
+    while (conv.Status === 0) {
+        while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+        Util.WaitForMilliseconds(50);
+    }
+    while (!conv.StdOut.AtEndOfStream) converted += conv.StdOut.Read(1024);
+
+    return converted;
 }
 
 //////////////////////////////////////////////////////////////
@@ -1006,32 +1328,96 @@ function parseSchedule(text) {
 // astrometry_correction.py subprocess to plate-solve and correct.
 //////////////////////////////////////////////////////////////
 
-function adjustPointing(target_ra, target_dec) {
+function adjustPointing(target_ra, target_dec, useCurrentPosition) {
 
     var TOLERANCE_DEG = 10 / 3600;  // 10 arcsec in degrees
     var MAX_ITERATIONS = 10;
-    var LAMBDA = 0.9;               // uniform damping, applied every iteration
+    var LAMBDA = 1.0;               // uniform damping, applied every iteration
     var SETTLE_MS = 2500;           // mount settle time (ms) after each corrective slew
     var TIMEOUT_MS = 5 * 60 * 1000;
+
+    // Existing calls do not provide this argument, so they retain the
+    // existing behaviour of starting from the nominal target coordinates.
+    if (typeof useCurrentPosition === "undefined") {
+        useCurrentPosition = false;
+    }
 
     // target_ra arrives in hours (ACP convention); convert to degrees for Python
     var target_ra_deg = target_ra * 15;
 
-    // Track best achieved position for fallback if we never converge
-    var closest_ra_deg = target_ra_deg;
-    var closest_dec    = target_dec;
-    var min_sep_deg    = Infinity;  // sky-plane separation, degrees
+    // Normally the correction sequence begins from the nominal target.
+    var cmd_ra_deg = target_ra_deg;
+    var cmd_dec    = target_dec;
+
+    // For periodic reacquisition, the telescope has already been corrected
+    // onto this field. Start from its CURRENT position instead of pretending
+    // that it is still commanded exactly to the nominal field coordinates.
+    if (useCurrentPosition) {
+
+        Console.PrintLine("Periodic reacquisition: reading current telescope position...");
+        ts.WriteLine(Util.SysUTCDate +
+                    " INFO: Periodic reacquisition: reading current telescope position.");
+
+        var currentCoords;
+
+        try
+        {
+            currentCoords = getRADEC();
+        }
+        catch (e)
+        {
+            Console.PrintLine(
+                "ERROR: Could not get current J2000 telescope position: " +
+                (e.message || e.description || e)
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " ERROR: Could not get current J2000 telescope position: " +
+                (e.message || e.description || e)
+            );
+
+            return false;
+        }
+
+        var currentRa  = Number(currentCoords.ra);
+        var currentDec = Number(currentCoords.dec);
+
+        if (!isValidRaHoursDecDeg(currentRa, currentDec)) {
+            Console.PrintLine("WARNING: Cannot perform periodic reacquisition: invalid current telescope coordinates.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: Periodic reacquisition aborted: invalid current telescope coordinates.");
+            return false;
+        }
+
+        cmd_ra_deg = currentRa * 15;
+        cmd_dec    = currentDec;
+
+        Console.PrintLine("Periodic reacquisition: starting from current telescope position.");
+        Console.PrintLine("Current position: RA " + currentRa.toFixed(6) +
+                          " h  Dec " + currentDec.toFixed(6) + " deg");
+
+        ts.WriteLine(Util.SysUTCDate +
+                     " INFO: Periodic reacquisition starting from current telescope position: RA=" +
+                     currentRa.toFixed(6) + "h Dec=" +
+                     currentDec.toFixed(6) + "deg");
+    }
+
+    // Track best achieved position for fallback if we never converge.
+    // This must begin at the actual starting command position.
+    var closest_ra_deg = cmd_ra_deg;
+    var closest_dec    = cmd_dec;
+    var min_sep_deg    = Infinity;
 
     Console.PrintLine("== Pointing Correction ==");
     ts.WriteLine(Util.SysUTCDate + " INFO: == Pointing Correction ==");
-    Console.PrintLine("Target: RA " + target_ra.toFixed(4) + " h  Dec " + target_dec.toFixed(4) + " deg");
-    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" + target_ra.toFixed(4) + "h Dec=" + target_dec.toFixed(4) + "deg");
+    Console.PrintLine("Target: RA " + target_ra.toFixed(4) +
+                      " h  Dec " + target_dec.toFixed(4) + " deg");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Target RA=" +
+                 target_ra.toFixed(4) + "h Dec=" +
+                 target_dec.toFixed(4) + "deg");
 
     var iterations  = 0;
-    var current_sep = Infinity;     // sky-plane separation after each solve, degrees
-
-    var cmd_ra_deg = target_ra_deg;    // initialize before the loop
-    var cmd_dec = target_dec;
+    var current_sep = Infinity;
 
     while (current_sep > TOLERANCE_DEG && iterations < MAX_ITERATIONS) {
         iterations++;
@@ -1116,6 +1502,9 @@ function adjustPointing(target_ra, target_dec) {
         // Add the raw coordinate-space offset (not sky-plane) scaled by lambda.
         // Coordinate-space offsets are correct here: the mount accepts RA/Dec
         // coordinates, not sky-plane angular displacements.
+        var prev_cmd_ra_deg = cmd_ra_deg;
+        var prev_cmd_dec    = cmd_dec;
+
         var cmd_ra_deg = cmd_ra_deg + LAMBDA * ra_offset;
         var cmd_dec    = cmd_dec    + LAMBDA * dec_offset;
 
@@ -1123,14 +1512,48 @@ function adjustPointing(target_ra, target_dec) {
         cmd_ra_deg = ((cmd_ra_deg % 360) + 360) % 360;
 
         // Update closest-position tracker
+        //if (current_sep < min_sep_deg) {
+        //    min_sep_deg    = current_sep;
+        //    closest_ra_deg = cmd_ra_deg;
+        //    closest_dec    = cmd_dec;
+        //}
+
+
+        // Store the commanded position that produced the best solved result.
         if (current_sep < min_sep_deg) {
             min_sep_deg    = current_sep;
-            closest_ra_deg = cmd_ra_deg;
-            closest_dec    = cmd_dec;
+            closest_ra_deg = prev_cmd_ra_deg;
+            closest_dec    = prev_cmd_dec;
         }
 
         // ---- Slew to corrected position ------------------------------------
+        //var cmd_ra_hours = cmd_ra_deg / 15;
+        //Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
+        //ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
+
+        //gotoRADec(cmd_ra_hours, cmd_dec);
+
+        //while (Telescope.Slewing) {
+        //    Util.WaitForMilliseconds(500);
+        //}
         var cmd_ra_hours = cmd_ra_deg / 15;
+        var prev_cmd_ra_hours = prev_cmd_ra_deg / 15;
+        Console.PrintLine("  Previous commanded position: RA " + prev_cmd_ra_hours.toFixed(4) + " h  Dec " + prev_cmd_dec.toFixed(4) + " deg");
+        ts.WriteLine(Util.SysUTCDate + " INFO: Previous commanded position: RA=" + prev_cmd_ra_hours.toFixed(4) + "h Dec=" + prev_cmd_dec.toFixed(4));
+
+        var testCt = Util.NewCThereAndNow();
+        testCt.RightAscension = cmd_ra_hours;
+        testCt.Declination = cmd_dec;
+
+        if (testCt.Elevation < elevationLimit) {
+            Console.PrintLine("WARNING: corrective slew rejected; unsafe elevation "
+                + testCt.Elevation.toFixed(4) + " deg");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: corrective slew rejected; unsafe elevation "
+                + testCt.Elevation.toFixed(4) + " deg");
+
+            break;   // stop iterating and fall through to fallback logic
+        }
+
         Console.PrintLine("  Slewing to RA " + cmd_ra_hours.toFixed(4) + " h  Dec " + cmd_dec.toFixed(4) + " deg");
         ts.WriteLine(Util.SysUTCDate + " INFO: Slewing to RA=" + cmd_ra_hours.toFixed(4) + "h Dec=" + cmd_dec.toFixed(4));
 
@@ -1149,38 +1572,123 @@ function adjustPointing(target_ra, target_dec) {
         Console.PrintLine("Pointing correction achieved within " + (TOLERANCE_DEG * 3600).toFixed(0)
             + " arcsec after " + iterations + " iteration(s).");
         ts.WriteLine(Util.SysUTCDate + " INFO: Pointing converged in " + iterations + " iteration(s).");
-    } else {
+     //else {
         // Max iterations reached or astrometry failed — slew to closest measured position
+      //  var fallback_ra_hours = closest_ra_deg / 15;
+      //  Console.PrintLine("Pointing did not converge. Best achieved: "
+      //      + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
+      //      + ". Slewing to best position.");
+      //  ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+      //      + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
+      //  gotoRADec(fallback_ra_hours, closest_dec);
+      //  while (Telescope.Slewing) {
+      //      Util.WaitForMilliseconds(500);
+      //  }
+    } else {
+
+        // No valid plate solve was obtained.
+        // If this occured on Iter 1. then the telescope is already at the position reached
+        // by the initial slew or pier flip. Do not issue another slew to the original target,
+        // especially near the meridian where that could retrigger flip logic.
+        if (min_sep_deg === Infinity) {
+            Console.PrintLine(
+                "Pointing correction failed before any valid solve. " +
+                "Staying at the current telescope position."
+            );
+
+            ts.WriteLine(
+                Util.SysUTCDate +
+                " WARNING: Pointing correction obtained no valid astrometric solve. " +
+                "No fallback slew performed."
+            );
+
+            return false;
+        }
+
         var fallback_ra_hours = closest_ra_deg / 15;
         Console.PrintLine("Pointing did not converge. Best achieved: "
             + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec")
-            + ". Slewing to best position.");
-        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Slewing to best: "
+            + ". Attempting slew to best safe position.");
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Pointing not converged. Best achieved: "
             + (min_sep_deg === Infinity ? "N/A" : (min_sep_deg * 3600).toFixed(1) + " arcsec"));
-        gotoRADec(fallback_ra_hours, closest_dec);
-        while (Telescope.Slewing) {
-            Util.WaitForMilliseconds(500);
+
+        var fallbackCt = Util.NewCThereAndNow();
+        fallbackCt.RightAscension = fallback_ra_hours;
+        fallbackCt.Declination = closest_dec;
+
+        if (fallbackCt.Elevation >= elevationLimit) {
+            gotoRADec(fallback_ra_hours, closest_dec);
+            while (Telescope.Slewing) {
+                Util.WaitForMilliseconds(500);
+            }
+        } else {
+            Console.PrintLine("WARNING: best-position fallback is below elevation limit. Staying on current/original position.");
+            ts.WriteLine(Util.SysUTCDate + " WARNING: best-position fallback is below elevation limit.");
+
+            var targetCt = Util.NewCThereAndNow();
+            targetCt.RightAscension = target_ra;
+            targetCt.Declination = target_dec;
+
+            if (targetCt.Elevation >= elevationLimit) {
+                Console.PrintLine("Attempting return to original target coordinates instead.");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Returning to original target coordinates.");
+                gotoRADec(target_ra, target_dec);
+                while (Telescope.Slewing) {
+                    Util.WaitForMilliseconds(500);
+                }
+            } else {
+                Console.PrintLine("Original target is also below elevation limit. No corrective slew performed.");
+                ts.WriteLine(Util.SysUTCDate + " WARNING: original target also below elevation limit. No corrective slew performed.");
+            }
         }
     }
-}
-       
+}    
 
 ///////////////////////////////////////////////////////////////
 // Function to shut down telescope at end of the night
 // MJM - June 23, 2022
+// Updated by CM - June 27, 2026
 ///////////////////////////////////////////////////////////////
 function shutDown()
 {
+    Console.PrintLine("Shutting down observatory...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Shutting down observatory...");
+
     trkOff()
+
     Console.PrintLine("Tracking turned off. Parking telescope now...")
     ts.WriteLine(Util.SysUTCDate + " INFO: Tracking turned off. Parking telescope now.")
-    Telescope.Park()
+    try{
+        Telescope.Park();
+        while (!Telescope.AtPark)
+        {
+            Console.PrintLine("Waiting for telescope to park...");
+            ts.WriteLine(Util.SysUTCDate + " INFO: Waiting for telescope to park...");
+            Util.WaitForMilliseconds(2000);
+        }
+    }
+    catch (e)
+    {
+        Console.PrintLine("WARNING: Telescope park failed: " + (e.message || e.description || e));
+        ts.WriteLine(Util.SysUTCDate + " WARNING: Telescope park failed: " + (e.message || e.description || e));
+        
+    }
+
     trkOff();
-    Console.PrintLine("Telescope parked. Closing dome now...")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.")
-    domeClose()
-    Console.PrintLine("Dome closed. Good night/morning.")
-    ts.WriteLine(Util.SysUTCDate + " INFO: Dome closed. Good night/morning.")
+
+    Console.PrintLine("Telescope parked. Closing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Telescope parked. Closing dome now.");
+
+    domeClose();
+
+    Console.PrintLine("Dome shutter closed. Parking/homing dome now...");
+    ts.WriteLine(Util.SysUTCDate + " INFO: Dome shutter closed. Parking/homing dome now.");
+
+    domePark();
+
+    Console.PrintLine("Observatory shutdown complete. Good night/morning.")
+    ts.WriteLine(Util.SysUTCDate + " INFO: Observatory shutdown complete. Good night/morning.")
+    
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1230,6 +1738,7 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 {
     lat = Telescope.SiteLatitude;
     lon = Telescope.SiteLongitude;
+    var SunAltitudeDeg = -6;
 
     n = Math.floor(jDate - 2451545.0 + 0.0008);
     Jstar = n - (lon / 360.0);
@@ -1240,7 +1749,7 @@ function twilightTimes(jDate) // Returns astronomical twilight end (sunrise) and
 
     sindec = Math.sin(Util.Degrees_Radians(lam)) * Math.sin(Util.Degrees_Radians(23.44));
 
-    cosHA = (Math.sin(Util.Degrees_Radians(-12)) - (Math.sin(Util.Degrees_Radians(lat)) * sindec)) / (Math.cos(Util.Degrees_Radians(lat)) * Math.cos(Math.asin(sindec)));
+    cosHA = (Math.sin(Util.Degrees_Radians(SunAltitudeDeg)) - (Math.sin(Util.Degrees_Radians(lat)) * sindec)) / (Math.cos(Util.Degrees_Radians(lat)) * Math.cos(Math.asin(sindec)));
 
     Jrise = Jtransit - (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
     Jset = Jtransit + (Util.Radians_Degrees(Math.acos(cosHA))) / 360;
@@ -1469,7 +1978,7 @@ var minDiff = 2; // minimum difference between fields to justify a switch
 var magnitudeLimit = 12; // dimmest visible star
 var extScale = 0.4; // extinction scaling factor
 var darkInterval = 15; // Number of minutes between dark series collection
-
+var reacquireInterval = 30;  // Number of science runs between field reacquisitions
 
 // Iterables
 var slewAttempt = 0;
@@ -1638,6 +2147,7 @@ function main()
     // until it becomes safe.
     if (Weather.Available && !Weather.safe)
     {
+        Console.PrintLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
         ts.WriteLine(Util.SysUTCDate + " INFO: Weather unsafe! Waiting until it's looking a bit better out.");
     }
 
@@ -1908,6 +2418,15 @@ function main()
             Telescope.Unpark()
             Console.PrintLine("Telescope Unparked.");
 
+            Console.PrintLine("EquatorialSystem = " + Telescope.EquatorialSystem);
+            Console.PrintLine("DoLocalTopo = " + Prefs.DoLocalTopo);
+            Console.PrintLine("Site latitude = " + Telescope.SiteLatitude);
+            Console.PrintLine("Site longitude = " + Telescope.SiteLongitude);
+            Console.PrintLine("Mount UTC = " + Telescope.UTCDate);
+            Console.PrintLine("Mount RA = " + Telescope.RightAscension);
+            Console.PrintLine("Mount Dec = " + Telescope.Declination);
+            Console.PrintLine("Pier side = " + Telescope.SideOfPier);
+
             // Camera reset and start-up before imaging at start-up may ultimately unnecessary commenting this out to test.
             //setOutletState(1,false); // Turn off the camera
             //Util.WaitForMilliseconds(5000); // wait for 5 seconds
@@ -1920,6 +2439,20 @@ function main()
 
             // Append the camera start up log file.
             //appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
+        }
+
+        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
+        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
+        {
+            Console.PrintLine("*** Dome shutter is still opening...");
+            Util.WaitForMilliseconds(2000);
+        }
+
+        // Slave the dome to the scope
+        
+        if (Dome.slave == false)
+        {
+            Dome.slave = true;
         }
 
         // Turn on sidereal telescope tracking
@@ -1940,6 +2473,40 @@ function main()
         ts.WriteLine(Util.SysUTCDate + " INFO: Dec: " + currentFieldCt.Declination);
         ts.WriteLine(Util.SysUTCDate + " INFO: Alt: " + currentFieldCt.Elevation);
         ts.WriteLine(Util.SysUTCDate + " INFO: Az: " + currentFieldCt.Azimuth);
+
+        var topoTest = convertJ2000ToTopocentric(
+            currentFieldCt.RightAscension,
+            currentFieldCt.Declination
+        );
+
+        Console.PrintLine(
+            "J2000 target: RA=" +
+            currentFieldCt.RightAscension.toFixed(8) +
+            "h Dec=" +
+            currentFieldCt.Declination.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Topocentric equivalent: RA=" +
+            topoTest.ra.toFixed(8) +
+            "h Dec=" +
+            topoTest.dec.toFixed(8)
+        );
+
+        Console.PrintLine(
+            "Coordinate difference: RA=" +
+            (
+                (topoTest.ra - currentFieldCt.RightAscension) *
+                15 * 3600 *
+                Math.cos(currentFieldCt.Declination * Math.PI / 180)
+            ).toFixed(1) +
+            " arcsec sky, Dec=" +
+            (
+                (topoTest.dec - currentFieldCt.Declination) *
+                3600
+            ).toFixed(1) +
+            " arcsec"
+        );
 
         // Slew to the current field
         if (!gotoRADec(currentFieldCt.RightAscension, currentFieldCt.Declination))
@@ -1971,13 +2538,6 @@ function main()
         {
             Console.PrintLine("Dome is still slewing. Give me a minute...");
             Util.WaitForMilliseconds(500);
-        }
-
-        // Sanity check to see if the dome is still opening before proceeding---we don't want to image the inside of the dome.
-        while (Dome.ShutterStatus == 2 || Dome.ShutterStatus != 0)
-        {
-            Console.PrintLine("*** Dome shutter is still opening...");
-            Util.WaitForMilliseconds(2000);
         }
 
         Console.PrintLine("At target.");
@@ -2042,13 +2602,37 @@ function main()
 
         // Iterables
         var darkCounter = darkInterval; // Set equal to interval so that dark set is collected on first run
+        var reacquireCounter = 0;       // Initial field acquisition was just completed
         var runCounter = 1;
 
         while (Util.SysJulianDate < endJD)
         {
+            var destinationCoords;
+            try
+            {
+                destinationCoords = getMountCoordinates(
+                    currentFieldCt.RightAscension,
+                    currentFieldCt.Declination
+                );
+            }
+            catch (destinationError)
+            {
+                Console.PrintLine(
+                    "ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                ts.WriteLine(
+                    Util.SysUTCDate +
+                    " ERROR: Could not determine destination pier side: " +
+                    (destinationError.message || destinationError.description || destinationError)
+                );
+
+                break;
+            }
 
             // Check pier side
-            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(currentFieldCt.RightAscension, currentFieldCt.Declination))
+            if (Telescope.SideOfPier != Telescope.DestinationSideOfPier(destinationCoords.ra, destinationCoords.dec))
             {
                 Console.PrintLine("Flipping sides of pier...");
                 ts.WriteLine(Util.SysUTCDate + " INFO: Flipping sides of the pier.");
@@ -2075,6 +2659,12 @@ function main()
                     Util.WaitForMilliseconds(500);
                 }
 
+                // Pier-flip reacquisition already put us back on target,
+                // so restart the 30-minute reacquisition counter.
+                reacquireCounter = 0;
+                Console.PrintLine("Reacquisition counter reset after pier flip.");
+                ts.WriteLine(Util.SysUTCDate + " INFO: Reacquisition counter reset after pier flip.");
+
                 // Check pier side
                 if (Telescope.SideOfPier == 0)
                 {
@@ -2090,6 +2680,55 @@ function main()
             else 
             { 
                 Console.PrintLine("Already on the right side of the pier"); 
+            }
+
+            // Periodically reacquire the current field to remove accumulated drift.
+            // This does not perform an initial slew prior to this instead it
+            // plate-solves the current position and corrects from where the telescope
+            // is already pointing.
+            if (reacquireCounter >= reacquireInterval)
+            {
+                Console.PrintLine("");
+                Console.PrintLine("=== Periodic Field Reacquisition ===");
+                Console.PrintLine("Reacquiring current field after " +
+                                reacquireCounter.toString() + " science runs.");
+
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: === Periodic Field Reacquisition ===");
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: Reacquiring current field after " +
+                            reacquireCounter.toString() + " science runs.");
+
+                // TRUE means:
+                // do not assume we are starting from the nominal target coordinates;
+                // begin corrections from the telescope's current position.
+                adjustPointing(
+                    currentFieldCt.RightAscension,
+                    currentFieldCt.Declination,
+                    true
+                );
+
+                // adjustPointing normally waits for its own telescope slews,
+                // but make sure everything has stopped before continuing.
+                while (Telescope.Slewing == true)
+                {
+                    Console.PrintLine("Telescope is still slewing after reacquisition...");
+                    Util.WaitForMilliseconds(500);
+                }
+
+                // The dome is already slaved, but wait if the corrective movement
+                // caused it to move.
+                while (Dome.Slewing == true)
+                {
+                    Console.PrintLine("Dome is still slewing after reacquisition...");
+                    Util.WaitForMilliseconds(500);
+                }
+
+                reacquireCounter = 0;
+
+                Console.PrintLine("Periodic field reacquisition complete.");
+                ts.WriteLine(Util.SysUTCDate +
+                            " INFO: Periodic field reacquisition complete.");
             }
 
             // Collect darkes when darkInterval is reached
@@ -2126,6 +2765,12 @@ function main()
             appendAndDeleteColibriGrabLog("D:\\colibrigrab_tests\\colibrigrab_output.log", LogFile);
             Console.PrintLine("Done exposing run # " + runCounter.toString());
             ts.WriteLine(Util.SysUTCDate + " INFO: Done exposing run # " + runCounter.toString()); // Log completion of each run
+
+            // Count only completed science runs toward periodic reacquisition.
+            reacquireCounter++;
+            Console.PrintLine("Reacquisition counter = " +
+                            reacquireCounter.toString() + "/" +
+                            reacquireInterval.toString());
 
             runCounter++;
         }
